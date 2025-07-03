@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { RFQRow, ProcessingResult, QuoteWithPricing } from '../types';
 
-// Database interfaces matching your Supabase tables
+// Updated database interfaces matching your new Supabase schema
 export interface CustomerCarrier {
   id?: number;
   customer_name: string;
@@ -18,39 +18,49 @@ export interface CustomerCarrier {
   updated_at?: string;
 }
 
+// NEW: Updated Shipment interface matching the new schema exactly
 export interface Shipment {
-  id?: number;
-  customer_name: string;
-  shipment_date: string;
-  origin_zip: string;
-  destination_zip: string;
-  origin_city?: string;
-  origin_state?: string;
-  destination_city?: string;
-  destination_state?: string;
-  pallets: number;
-  gross_weight: number;
-  is_reefer: boolean;
-  temperature?: string;
-  commodity?: string;
-  freight_class?: string;
-  carrier_name?: string;
-  carrier_scac?: string;
-  quoted_rate?: number;
-  final_rate?: number;
-  transit_days?: number;
-  service_level?: string;
-  accessorial_services?: string[];
-  shipment_status: string;
-  tracking_number?: string;
-  pickup_date?: string;
-  delivery_date?: string;
-  notes?: string;
-  created_at?: string;
-  updated_at?: string;
+  "Invoice #": number;
+  "Customer"?: string;
+  "Branch"?: string;
+  "Scheduled Pickup Date"?: string;
+  "Actual Pickup Date"?: string;
+  "Scheduled Delivery Date"?: string;
+  "Actual Delivery Date"?: string;
+  "Origin City"?: string;
+  "State"?: string;
+  "Zip"?: string;
+  "Destination City"?: string;
+  "State_1"?: string;
+  "Zip_1"?: string;
+  "Sales Rep"?: string;
+  "Account Rep"?: string;
+  "Dispatch Rep"?: string;
+  "Quote Created By"?: string;
+  "Line Items"?: number;
+  "Tot Packages"?: number;
+  "Tot Weight"?: string;
+  "Max Freight Class"?: string;
+  "Max Length"?: string;
+  "Max Width"?: string;
+  "Max Height"?: string;
+  "Tot Linear Ft"?: string;
+  "Is VLTL"?: string;
+  "Commodities"?: string;
+  "Accessorials"?: string;
+  "Booked Carrier"?: string;
+  "Quoted Carrier"?: string;
+  "Service Level"?: string;
+  "Revenue"?: string;
+  "Carrier Quote"?: string;
+  "Carrier Expense"?: string;
+  "Other Expense"?: string;
+  "Profit"?: string;
+  "Revenue w/o Accessorials"?: string;
+  "Expense w/o Accessorials"?: string;
 }
 
-// Customer Carrier Management Functions
+// Customer Carrier Management Functions (unchanged)
 export const getCustomerCarriers = async (customerName?: string): Promise<CustomerCarrier[]> => {
   try {
     let query = supabase.from('CustomerCarrier').select('*');
@@ -138,38 +148,43 @@ export const deleteCustomerCarrier = async (id: number): Promise<void> => {
   }
 };
 
-// Shipment Management Functions
+// UPDATED: Shipment Management Functions for new schema
 export const getShipments = async (filters?: {
   customerName?: string;
   startDate?: string;
   endDate?: string;
   carrierName?: string;
-  status?: string;
+  branch?: string;
+  salesRep?: string;
 }): Promise<Shipment[]> => {
   try {
     let query = supabase.from('Shipments').select('*');
     
     if (filters?.customerName) {
-      query = query.eq('customer_name', filters.customerName);
+      query = query.eq('"Customer"', filters.customerName);
     }
     
     if (filters?.startDate) {
-      query = query.gte('shipment_date', filters.startDate);
+      query = query.gte('"Scheduled Pickup Date"', filters.startDate);
     }
     
     if (filters?.endDate) {
-      query = query.lte('shipment_date', filters.endDate);
+      query = query.lte('"Scheduled Pickup Date"', filters.endDate);
     }
     
     if (filters?.carrierName) {
-      query = query.eq('carrier_name', filters.carrierName);
+      query = query.or(`"Booked Carrier".eq.${filters.carrierName},"Quoted Carrier".eq.${filters.carrierName}`);
     }
     
-    if (filters?.status) {
-      query = query.eq('shipment_status', filters.status);
+    if (filters?.branch) {
+      query = query.eq('"Branch"', filters.branch);
     }
     
-    const { data, error } = await query.order('shipment_date', { ascending: false });
+    if (filters?.salesRep) {
+      query = query.eq('"Sales Rep"', filters.salesRep);
+    }
+    
+    const { data, error } = await query.order('"Scheduled Pickup Date"', { ascending: false });
     
     if (error) {
       console.error('Error fetching shipments:', error);
@@ -183,15 +198,11 @@ export const getShipments = async (filters?: {
   }
 };
 
-export const saveShipment = async (shipment: Omit<Shipment, 'id' | 'created_at' | 'updated_at'>): Promise<Shipment> => {
+export const saveShipment = async (shipment: Omit<Shipment, '"Invoice #"'>): Promise<Shipment> => {
   try {
     const { data, error } = await supabase
       .from('Shipments')
-      .insert([{
-        ...shipment,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }])
+      .insert([shipment])
       .select()
       .single();
     
@@ -207,15 +218,12 @@ export const saveShipment = async (shipment: Omit<Shipment, 'id' | 'created_at' 
   }
 };
 
-export const updateShipment = async (id: number, updates: Partial<Shipment>): Promise<Shipment> => {
+export const updateShipment = async (invoiceNumber: number, updates: Partial<Shipment>): Promise<Shipment> => {
   try {
     const { data, error } = await supabase
       .from('Shipments')
-      .update({
-        ...updates,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', id)
+      .update(updates)
+      .eq('"Invoice #"', invoiceNumber)
       .select()
       .single();
     
@@ -231,12 +239,12 @@ export const updateShipment = async (id: number, updates: Partial<Shipment>): Pr
   }
 };
 
-export const deleteShipment = async (id: number): Promise<void> => {
+export const deleteShipment = async (invoiceNumber: number): Promise<void> => {
   try {
     const { error } = await supabase
       .from('Shipments')
       .delete()
-      .eq('id', id);
+      .eq('"Invoice #"', invoiceNumber);
     
     if (error) {
       console.error('Error deleting shipment:', error);
@@ -248,13 +256,15 @@ export const deleteShipment = async (id: number): Promise<void> => {
   }
 };
 
-// Utility Functions
+// UPDATED: Utility Functions for new schema
 export const saveRFQResultsToDatabase = async (
   results: ProcessingResult[],
-  customerName: string
+  customerName: string,
+  branch?: string,
+  salesRep?: string
 ): Promise<void> => {
   try {
-    const shipments: Omit<Shipment, 'id' | 'created_at' | 'updated_at'>[] = [];
+    const shipments: Omit<Shipment, '"Invoice #"'>[] = [];
     
     for (const result of results) {
       if (result.status === 'success' && result.quotes.length > 0) {
@@ -263,30 +273,38 @@ export const saveRFQResultsToDatabase = async (
           (current as QuoteWithPricing).customerPrice < (best as QuoteWithPricing).customerPrice ? current : best
         ) as QuoteWithPricing;
         
-        const shipment: Omit<Shipment, 'id' | 'created_at' | 'updated_at'> = {
-          customer_name: customerName,
-          shipment_date: result.originalData.fromDate,
-          origin_zip: result.originalData.fromZip,
-          destination_zip: result.originalData.toZip,
-          origin_city: result.originalData.originCity,
-          origin_state: result.originalData.originState,
-          destination_city: result.originalData.destinationCity,
-          destination_state: result.originalData.destinationState,
-          pallets: result.originalData.pallets,
-          gross_weight: result.originalData.grossWeight,
-          is_reefer: result.originalData.isReefer || false,
-          temperature: result.originalData.temperature,
-          commodity: result.originalData.commodity,
-          freight_class: result.originalData.freightClass,
-          carrier_name: bestQuote.carrier.name,
-          carrier_scac: bestQuote.carrier.scac,
-          quoted_rate: bestQuote.customerPrice,
-          final_rate: bestQuote.customerPrice, // Initially same as quoted
-          transit_days: bestQuote.transitDays,
-          service_level: bestQuote.serviceLevel?.description,
-          accessorial_services: result.originalData.accessorial,
-          shipment_status: 'QUOTED',
-          notes: `Processed via ${(result as any).quotingDecision || 'smart routing'}`
+        // Parse weight from string format
+        const weightStr = result.originalData.grossWeight?.toString() || '0';
+        const weight = weightStr.replace(/[^\d]/g, ''); // Remove non-numeric characters
+        
+        const shipment: Omit<Shipment, '"Invoice #"'> = {
+          "Customer": customerName,
+          "Branch": branch,
+          "Scheduled Pickup Date": result.originalData.fromDate,
+          "Origin City": result.originalData.originCity,
+          "State": result.originalData.originState,
+          "Zip": result.originalData.fromZip,
+          "Destination City": result.originalData.destinationCity,
+          "State_1": result.originalData.destinationState,
+          "Zip_1": result.originalData.toZip,
+          "Sales Rep": salesRep,
+          "Quote Created By": "Smart Routing System",
+          "Line Items": result.originalData.lineItems?.length || 1,
+          "Tot Packages": result.originalData.pallets,
+          "Tot Weight": weight,
+          "Max Freight Class": result.originalData.freightClass || "70",
+          "Is VLTL": result.originalData.pallets >= 10 || result.originalData.grossWeight >= 15000 ? "TRUE" : "FALSE",
+          "Commodities": result.originalData.commodityDescription || result.originalData.commodity,
+          "Accessorials": result.originalData.accessorial?.join(';'),
+          "Booked Carrier": bestQuote.carrier.name,
+          "Quoted Carrier": bestQuote.carrier.name,
+          "Service Level": bestQuote.serviceLevel?.description,
+          "Revenue": bestQuote.customerPrice?.toString(),
+          "Carrier Quote": bestQuote.carrierTotalRate?.toString(),
+          "Carrier Expense": bestQuote.carrierTotalRate?.toString(),
+          "Profit": bestQuote.profit?.toString(),
+          "Revenue w/o Accessorials": bestQuote.baseRate?.toString(),
+          "Expense w/o Accessorials": bestQuote.baseRate?.toString()
         };
         
         shipments.push(shipment);
@@ -311,12 +329,17 @@ export const saveRFQResultsToDatabase = async (
   }
 };
 
-export const getShipmentAnalytics = async (customerName?: string) => {
+// UPDATED: Analytics for new schema
+export const getShipmentAnalytics = async (customerName?: string, branch?: string) => {
   try {
     let query = supabase.from('Shipments').select('*');
     
     if (customerName) {
-      query = query.eq('customer_name', customerName);
+      query = query.eq('"Customer"', customerName);
+    }
+    
+    if (branch) {
+      query = query.eq('"Branch"', branch);
     }
     
     const { data: shipments, error } = await query;
@@ -330,24 +353,52 @@ export const getShipmentAnalytics = async (customerName?: string) => {
       return {
         totalShipments: 0,
         totalWeight: 0,
-        totalSpend: 0,
-        avgRate: 0,
+        totalRevenue: 0,
+        totalProfit: 0,
+        avgRevenue: 0,
+        avgProfit: 0,
         topCarriers: [],
         topLanes: [],
-        reeferPercentage: 0,
-        avgTransitDays: 0
+        topBranches: [],
+        topSalesReps: [],
+        vltlPercentage: 0,
+        profitMargin: 0
       };
     }
     
     const totalShipments = shipments.length;
-    const totalWeight = shipments.reduce((sum, s) => sum + (s.gross_weight || 0), 0);
-    const totalSpend = shipments.reduce((sum, s) => sum + (s.final_rate || s.quoted_rate || 0), 0);
-    const avgRate = totalSpend / totalShipments;
+    
+    // Parse numeric values from string fields
+    const parseNumeric = (value: string | null | undefined): number => {
+      if (!value) return 0;
+      const cleaned = value.toString().replace(/[^\d.-]/g, '');
+      return parseFloat(cleaned) || 0;
+    };
+    
+    const totalWeight = shipments.reduce((sum, s) => {
+      const weight = parseNumeric(s["Tot Weight"]);
+      return sum + weight;
+    }, 0);
+    
+    const totalRevenue = shipments.reduce((sum, s) => {
+      const revenue = parseNumeric(s["Revenue"]);
+      return sum + revenue;
+    }, 0);
+    
+    const totalProfit = shipments.reduce((sum, s) => {
+      const profit = parseNumeric(s["Profit"]);
+      return sum + profit;
+    }, 0);
+    
+    const avgRevenue = totalRevenue / totalShipments;
+    const avgProfit = totalProfit / totalShipments;
+    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
     
     // Top carriers by shipment count
     const carrierCounts = shipments.reduce((acc, s) => {
-      if (s.carrier_name) {
-        acc[s.carrier_name] = (acc[s.carrier_name] || 0) + 1;
+      const carrier = s["Booked Carrier"] || s["Quoted Carrier"];
+      if (carrier) {
+        acc[carrier] = (acc[carrier] || 0) + 1;
       }
       return acc;
     }, {} as Record<string, number>);
@@ -359,8 +410,12 @@ export const getShipmentAnalytics = async (customerName?: string) => {
     
     // Top lanes by shipment count
     const laneCounts = shipments.reduce((acc, s) => {
-      const lane = `${s.origin_zip} → ${s.destination_zip}`;
-      acc[lane] = (acc[lane] || 0) + 1;
+      const originZip = s["Zip"];
+      const destZip = s["Zip_1"];
+      if (originZip && destZip) {
+        const lane = `${originZip} → ${destZip}`;
+        acc[lane] = (acc[lane] || 0) + 1;
+      }
       return acc;
     }, {} as Record<string, number>);
     
@@ -369,23 +424,48 @@ export const getShipmentAnalytics = async (customerName?: string) => {
       .slice(0, 5)
       .map(([lane, count]) => ({ lane, count }));
     
-    const reeferShipments = shipments.filter(s => s.is_reefer).length;
-    const reeferPercentage = (reeferShipments / totalShipments) * 100;
+    // Top branches by shipment count
+    const branchCounts = shipments.reduce((acc, s) => {
+      if (s["Branch"]) {
+        acc[s["Branch"]] = (acc[s["Branch"]] || 0) + 1;
+      }
+      return acc;
+    }, {} as Record<string, number>);
     
-    const shipmentsWithTransit = shipments.filter(s => s.transit_days);
-    const avgTransitDays = shipmentsWithTransit.length > 0 
-      ? shipmentsWithTransit.reduce((sum, s) => sum + (s.transit_days || 0), 0) / shipmentsWithTransit.length
-      : 0;
+    const topBranches = Object.entries(branchCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([name, count]) => ({ name, count }));
+    
+    // Top sales reps by shipment count
+    const salesRepCounts = shipments.reduce((acc, s) => {
+      if (s["Sales Rep"]) {
+        acc[s["Sales Rep"]] = (acc[s["Sales Rep"]] || 0) + 1;
+      }
+      return acc;
+    }, {} as Record<string, number>);
+    
+    const topSalesReps = Object.entries(salesRepCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([name, count]) => ({ name, count }));
+    
+    const vltlShipments = shipments.filter(s => s["Is VLTL"] === "TRUE").length;
+    const vltlPercentage = (vltlShipments / totalShipments) * 100;
     
     return {
       totalShipments,
       totalWeight,
-      totalSpend,
-      avgRate,
+      totalRevenue,
+      totalProfit,
+      avgRevenue,
+      avgProfit,
       topCarriers,
       topLanes,
-      reeferPercentage,
-      avgTransitDays
+      topBranches,
+      topSalesReps,
+      vltlPercentage,
+      profitMargin
     };
   } catch (error) {
     console.error('Failed to get shipment analytics:', error);
@@ -397,8 +477,9 @@ export const getCustomerList = async (): Promise<string[]> => {
   try {
     const { data, error } = await supabase
       .from('Shipments')
-      .select('customer_name')
-      .order('customer_name');
+      .select('"Customer"')
+      .not('"Customer"', 'is', null)
+      .order('"Customer"');
     
     if (error) {
       console.error('Error fetching customer list:', error);
@@ -406,10 +487,54 @@ export const getCustomerList = async (): Promise<string[]> => {
     }
     
     // Get unique customer names
-    const uniqueCustomers = [...new Set(data?.map(d => d.customer_name) || [])];
+    const uniqueCustomers = [...new Set(data?.map(d => d.Customer) || [])];
     return uniqueCustomers.filter(Boolean);
   } catch (error) {
     console.error('Failed to fetch customer list:', error);
+    throw error;
+  }
+};
+
+export const getBranchList = async (): Promise<string[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('Shipments')
+      .select('"Branch"')
+      .not('"Branch"', 'is', null)
+      .order('"Branch"');
+    
+    if (error) {
+      console.error('Error fetching branch list:', error);
+      throw error;
+    }
+    
+    // Get unique branch names
+    const uniqueBranches = [...new Set(data?.map(d => d.Branch) || [])];
+    return uniqueBranches.filter(Boolean);
+  } catch (error) {
+    console.error('Failed to fetch branch list:', error);
+    throw error;
+  }
+};
+
+export const getSalesRepList = async (): Promise<string[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('Shipments')
+      .select('"Sales Rep"')
+      .not('"Sales Rep"', 'is', null)
+      .order('"Sales Rep"');
+    
+    if (error) {
+      console.error('Error fetching sales rep list:', error);
+      throw error;
+    }
+    
+    // Get unique sales rep names
+    const uniqueSalesReps = [...new Set(data?.map(d => d["Sales Rep"]) || [])];
+    return uniqueSalesReps.filter(Boolean);
+  } catch (error) {
+    console.error('Failed to fetch sales rep list:', error);
     throw error;
   }
 };

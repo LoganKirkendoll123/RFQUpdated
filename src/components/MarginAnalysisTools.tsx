@@ -47,19 +47,20 @@ interface MarginAnalysisResult {
   shipmentCount: number;
 }
 
+// Updated interface matching your exact database schema
 interface ShipmentData {
-  "Shipment ID": string;
-  "Customer": string;
-  "Origin Postal Code": string;
-  "Destination Postal Code": string;
-  "Total Units": number;
-  "Total Weight": string;
-  "Pickup Date": string;
-  "Service Level": string;
-  "Carrier": string;
-  "SCAC": string;
-  "Cost": number;
-  "Price": number;
+  "Invoice #": number;
+  "Customer"?: string;
+  "Zip"?: string;
+  "Zip_1"?: string;
+  "Tot Packages"?: number;
+  "Tot Weight"?: string;
+  "Scheduled Pickup Date"?: string;
+  "Service Level"?: string;
+  "Booked Carrier"?: string;
+  "Quoted Carrier"?: string;
+  "Revenue"?: string;
+  "Carrier Expense"?: string;
 }
 
 interface CustomerCarrierMargin {
@@ -190,32 +191,32 @@ export const MarginAnalysisTools: React.FC = () => {
       let query = supabase
         .from('Shipments')
         .select(`
-          "Shipment ID",
+          "Invoice #",
           "Customer",
-          "Origin Postal Code",
-          "Destination Postal Code", 
-          "Total Units",
-          "Total Weight",
-          "Pickup Date",
+          "Zip",
+          "Zip_1", 
+          "Tot Packages",
+          "Tot Weight",
+          "Scheduled Pickup Date",
           "Service Level",
-          "Carrier",
-          "SCAC",
-          "Cost",
-          "Price"
+          "Booked Carrier",
+          "Quoted Carrier",
+          "Revenue",
+          "Carrier Expense"
         `)
-        .gte('"Pickup Date"', startDate)
-        .lte('"Pickup Date"', endDate)
+        .gte('"Scheduled Pickup Date"', startDate)
+        .lte('"Scheduled Pickup Date"', endDate)
         .not('"Customer"', 'is', null)
-        .not('"Origin Postal Code"', 'is', null)
-        .not('"Destination Postal Code"', 'is', null)
-        .not('"Total Units"', 'is', null)
-        .not('"Total Weight"', 'is', null);
+        .not('"Zip"', 'is', null)
+        .not('"Zip_1"', 'is', null)
+        .not('"Tot Packages"', 'is', null)
+        .not('"Tot Weight"', 'is', null);
 
       if (selectedCustomer) {
         query = query.eq('"Customer"', selectedCustomer);
       }
 
-      const { data, error } = await query.order('"Pickup Date"', { ascending: false });
+      const { data, error } = await query.order('"Scheduled Pickup Date"', { ascending: false });
       
       if (error) {
         throw error;
@@ -240,17 +241,17 @@ export const MarginAnalysisTools: React.FC = () => {
 
   const convertShipmentToRFQ = (shipment: ShipmentData): RFQRow => {
     // Parse weight - handle string format like "2,500 lbs"
-    const weightStr = shipment["Total Weight"]?.toString() || '0';
+    const weightStr = shipment["Tot Weight"]?.toString() || '0';
     const weightMatch = weightStr.match(/[\d,]+/);
     const weight = weightMatch ? parseInt(weightMatch[0].replace(/,/g, '')) : 0;
     
-    // Use pallets from Total Units, default to 1 if not available
-    const pallets = shipment["Total Units"] || 1;
+    // Use pallets from Tot Packages, default to 1 if not available
+    const pallets = shipment["Tot Packages"] || 1;
     
     return {
-      fromDate: shipment["Pickup Date"] || new Date().toISOString().split('T')[0],
-      fromZip: shipment["Origin Postal Code"] || '',
-      toZip: shipment["Destination Postal Code"] || '',
+      fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
+      fromZip: shipment["Zip"] || '',
+      toZip: shipment["Zip_1"] || '',
       pallets: pallets,
       grossWeight: weight,
       isStackable: false,
@@ -347,9 +348,11 @@ export const MarginAnalysisTools: React.FC = () => {
         const shipment = shipmentData[i];
         const customerName = shipment["Customer"];
         
+        if (!customerName) continue;
+        
         setProcessingStatus(`Processing shipment ${i + 1} of ${shipmentData.length} for ${customerName}...`);
         
-        console.log(`📦 Processing shipment: ${shipment["Origin Postal Code"]} → ${shipment["Destination Postal Code"]} for ${customerName}`);
+        console.log(`📦 Processing shipment: ${shipment["Zip"]} → ${shipment["Zip_1"]} for ${customerName}`);
 
         // Convert shipment to RFQ format
         const rfqData = convertShipmentToRFQ(shipment);
@@ -571,7 +574,7 @@ export const MarginAnalysisTools: React.FC = () => {
             <Calculator className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Corrected Carrier Margin Discovery</h1>
+            <h1 className="text-xl font-semibold text-gray-900">Database-Driven Carrier Margin Discovery</h1>
             <p className="text-sm text-gray-600">
               Analyze competitor pricing using historical shipment data with database margin lookup and correct formula: cost/(1-margin)
             </p>
@@ -765,7 +768,7 @@ export const MarginAnalysisTools: React.FC = () => {
             <div className="flex items-start space-x-2">
               <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-blue-800">
-                <p className="font-medium mb-1">Database-Driven Margin Calculation Method:</p>
+                <p className="font-medium mb-2">Database-Driven Margin Calculation Method:</p>
                 <ul className="list-disc list-inside space-y-1">
                   <li>Get rates from target carrier: <strong>{getCarriersInGroup(selectedTargetGroup).find(c => c.id === selectedTargetCarrier)?.name || 'Not selected'}</strong></li>
                   <li>Get rates from <strong>ALL carriers</strong> in competitor group: {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>

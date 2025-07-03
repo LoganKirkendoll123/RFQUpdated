@@ -23,139 +23,55 @@ import {
   CheckCircle,
   XCircle,
   Info,
-  Calculator
+  Calculator,
+  Building2,
+  UserCheck,
+  TrendingUp
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { MarginAnalysisTools } from './MarginAnalysisTools';
 
-// Interfaces matching your exact database schema
+// Updated interfaces matching your exact database schema
 interface Shipment {
-  "Shipment ID": string;
-  "BOL"?: string;
-  "Status"?: string;
+  "Invoice #": number;
   "Customer"?: string;
-  "Customer Contact"?: string;
-  "Primary Rep"?: string;
-  "Mode"?: string;
-  "Equipment"?: string;
-  "Partial"?: boolean;
-  "Carrier"?: string;
-  "USDOT"?: number;
-  "MC Number"?: number;
-  "SCAC"?: string;
-  "Carrier Source"?: string;
-  "Carrier Quote Number"?: string;
-  "Service Level"?: string;
-  "Transit Days"?: string;
-  "PRO Number"?: string;
-  "Cost"?: number;
-  "Price"?: number;
-  "Profit"?: number;
-  "Margin"?: number;
-  "Booked Date"?: string;
-  "Booked By"?: string;
-  "Covered Date"?: string;
-  "Covered By"?: string;
-  "Pickup Date"?: string;
-  "Original Pickup Date"?: string;
+  "Branch"?: string;
+  "Scheduled Pickup Date"?: string;
   "Actual Pickup Date"?: string;
-  "Delivery Date"?: string;
-  "Original Delivery Date"?: string;
+  "Scheduled Delivery Date"?: string;
   "Actual Delivery Date"?: string;
-  "Origin Company"?: string;
-  "Origin Street"?: string;
-  "Origin Street 2"?: string;
   "Origin City"?: string;
-  "Origin State"?: string;
-  "Origin Postal Code"?: string;
-  "Origin Country"?: string;
-  "Origin Open Time"?: string;
-  "Origin Open Close"?: string;
-  "Origin Contact"?: string;
-  "Origin Phone"?: string;
-  "Origin Email"?: string;
-  "Origin Location Type"?: string;
-  "Origin Appointment"?: boolean;
-  "Origin Liftgate"?: boolean;
-  "Origin Inside Pickup"?: boolean;
-  "Origin Reference Number"?: string;
-  "Origin Instructions"?: string;
-  "Destination Company"?: string;
-  "Destination Street"?: string;
-  "Destination Street 2"?: string;
+  "State"?: string;
+  "Zip"?: string;
   "Destination City"?: string;
-  "Destination State"?: string;
-  "Destination Postal Code"?: string;
-  "Destination Country"?: string;
-  "Destination Open Time"?: string;
-  "Destination Open Close"?: string;
-  "Destination Contact"?: string;
-  "Destination Phone"?: string;
-  "Destination Email"?: string;
-  "Destination Location Type"?: string;
-  "Destination Appointment"?: boolean;
-  "Destination Liftgate"?: boolean;
-  "Destination Inside Pickup"?: boolean;
-  "Destination Notify"?: boolean;
-  "Destination Reference Number"?: string;
-  "Destination Instructions"?: string;
-  "Stopoffs"?: string;
-  "Distance In Miles"?: string;
-  "Total Units"?: number;
-  "Total Weight"?: string;
-  "Cost Per Lb"?: string;
-  "Price Per Lb"?: number;
-  "Total Length"?: string;
-  "Total Density"?: number;
-  "Hazmat"?: boolean;
-  "Hazmat Emergency Response Phone"?: string;
-  "Hazmat Contact"?: string;
-  "Hazmat Contact Number"?: string;
-  "Sort & Segregate"?: boolean;
-  "Protect from Freezing"?: boolean;
-  "Description 1"?: string;
-  "Freight Class 1"?: string;
-  "Carrier Contact"?: string;
-  "Carrier Contact Phone"?: string;
-  "Carrier Contact Email"?: string;
-  "Driver"?: string;
-  "Driver Phone"?: string;
-  "Tractor Number"?: string;
-  "Trailer Number"?: string;
-  "Customer Invoice Sent"?: boolean;
-  "Customer Invoice Sent By"?: string;
-  "Customer Invoice Sent Date"?: string;
-  "Customer Invoice Number"?: number;
-  "Customer Invoice Total"?: number;
-  "Customer Invoice Date"?: string;
-  "Customer Invoice Due Date"?: string;
-  "Customer Invoice Balance Due"?: string;
-  "Customer Paid in Full"?: string;
-  "Carrier Bill Added"?: boolean;
-  "Carrier Bill Number"?: string;
-  "Carrier Bill Total"?: number;
-  "Carrier Bill Date"?: string;
-  "Carrier Bill Due Date"?: string;
-  "Carrier Quick Pay Requested"?: string;
-  "Carrier Bill Balance Due"?: string;
-  "Carrier Bill Paid in Full"?: boolean;
-  "Customer Paid in Full or Factored"?: string;
-  "To Be Factored"?: string;
-  "Factoring Fee"?: string;
-  "Price After Factoring"?: string;
-  "Profit After Factoring"?: string;
-  "Sent to Factor"?: string;
-  "Booked Price"?: number;
-  "Customer Invoice Price"?: number;
-  "Booked Cost"?: number;
-  "Carrier Bill Cost"?: number;
-  "UOM"?: string;
-  "Customer Invoice Pushed to Accounting"?: boolean;
-  "Customer Invoice Pushed to Accounting Date"?: string;
-  "Carrier Bill Pushed to Accounting"?: boolean;
-  "Carrier Bill Pushed to Accounting Date"?: string;
-  "URL"?: string;
+  "State_1"?: string;
+  "Zip_1"?: string;
+  "Sales Rep"?: string;
+  "Account Rep"?: string;
+  "Dispatch Rep"?: string;
+  "Quote Created By"?: string;
+  "Line Items"?: number;
+  "Tot Packages"?: number;
+  "Tot Weight"?: string;
+  "Max Freight Class"?: string;
+  "Max Length"?: string;
+  "Max Width"?: string;
+  "Max Height"?: string;
+  "Tot Linear Ft"?: string;
+  "Is VLTL"?: string;
+  "Commodities"?: string;
+  "Accessorials"?: string;
+  "Booked Carrier"?: string;
+  "Quoted Carrier"?: string;
+  "Service Level"?: string;
+  "Revenue"?: string;
+  "Carrier Quote"?: string;
+  "Carrier Expense"?: string;
+  "Other Expense"?: string;
+  "Profit"?: string;
+  "Revenue w/o Accessorials"?: string;
+  "Expense w/o Accessorials"?: string;
 }
 
 interface CustomerCarrier {
@@ -182,8 +98,11 @@ export const DatabaseToolbox: React.FC = () => {
   
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
   const [filterCustomer, setFilterCustomer] = useState('');
+  const [filterBranch, setFilterBranch] = useState('');
+  const [filterSalesRep, setFilterSalesRep] = useState('');
+  const [filterCarrier, setFilterCarrier] = useState('');
+  const [dateFilter, setDateFilter] = useState({ start: '', end: '' });
   
   // Data state
   const [shipments, setShipments] = useState<Shipment[]>([]);
@@ -191,12 +110,14 @@ export const DatabaseToolbox: React.FC = () => {
   
   // Unique values for filters
   const [uniqueCustomers, setUniqueCustomers] = useState<string[]>([]);
-  const [uniqueStatuses, setUniqueStatuses] = useState<string[]>([]);
+  const [uniqueBranches, setUniqueBranches] = useState<string[]>([]);
+  const [uniqueSalesReps, setUniqueSalesReps] = useState<string[]>([]);
+  const [uniqueCarriers, setUniqueCarriers] = useState<string[]>([]);
 
   useEffect(() => {
     loadData();
     loadFilterOptions();
-  }, [activeTab, currentPage, searchTerm, filterStatus, filterCustomer]);
+  }, [activeTab, currentPage, searchTerm, filterCustomer, filterBranch, filterSalesRep, filterCarrier, dateFilter]);
 
   const testSupabaseConnection = async () => {
     try {
@@ -246,20 +167,56 @@ export const DatabaseToolbox: React.FC = () => {
         console.log(`✅ Loaded ${customers.length} unique customers`);
       }
       
-      // Load unique statuses from Shipments
-      console.log('📋 Loading unique statuses...');
-      const { data: statusData, error: statusError } = await supabase
+      // Load unique branches
+      console.log('📋 Loading unique branches...');
+      const { data: branchData, error: branchError } = await supabase
         .from('Shipments')
-        .select('"Status"')
-        .not('"Status"', 'is', null)
+        .select('"Branch"')
+        .not('"Branch"', 'is', null)
         .limit(100);
       
-      if (statusError) {
-        console.error('❌ Error loading statuses:', statusError);
+      if (branchError) {
+        console.error('❌ Error loading branches:', branchError);
       } else {
-        const statuses = [...new Set(statusData?.map(s => s.Status).filter(Boolean))];
-        setUniqueStatuses(statuses);
-        console.log(`✅ Loaded ${statuses.length} unique statuses`);
+        const branches = [...new Set(branchData?.map(s => s.Branch).filter(Boolean))];
+        setUniqueBranches(branches);
+        console.log(`✅ Loaded ${branches.length} unique branches`);
+      }
+      
+      // Load unique sales reps
+      console.log('📋 Loading unique sales reps...');
+      const { data: salesRepData, error: salesRepError } = await supabase
+        .from('Shipments')
+        .select('"Sales Rep"')
+        .not('"Sales Rep"', 'is', null)
+        .limit(100);
+      
+      if (salesRepError) {
+        console.error('❌ Error loading sales reps:', salesRepError);
+      } else {
+        const salesReps = [...new Set(salesRepData?.map(s => s["Sales Rep"]).filter(Boolean))];
+        setUniqueSalesReps(salesReps);
+        console.log(`✅ Loaded ${salesReps.length} unique sales reps`);
+      }
+      
+      // Load unique carriers
+      console.log('📋 Loading unique carriers...');
+      const { data: carrierData, error: carrierError } = await supabase
+        .from('Shipments')
+        .select('"Booked Carrier", "Quoted Carrier"')
+        .limit(100);
+      
+      if (carrierError) {
+        console.error('❌ Error loading carriers:', carrierError);
+      } else {
+        const carriers = new Set<string>();
+        carrierData?.forEach(s => {
+          if (s["Booked Carrier"]) carriers.add(s["Booked Carrier"]);
+          if (s["Quoted Carrier"]) carriers.add(s["Quoted Carrier"]);
+        });
+        const uniqueCarriersList = Array.from(carriers);
+        setUniqueCarriers(uniqueCarriersList);
+        console.log(`✅ Loaded ${uniqueCarriersList.length} unique carriers`);
       }
       
     } catch (err) {
@@ -310,25 +267,48 @@ export const DatabaseToolbox: React.FC = () => {
       let query = supabase
         .from('Shipments')
         .select('*', { count: 'exact' })
-        .order('"Shipment ID"', { ascending: false })
+        .order('"Invoice #"', { ascending: false })
         .range(offset, offset + itemsPerPage - 1);
       
       // Apply search filter
       if (searchTerm) {
         console.log(`🔍 Applying search filter: ${searchTerm}`);
-        query = query.or(`"Shipment ID".ilike.%${searchTerm}%,"Customer".ilike.%${searchTerm}%,"Carrier".ilike.%${searchTerm}%,"Origin Postal Code".ilike.%${searchTerm}%,"Destination Postal Code".ilike.%${searchTerm}%`);
-      }
-      
-      // Apply status filter
-      if (filterStatus) {
-        console.log(`📊 Applying status filter: ${filterStatus}`);
-        query = query.eq('"Status"', filterStatus);
+        query = query.or(`"Invoice #".eq.${searchTerm},"Customer".ilike.%${searchTerm}%,"Booked Carrier".ilike.%${searchTerm}%,"Quoted Carrier".ilike.%${searchTerm}%,"Zip".ilike.%${searchTerm}%,"Zip_1".ilike.%${searchTerm}%`);
       }
       
       // Apply customer filter
       if (filterCustomer) {
         console.log(`👤 Applying customer filter: ${filterCustomer}`);
         query = query.eq('"Customer"', filterCustomer);
+      }
+      
+      // Apply branch filter
+      if (filterBranch) {
+        console.log(`🏢 Applying branch filter: ${filterBranch}`);
+        query = query.eq('"Branch"', filterBranch);
+      }
+      
+      // Apply sales rep filter
+      if (filterSalesRep) {
+        console.log(`👨‍💼 Applying sales rep filter: ${filterSalesRep}`);
+        query = query.eq('"Sales Rep"', filterSalesRep);
+      }
+      
+      // Apply carrier filter
+      if (filterCarrier) {
+        console.log(`🚛 Applying carrier filter: ${filterCarrier}`);
+        query = query.or(`"Booked Carrier".eq.${filterCarrier},"Quoted Carrier".eq.${filterCarrier}`);
+      }
+      
+      // Apply date filter
+      if (dateFilter.start) {
+        console.log(`📅 Applying start date filter: ${dateFilter.start}`);
+        query = query.gte('"Scheduled Pickup Date"', dateFilter.start);
+      }
+      
+      if (dateFilter.end) {
+        console.log(`📅 Applying end date filter: ${dateFilter.end}`);
+        query = query.lte('"Scheduled Pickup Date"', dateFilter.end);
       }
       
       const { data, error, count } = await query;
@@ -394,9 +374,18 @@ export const DatabaseToolbox: React.FC = () => {
 
   const clearFilters = () => {
     setSearchTerm('');
-    setFilterStatus('');
     setFilterCustomer('');
+    setFilterBranch('');
+    setFilterSalesRep('');
+    setFilterCarrier('');
+    setDateFilter({ start: '', end: '' });
     setCurrentPage(1);
+  };
+
+  const parseNumeric = (value: string | null | undefined): number => {
+    if (!value) return 0;
+    const cleaned = value.toString().replace(/[^\d.-]/g, '');
+    return parseFloat(cleaned) || 0;
   };
 
   const renderValue = (value: any): string => {
@@ -410,6 +399,10 @@ export const DatabaseToolbox: React.FC = () => {
       return value.toString();
     }
     if (typeof value === 'string') {
+      // Check if it looks like a currency value
+      if (value.match(/^\d+\.?\d*$/) && parseFloat(value) > 100) {
+        return formatCurrency(parseFloat(value));
+      }
       // Truncate long strings
       return value.length > 50 ? value.substring(0, 50) + '...' : value;
     }
@@ -494,7 +487,7 @@ export const DatabaseToolbox: React.FC = () => {
 
       {/* Search and Filters */}
       <div className="bg-white rounded-lg shadow-md p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
@@ -518,13 +511,35 @@ export const DatabaseToolbox: React.FC = () => {
           </select>
           
           <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
+            value={filterBranch}
+            onChange={(e) => setFilterBranch(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
           >
-            <option value="">All Statuses ({uniqueStatuses.length})</option>
-            {uniqueStatuses.map(status => (
-              <option key={status} value={status}>{status}</option>
+            <option value="">All Branches ({uniqueBranches.length})</option>
+            {uniqueBranches.map(branch => (
+              <option key={branch} value={branch}>{branch}</option>
+            ))}
+          </select>
+          
+          <select
+            value={filterSalesRep}
+            onChange={(e) => setFilterSalesRep(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All Sales Reps ({uniqueSalesReps.length})</option>
+            {uniqueSalesReps.map(rep => (
+              <option key={rep} value={rep}>{rep}</option>
+            ))}
+          </select>
+          
+          <select
+            value={filterCarrier}
+            onChange={(e) => setFilterCarrier(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All Carriers ({uniqueCarriers.length})</option>
+            {uniqueCarriers.map(carrier => (
+              <option key={carrier} value={carrier}>{carrier}</option>
             ))}
           </select>
           
@@ -535,6 +550,28 @@ export const DatabaseToolbox: React.FC = () => {
             Clear Filters
           </button>
         </div>
+        
+        {/* Date Range */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+            <input
+              type="date"
+              value={dateFilter.start}
+              onChange={(e) => setDateFilter({ ...dateFilter, start: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+            <input
+              type="date"
+              value={dateFilter.end}
+              onChange={(e) => setDateFilter({ ...dateFilter, end: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Shipments Table */}
@@ -543,75 +580,97 @@ export const DatabaseToolbox: React.FC = () => {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shipment ID</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Branch</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Route</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Carrier</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cost</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Profit</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Pickup Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sales Rep</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {shipments.map((shipment) => (
-                <tr key={shipment["Shipment ID"]} className="hover:bg-gray-50">
+                <tr key={shipment["Invoice #"]} className="hover:bg-gray-50">
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    {shipment["Shipment ID"]}
+                    {shipment["Invoice #"]}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
                     {shipment["Customer"] || '—'}
                   </td>
-                  <td className="px-6 py-4 text-sm">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      shipment["Status"] === 'Delivered' ? 'bg-green-100 text-green-800' :
-                      shipment["Status"] === 'In Transit' ? 'bg-blue-100 text-blue-800' :
-                      shipment["Status"] === 'Booked' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {shipment["Status"] || 'Unknown'}
-                    </span>
+                  <td className="px-6 py-4 text-sm text-gray-900">
+                    <div className="flex items-center space-x-1">
+                      <Building2 className="h-3 w-3 text-gray-400" />
+                      <span>{shipment["Branch"] || '—'}</span>
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
                     <div className="flex items-center space-x-1">
                       <MapPin className="h-3 w-3 text-gray-400" />
                       <span>
-                        {shipment["Origin Postal Code"] || '?'} → {shipment["Destination Postal Code"] || '?'}
+                        {shipment["Zip"] || '?'} → {shipment["Zip_1"] || '?'}
                       </span>
                     </div>
                     <div className="text-xs text-gray-500">
-                      {shipment["Origin City"]}, {shipment["Origin State"]} → {shipment["Destination City"]}, {shipment["Destination State"]}
+                      {shipment["Origin City"]}, {shipment["State"]} → {shipment["Destination City"]}, {shipment["State_1"]}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-900">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <Package className="h-3 w-3 text-gray-400" />
+                        <span>{shipment["Tot Packages"] || 0} packages</span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Weight: {shipment["Tot Weight"] || '—'}
+                      </div>
+                      {shipment["Is VLTL"] === "TRUE" && (
+                        <div className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                          VLTL
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
                     <div>
-                      <div className="font-medium">{shipment["Carrier"] || '—'}</div>
-                      {shipment["SCAC"] && (
-                        <div className="text-xs text-gray-500">SCAC: {shipment["SCAC"]}</div>
-                      )}
-                      {shipment["MC Number"] && (
-                        <div className="text-xs text-gray-500">MC: {shipment["MC Number"]}</div>
+                      <div className="font-medium">{shipment["Booked Carrier"] || shipment["Quoted Carrier"] || '—'}</div>
+                      {shipment["Service Level"] && (
+                        <div className="text-xs text-gray-500">{shipment["Service Level"]}</div>
                       )}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
-                    {shipment["Cost"] ? formatCurrency(shipment["Cost"]) : '—'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {shipment["Price"] ? formatCurrency(shipment["Price"]) : '—'}
+                    {shipment["Revenue"] ? formatCurrency(parseNumeric(shipment["Revenue"])) : '—'}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
                     <div>
-                      {shipment["Profit"] ? formatCurrency(shipment["Profit"]) : '—'}
-                      {shipment["Margin"] && (
-                        <div className="text-xs text-gray-500">{shipment["Margin"]}% margin</div>
+                      {shipment["Profit"] ? formatCurrency(parseNumeric(shipment["Profit"])) : '—'}
+                      {shipment["Revenue"] && shipment["Profit"] && (
+                        <div className="text-xs text-gray-500">
+                          {((parseNumeric(shipment["Profit"]) / parseNumeric(shipment["Revenue"])) * 100).toFixed(1)}% margin
+                        </div>
                       )}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
-                    {shipment["Pickup Date"] || '—'}
+                    <div>
+                      <div>{shipment["Scheduled Pickup Date"] || '—'}</div>
+                      {shipment["Actual Pickup Date"] && shipment["Actual Pickup Date"] !== shipment["Scheduled Pickup Date"] && (
+                        <div className="text-xs text-gray-500">
+                          Actual: {shipment["Actual Pickup Date"]}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-900">
+                    <div className="flex items-center space-x-1">
+                      <UserCheck className="h-3 w-3 text-gray-400" />
+                      <span>{shipment["Sales Rep"] || '—'}</span>
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-sm">
                     <button className="text-blue-600 hover:text-blue-700">
@@ -779,8 +838,11 @@ export const DatabaseToolbox: React.FC = () => {
                   setActiveTab(tab.id as any);
                   setCurrentPage(1);
                   setSearchTerm('');
-                  setFilterStatus('');
                   setFilterCustomer('');
+                  setFilterBranch('');
+                  setFilterSalesRep('');
+                  setFilterCarrier('');
+                  setDateFilter({ start: '', end: '' });
                 }}
                 className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                   activeTab === tab.id
