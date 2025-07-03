@@ -22,10 +22,12 @@ import {
   Shield,
   CheckCircle,
   XCircle,
-  Info
+  Info,
+  Calculator
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
+import { MarginAnalysisTools } from './MarginAnalysisTools';
 
 // Interfaces matching your exact database schema
 interface Shipment {
@@ -168,7 +170,7 @@ interface CustomerCarrier {
 }
 
 export const DatabaseToolbox: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers'>('shipments');
+  const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers' | 'margin-tools'>('shipments');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   
@@ -287,6 +289,9 @@ export const DatabaseToolbox: React.FC = () => {
           break;
         case 'customercarriers':
           await loadCustomerCarriers(offset);
+          break;
+        case 'margin-tools':
+          // No data loading needed for margin tools
           break;
       }
     } catch (err) {
@@ -677,13 +682,11 @@ export const DatabaseToolbox: React.FC = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Markup ID</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Carrier ID</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer ID</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Internal Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">P44 Carrier Code</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer (Internal Name)</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Carrier (P44 Code)</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Margin %</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Min Dollar</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Max Dollar</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Percentage</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
@@ -694,25 +697,31 @@ export const DatabaseToolbox: React.FC = () => {
                     {carrier["MarkupId"]}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
-                    {carrier["CarrierId"] || '—'}
+                    <div className="flex items-center space-x-2">
+                      <Users className="h-4 w-4 text-gray-400" />
+                      <span className="font-medium">{carrier["InternalName"] || '—'}</span>
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
-                    {carrier["CustomerID"] || '—'}
+                    <div className="flex items-center space-x-2">
+                      <Truck className="h-4 w-4 text-gray-400" />
+                      <span className="font-medium">{carrier["P44CarrierCode"] || '—'}</span>
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
-                    {carrier["InternalName"] || '—'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {carrier["P44CarrierCode"] || '—'}
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      parseFloat(carrier["Percentage"] || '0') > 15 ? 'bg-green-100 text-green-800' :
+                      parseFloat(carrier["Percentage"] || '0') > 10 ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {carrier["Percentage"] || '0'}%
+                    </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
                     {carrier["MinDollar"] ? formatCurrency(carrier["MinDollar"]) : '—'}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
                     {carrier["MaxDollar"] || '—'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {carrier["Percentage"] || '—'}
                   </td>
                   <td className="px-6 py-4 text-sm">
                     <button className="text-blue-600 hover:text-blue-700">
@@ -748,7 +757,7 @@ export const DatabaseToolbox: React.FC = () => {
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Database Toolbox</h1>
             <p className="text-sm text-gray-600">
-              Browse your freight data - {totalCount} records found
+              Browse your freight data and analyze carrier margins - {totalCount} records found
             </p>
           </div>
         </div>
@@ -759,7 +768,8 @@ export const DatabaseToolbox: React.FC = () => {
         <nav className="flex space-x-8">
           {[
             { id: 'shipments', label: 'Shipments', icon: Package, count: activeTab === 'shipments' ? totalCount : null },
-            { id: 'customercarriers', label: 'Customer Carriers', icon: Users, count: activeTab === 'customercarriers' ? totalCount : null }
+            { id: 'customercarriers', label: 'Customer Carriers', icon: Users, count: activeTab === 'customercarriers' ? totalCount : null },
+            { id: 'margin-tools', label: 'Margin Analysis', icon: Calculator, count: null }
           ].map((tab) => {
             const Icon = tab.icon;
             return (
@@ -817,6 +827,7 @@ export const DatabaseToolbox: React.FC = () => {
         <>
           {activeTab === 'shipments' && renderShipmentsTab()}
           {activeTab === 'customercarriers' && renderCustomerCarriersTab()}
+          {activeTab === 'margin-tools' && <MarginAnalysisTools />}
         </>
       )}
     </div>
