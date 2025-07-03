@@ -1,6 +1,6 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { RFQRow } from '../types';
+import { RFQRow, LineItemData } from '../types';
 
 // Project44 LTL/VLTL accessorial codes
 const PROJECT44_ACCESSORIAL_CODES = [
@@ -182,6 +182,9 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
   const apiTimeout = parseInt(row.apitimeout || '30') || undefined;
   const totalLinearFeet = parseInt(row.totallinearfeet || '0') || undefined;
   
+  // Parse multiple line items with different dimensions
+  const lineItems = parseLineItems(row, index);
+  
   // Validation
   if (!fromDate || !isValidDate(fromDate)) {
     errors.push('Invalid or missing fromDate');
@@ -285,8 +288,83 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
   if (fallBackToDefaultAccountGroup !== undefined) result.fallBackToDefaultAccountGroup = fallBackToDefaultAccountGroup;
   if (apiTimeout) result.apiTimeout = apiTimeout;
   if (totalLinearFeet) result.totalLinearFeet = totalLinearFeet;
+  
+  // Add line items if parsed
+  if (lineItems.length > 0) result.lineItems = lineItems;
 
   return result;
+};
+
+const parseLineItems = (row: any, rowIndex: number): LineItemData[] => {
+  const lineItems: LineItemData[] = [];
+  
+  // Look for line item columns with pattern: item1_field, item2_field, etc.
+  const itemPattern = /^item(\d+)_(.+)$/;
+  const itemData: { [itemId: string]: any } = {};
+  
+  // Group all item fields by item number
+  Object.keys(row).forEach(key => {
+    const match = key.match(itemPattern);
+    if (match) {
+      const itemId = match[1];
+      const fieldName = match[2];
+      
+      if (!itemData[itemId]) {
+        itemData[itemId] = {};
+      }
+      itemData[itemId][fieldName] = row[key];
+    }
+  });
+  
+  // Convert grouped data to LineItemData objects
+  Object.keys(itemData).forEach(itemId => {
+    const item = itemData[itemId];
+    
+    // Required fields for line items
+    const totalWeight = parseFloat(item.totalweight || item.weight || '0');
+    const freightClass = item.freightclass || item.class || '';
+    const packageLength = parseFloat(item.packagelength || item.length || '0');
+    const packageWidth = parseFloat(item.packagewidth || item.width || '0');
+    const packageHeight = parseFloat(item.packageheight || item.height || '0');
+    
+    // Skip if missing required fields
+    if (!totalWeight || !freightClass || !packageLength || !packageWidth || !packageHeight) {
+      return;
+    }
+    
+    const lineItem: LineItemData = {
+      id: parseInt(itemId),
+      totalWeight,
+      freightClass,
+      packageLength,
+      packageWidth,
+      packageHeight,
+      description: item.description || '',
+      packageType: item.packagetype as any,
+      totalPackages: parseInt(item.totalpackages || '1') || 1,
+      totalPieces: parseInt(item.totalpieces || '1') || 1,
+      totalValue: parseFloat(item.totalvalue || '0') || undefined,
+      insuranceAmount: parseFloat(item.insuranceamount || '0') || undefined,
+      stackable: parseBoolean(item.stackable || 'false'),
+      nmfcItemCode: item.nmfcitemcode || '',
+      nmfcSubCode: item.nmfcsubcode || '',
+      commodityType: item.commoditytype || '',
+      countryOfManufacture: item.countryofmanufacture as any,
+      harmonizedCode: item.harmonizedcode || '',
+      hazmat: parseBoolean(item.hazmat || 'false'),
+      hazmatClass: item.hazmatclass || '',
+      hazmatIdNumber: item.hazmatidnumber || '',
+      hazmatPackingGroup: item.hazmatpackinggroup as any,
+      hazmatProperShippingName: item.hazmatpropershippingname || ''
+    };
+    
+    lineItems.push(lineItem);
+  });
+  
+  // Sort by item ID
+  lineItems.sort((a, b) => a.id - b.id);
+  
+  return lineItems;
 };
 
 const parseBoolean = (value: string): boolean => {

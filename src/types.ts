@@ -81,7 +81,7 @@ export interface RFQRow {
   apiTimeout?: number;
   totalLinearFeet?: number;
   
-  // Multi-item support
+  // Multi-item support with different dimensions
   lineItems?: LineItemData[];
   
   // Service level selection - kept for UI purposes but not sent to API
@@ -92,7 +92,7 @@ export interface RFQRow {
   classificationReason?: string;
 }
 
-// New interface for individual line items within a shipment
+// Enhanced interface for individual line items within a shipment
 export interface LineItemData {
   id: number;
   description?: string;

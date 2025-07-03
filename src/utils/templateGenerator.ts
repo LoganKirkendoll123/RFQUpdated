@@ -168,16 +168,67 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     'enableUnitConversion',
     'fallBackToDefaultAccountGroup',
     'apiTimeout',
-    'totalLinearFeet'
+    'totalLinearFeet',
+    
+    // Multi-item support - up to 5 items with different dimensions
+    'item1_description',
+    'item1_totalWeight',
+    'item1_freightClass',
+    'item1_packageLength',
+    'item1_packageWidth',
+    'item1_packageHeight',
+    'item1_packageType',
+    'item1_totalPackages',
+    'item1_stackable',
+    
+    'item2_description',
+    'item2_totalWeight',
+    'item2_freightClass',
+    'item2_packageLength',
+    'item2_packageWidth',
+    'item2_packageHeight',
+    'item2_packageType',
+    'item2_totalPackages',
+    'item2_stackable',
+    
+    'item3_description',
+    'item3_totalWeight',
+    'item3_freightClass',
+    'item3_packageLength',
+    'item3_packageWidth',
+    'item3_packageHeight',
+    'item3_packageType',
+    'item3_totalPackages',
+    'item3_stackable',
+    
+    'item4_description',
+    'item4_totalWeight',
+    'item4_freightClass',
+    'item4_packageLength',
+    'item4_packageWidth',
+    'item4_packageHeight',
+    'item4_packageType',
+    'item4_totalPackages',
+    'item4_stackable',
+    
+    'item5_description',
+    'item5_totalWeight',
+    'item5_freightClass',
+    'item5_packageLength',
+    'item5_packageWidth',
+    'item5_packageHeight',
+    'item5_packageType',
+    'item5_totalPackages',
+    'item5_stackable'
   ];
   
   // Add each Project44 accessorial as its own column
   const accessorialHeaders = PROJECT44_ACCESSORIALS.map(acc => acc.code);
   const allHeaders = [...baseHeaders, ...accessorialHeaders];
   
-  // Comprehensive sample data for testing all Project44 API capabilities
+  // Comprehensive sample data for testing all Project44 API capabilities with multi-item support
   const sampleData = [
-    // Row 1: Standard LTL - Basic shipment with minimal data
+    // Row 1: Standard LTL - Single item shipment
     [
       '2025-02-15', '60607', '30033', 3, 2500, false, false,
       'AMBIENT', '', false, '70', '', '', 'General Freight', '', 'PLT', 3, 3, 48, 40, 48, 'IN', 'LB', 5000, 0, '', 'US',
@@ -186,99 +237,90 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       '', 'Chicago', 'IL', 'US', '', 'Atlanta', 'GA', 'US',
       '', '', '', '', '', '', '', '',
       'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 30, 0,
+      // Single item
+      'Standard Pallets', 2500, '70', 48, 40, 48, 'PLT', 3, false,
+      '', '', '', '', '', '', '', '', '',
+      '', '', '', '', '', '', '', '', '',
+      '', '', '', '', '', '', '', '', '',
+      '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
         ['LGDEL', 'APPTDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 2: Volume LTL - Large shipment with comprehensive data
+    // Row 2: Volume LTL - Multiple items with different dimensions
     [
       '2025-02-16', '90210', '10001', 12, 18000, true, false,
-      'AMBIENT', '', false, '85', '123456', '01', 'Electronics Equipment', 'ELECTRONICS', 'PLT', 12, 24, 48, 40, 60, 'IN', 'LB', 25000, 2500, 'HTS123456', 'US',
+      'AMBIENT', '', false, '85', '123456', '01', 'Mixed Electronics', 'ELECTRONICS', 'PLT', 12, 24, 48, 40, 60, 'IN', 'LB', 25000, 2500, 'HTS123456', 'US',
       false, '', '', '', '', '', '', '',
       '2025-02-17', '08:00', '17:00', '09:00', '16:00',
       '123 Main St', 'Beverly Hills', 'CA', 'US', '456 Broadway', 'New York', 'NY', 'US',
       'John Smith', '555-123-4567', 'john@company.com', 'Shipper Corp', 'Jane Doe', '555-987-6543', 'jane@receiver.com', 'Receiver Inc',
       'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 45, 30,
+      // Multiple items with different dimensions
+      'Large Electronics', 8000, '85', 60, 48, 72, 'PLT', 5, true,
+      'Small Components', 3000, '92.5', 36, 24, 36, 'BOX', 50, false,
+      'Medium Equipment', 5000, '70', 48, 40, 60, 'CRATE', 3, true,
+      'Accessories', 2000, '100', 24, 18, 24, 'CARTON', 20, true,
+      '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
         ['INPU', 'INDEL', 'RESPU', 'RESDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 3: FreshX Reefer - Temperature-controlled with hazmat
+    // Row 3: FreshX Reefer - Temperature-controlled with mixed items
     [
       '2025-02-17', '10001', '90210', 5, 4500, false, true,
-      'CHILLED', 'FOODSTUFFS', true, '70', '654321', '02', 'Refrigerated Food Products', 'FOOD', 'CARTON', 50, 100, 24, 18, 12, 'IN', 'LB', 15000, 1500, 'FOOD789', 'US',
+      'CHILLED', 'FOODSTUFFS', true, '70', '654321', '02', 'Mixed Food Products', 'FOOD', 'CARTON', 50, 100, 24, 18, 12, 'IN', 'LB', 15000, 1500, 'FOOD789', 'US',
       true, '9', 'UN1234', 'II', 'Dangerous Goods Sample', 'Emergency Contact', '555-HELP-911', 'Emergency Corp',
       '2025-02-18', '06:00', '18:00', '07:00', '15:00',
       '789 Cold St', 'New York', 'NY', 'US', '321 Freeze Ave', 'Los Angeles', 'CA', 'US',
       'Cold Handler', '555-COLD-123', 'cold@shipper.com', 'Cold Chain Co', 'Freeze Receiver', '555-FREEZE-456', 'freeze@receiver.com', 'Frozen Foods Inc',
       'USD', 'COLLECT', 'CONSIGNEE', 'IMPERIAL', true, true, true, true, true, true, 60, 0,
+      // Mixed food items with different requirements
+      'Dairy Products', 1500, '70', 48, 40, 36, 'PLT', 2, false,
+      'Frozen Meat', 2000, '70', 36, 24, 48, 'CARTON', 20, true,
+      'Fresh Produce', 1000, '70', 24, 18, 18, 'CRATE', 15, false,
+      '', '', '', '', '', '', '', '', '',
+      '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
         ['LGPU', 'LGDEL', 'NOTIFY', 'APPTPU', 'APPTDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 4: International shipment with full address details
+    // Row 4: Construction materials with varying sizes
     [
-      '2025-02-18', '77001', '30309', 8, 7200, true, false,
-      'AMBIENT', '', false, '92.5', '789012', '03', 'Automotive Parts', 'AUTO_PARTS', 'CRATE', 8, 16, 60, 48, 36, 'IN', 'LB', 35000, 3500, 'AUTO456', 'MX',
+      '2025-02-18', '77001', '30309', 8, 12000, true, false,
+      'AMBIENT', '', false, '125', '789012', '03', 'Construction Materials', 'CONSTRUCTION', 'PLT', 8, 16, 48, 40, 72, 'IN', 'LB', 20000, 2000, 'CONST123', 'US',
       false, '', '', '', '', '', '', '',
-      '2025-02-19', '10:00', '14:00', '08:00', '12:00',
-      '100 Industrial Blvd;Suite 200', 'Houston', 'TX', 'US', '200 Peachtree St;Floor 5', 'Atlanta', 'GA', 'US',
-      'Maria Rodriguez', '555-PARTS-123', 'maria@autoparts.com', 'Auto Parts Supplier', 'David Johnson', '555-RECEIVE-789', 'david@warehouse.com', 'Distribution Center',
-      'CAD', 'THIRD_PARTY', 'THIRD_PARTY', 'METRIC', false, false, false, false, true, false, 25, 20,
+      '2025-02-19', '07:00', '19:00', '06:00', '18:00',
+      '1000 Construction Ave', 'Houston', 'TX', 'US', '2000 Builder Blvd', 'Atlanta', 'GA', 'US',
+      'Build Manager', '555-BUILD-123', 'build@construction.com', 'Construction Co', 'Site Supervisor', '555-SITE-456', 'site@builder.com', 'Builder Inc',
+      'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 40, 22,
+      // Different construction materials
+      'Steel Beams', 6000, '125', 120, 8, 8, 'PLT', 2, true,
+      'Concrete Blocks', 4000, '150', 48, 40, 24, 'PLT', 3, true,
+      'Insulation', 1000, '85', 96, 24, 12, 'ROLL', 10, false,
+      'Hardware', 1000, '100', 24, 18, 18, 'BOX', 20, true,
+      '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['INPU', 'INDEL', 'SATPU', 'SATDEL'].includes(acc.code) ? true : false
+        ['SATPU', 'SATDEL', 'LTDDEL', 'CONPU', 'CONDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 5: High-value shipment with insurance
+    // Row 5: High-value electronics with precise dimensions
     [
       '2025-02-19', '94102', '02101', 4, 3200, false, false,
-      'AMBIENT', '', false, '50', '345678', '04', 'High Value Electronics', 'ELECTRONICS', 'BOX', 20, 40, 30, 24, 18, 'IN', 'LB', 100000, 10000, 'ELEC789', 'US',
+      'AMBIENT', '', false, '50', '345678', '04', 'Precision Electronics', 'ELECTRONICS', 'BOX', 20, 40, 30, 24, 18, 'IN', 'LB', 100000, 10000, 'ELEC789', 'US',
       false, '', '', '', '', '', '', '',
       '', '', '', '', '',
       '500 Tech Way', 'San Francisco', 'CA', 'US', '100 Innovation Dr', 'Boston', 'MA', 'US',
       'Tech Shipper', '555-TECH-456', 'tech@silicon.com', 'Silicon Valley Tech', 'Innovation Receiver', '555-INNOV-789', 'receive@innovation.com', 'Innovation Labs',
       'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 30, 0,
+      // Precision electronics with exact dimensions
+      'Server Equipment', 1500, '50', 36, 24, 72, 'CRATE', 2, false,
+      'Network Switches', 800, '60', 24, 18, 12, 'BOX', 8, true,
+      'Cables & Accessories', 400, '70', 18, 12, 6, 'CARTON', 15, true,
+      'Monitors', 500, '65', 30, 20, 8, 'BOX', 5, false,
+      '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
         ['LGDEL', 'RESDEL', 'NOTIFY'].includes(acc.code) ? true : false
-      )
-    ],
-    // Row 6: Multi-accessorial complex shipment
-    [
-      '2025-02-20', '80202', '98101', 9, 12000, true, false,
-      'AMBIENT', '', false, '125', '456789', '05', 'Construction Materials', 'CONSTRUCTION', 'PALLET', 9, 18, 48, 40, 72, 'IN', 'LB', 20000, 2000, 'CONST123', 'US',
-      false, '', '', '', '', '', '', '',
-      '2025-02-21', '07:00', '19:00', '06:00', '18:00',
-      '1000 Construction Ave', 'Denver', 'CO', 'US', '2000 Builder Blvd', 'Seattle', 'WA', 'US',
-      'Build Manager', '555-BUILD-123', 'build@construction.com', 'Construction Co', 'Site Supervisor', '555-SITE-456', 'site@builder.com', 'Builder Inc',
-      'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 40, 22,
-      ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['SATPU', 'SATDEL', 'LTDDEL', 'CONPU', 'CONDEL', 'INPU', 'INDEL'].includes(acc.code) ? true : false
-      )
-    ],
-    // Row 7: Large reefer shipment with all features
-    [
-      '2025-02-21', '30309', '60607', 15, 22000, true, true,
-      'FROZEN', 'FROZEN_SEAFOOD', true, '70', '567890', '06', 'Frozen Seafood Products', 'SEAFOOD', 'PLT', 15, 30, 48, 40, 48, 'IN', 'LB', 50000, 5000, 'SEAFOOD456', 'US',
-      false, '', '', '', '', '', '', '',
-      '2025-02-22', '05:00', '20:00', '04:00', '19:00',
-      '3000 Seafood Port;Dock 5', 'Atlanta', 'GA', 'US', '4000 Fish Market St;Cold Storage', 'Chicago', 'IL', 'US',
-      'Port Manager', '555-PORT-789', 'port@seafood.com', 'Seafood Port Co', 'Cold Storage Mgr', '555-COLD-012', 'cold@fishmarket.com', 'Fish Market Inc',
-      'USD', 'COLLECT', 'CONSIGNEE', 'IMPERIAL', true, true, true, true, true, true, 60, 36,
-      ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['INPU', 'INDEL', 'LGPU', 'LGDEL', 'APPTPU', 'APPTDEL', 'PIERPU', 'PIERDEL'].includes(acc.code) ? true : false
-      )
-    ],
-    // Row 8: Small precision shipment with special handling
-    [
-      '2025-02-22', '85001', '19101', 2, 1800, false, false,
-      'AMBIENT', '', false, '60', '678901', '07', 'Precision Instruments', 'INSTRUMENTS', 'CRATE', 2, 4, 36, 24, 24, 'IN', 'LB', 75000, 7500, 'PREC789', 'US',
-      false, '', '', '', '', '', '', '',
-      '', '', '', '', '',
-      '5000 Precision Way', 'Phoenix', 'AZ', 'US', '6000 Laboratory Dr', 'Philadelphia', 'PA', 'US',
-      'Precision Tech', '555-PREC-345', 'precision@tech.com', 'Precision Technologies', 'Lab Coordinator', '555-LAB-678', 'lab@research.com', 'Research Lab',
-      'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 35, 0,
-      ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['RESDEL', 'LGDEL', 'APPTDEL', 'EDUPU', 'EDUDEL'].includes(acc.code) ? true : false
       )
     ]
   ];
@@ -287,7 +329,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   const mainWsData = [allHeaders, ...sampleData];
   const mainWs = XLSX.utils.aoa_to_sheet(mainWsData);
   
-  // Set column widths - base columns get normal width, accessorial columns get smaller width
+  // Set column widths - base columns get normal width, item columns get medium width, accessorial columns get smaller width
   const colWidths = [
     // Core fields
     { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
@@ -306,6 +348,8 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     // API config fields
     { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
     { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 15 },
+    // Item columns (5 items × 9 fields each = 45 columns)
+    ...Array(45).fill({ wch: 12 }),
     // All accessorial columns get smaller width
     ...PROJECT44_ACCESSORIALS.map(() => ({ wch: 8 }))
   ];
@@ -313,6 +357,27 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   mainWs['!cols'] = colWidths;
   
   XLSX.utils.book_append_sheet(workbook, mainWs, 'RFQ Data');
+  
+  // Create multi-item instructions sheet
+  const multiItemHeaders = ['Feature', 'Description', 'Example'];
+  const multiItemData = [
+    ['Multi-Item Support', 'Each shipment can contain up to 5 different items with unique dimensions', 'Electronics shipment with servers, switches, and cables'],
+    ['Item Naming', 'Use pattern: item1_field, item2_field, etc.', 'item1_description, item1_totalWeight, item1_packageLength'],
+    ['Required Fields', 'Each item needs: description, totalWeight, freightClass, dimensions', 'item1_totalWeight=1500, item1_freightClass=70'],
+    ['Dimensions', 'Length, width, height in inches (or specified unit)', 'item1_packageLength=48, item1_packageWidth=40, item1_packageHeight=60'],
+    ['Package Types', 'PLT, BOX, CRATE, CARTON, DRUM, etc.', 'item1_packageType=PLT, item2_packageType=BOX'],
+    ['Stackable', 'TRUE/FALSE for each item individually', 'item1_stackable=TRUE, item2_stackable=FALSE'],
+    ['Weight Distribution', 'Total shipment weight should equal sum of all items', 'grossWeight=5000 = item1_totalWeight(2000) + item2_totalWeight(3000)'],
+    ['Freight Classes', 'Each item can have different freight class', 'item1_freightClass=70, item2_freightClass=85'],
+    ['Empty Items', 'Leave item fields blank if not used', 'Only fill item1_ and item2_ fields for 2-item shipment'],
+    ['Validation', 'System validates total weight matches item weights', 'Error if grossWeight ≠ sum of item weights']
+  ];
+  
+  const multiItemWsData = [multiItemHeaders, ...multiItemData];
+  const multiItemWs = XLSX.utils.aoa_to_sheet(multiItemWsData);
+  multiItemWs['!cols'] = [{ wch: 20 }, { wch: 50 }, { wch: 40 }];
+  
+  XLSX.utils.book_append_sheet(workbook, multiItemWs, 'Multi-Item Guide');
   
   // Create comprehensive field reference sheet
   const fieldHeaders = ['Field Name', 'Description', 'Type', 'Required', 'Example Values'];
@@ -324,26 +389,24 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['grossWeight', 'Total weight in pounds', 'Integer', 'Yes', '2500'],
     ['isStackable', 'Can pallets be stacked', 'Boolean', 'Yes', 'TRUE/FALSE'],
     ['isReefer', 'Route to FreshX reefer network', 'Boolean', 'Yes', 'TRUE/FALSE'],
+    ['item1_description', 'Description of first item', 'String', 'No', 'Electronics Equipment'],
+    ['item1_totalWeight', 'Weight of first item', 'Number', 'No', '1500'],
+    ['item1_freightClass', 'Freight class of first item', 'String', 'No', '70'],
+    ['item1_packageLength', 'Length of first item (inches)', 'Number', 'No', '48'],
+    ['item1_packageWidth', 'Width of first item (inches)', 'Number', 'No', '40'],
+    ['item1_packageHeight', 'Height of first item (inches)', 'Number', 'No', '60'],
+    ['item1_packageType', 'Package type of first item', 'String', 'No', 'PLT/BOX/CRATE'],
+    ['item1_stackable', 'Can first item be stacked', 'Boolean', 'No', 'TRUE/FALSE'],
+    ['item2_description', 'Description of second item', 'String', 'No', 'Small Components'],
+    ['item2_totalWeight', 'Weight of second item', 'Number', 'No', '1000'],
     ['temperature', 'Temperature requirement', 'String', 'No', 'AMBIENT/CHILLED/FROZEN'],
-    ['commodity', 'Commodity type', 'String', 'No', 'FOODSTUFFS/ICE_CREAM/etc'],
-    ['freightClass', 'NMFC freight class', 'String', 'No', '70/85/92.5/etc'],
-    ['nmfcCode', 'NMFC item code', 'String', 'No', '123456'],
-    ['packageType', 'Type of packaging', 'String', 'No', 'PLT/BOX/CRATE/etc'],
-    ['hazmat', 'Contains hazardous materials', 'Boolean', 'No', 'TRUE/FALSE'],
-    ['hazmatClass', 'DOT hazard class', 'String', 'No', '9/3/etc'],
-    ['totalValue', 'Shipment value for insurance', 'Number', 'No', '5000'],
+    ['freightClass', 'Default freight class', 'String', 'No', '70/85/92.5/etc'],
+    ['packageType', 'Default package type', 'String', 'No', 'PLT/BOX/CRATE/etc'],
     ['originCity', 'Origin city name', 'String', 'No', 'Chicago'],
-    ['originState', 'Origin state abbreviation', 'String', 'No', 'IL'],
     ['destinationCity', 'Destination city name', 'String', 'No', 'Atlanta'],
-    ['destinationState', 'Destination state abbreviation', 'String', 'No', 'GA'],
     ['pickupContactName', 'Pickup contact person', 'String', 'No', 'John Smith'],
-    ['pickupContactPhone', 'Pickup contact phone', 'String', 'No', '555-123-4567'],
     ['deliveryContactName', 'Delivery contact person', 'String', 'No', 'Jane Doe'],
-    ['deliveryContactPhone', 'Delivery contact phone', 'String', 'No', '555-987-6543'],
-    ['preferredCurrency', 'Currency for quotes', 'String', 'No', 'USD/CAD/MXN'],
-    ['paymentTerms', 'Payment responsibility', 'String', 'No', 'PREPAID/COLLECT/THIRD_PARTY'],
-    ['totalLinearFeet', 'Linear feet (for VLTL)', 'Integer', 'No', '30'],
-    ['apiTimeout', 'API timeout in seconds', 'Integer', 'No', '30']
+    ['totalLinearFeet', 'Linear feet (for VLTL)', 'Integer', 'No', '30']
   ];
   
   const fieldWsData = [fieldHeaders, ...fieldData];
@@ -361,7 +424,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['Volume LTL', 'FALSE', 'AMBIENT or blank', '10-25', '15,000+', 'Project44 Volume LTL only', 'Large dry goods shipments'],
     ['FreshX Reefer', 'TRUE', 'CHILLED or FROZEN', 'Any', 'Any', 'FreshX Reefer network', 'Temperature-controlled goods marked as reefer'],
     ['Project44 Standard', 'FALSE', 'CHILLED or FROZEN', 'Any', 'Any', 'Project44 Standard LTL', 'Temperature-controlled but not marked as reefer'],
-    ['Mixed Opportunity', 'FALSE', 'AMBIENT', '8-15', '10,000-25,000', 'Both Standard + Volume LTL', 'Borderline cases test both modes']
+    ['Mixed Items', 'FALSE', 'AMBIENT', '5-15', '8,000-20,000', 'Project44 LTL or VLTL', 'Multiple items with different dimensions']
   ];
   
   const routingWsData = [routingHeaders, ...routingData];
@@ -379,7 +442,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   const accessorialData = PROJECT44_ACCESSORIALS.map((acc, index) => [
     acc.code,
     acc.label,
-    `Column ${String.fromCharCode(75 + baseHeaders.length + index)}` // After all base headers
+    `Column ${String.fromCharCode(75 + baseHeaders.length + 45 + index)}` // After all base headers + 45 item columns
   ]);
   
   const accessorialWsData = [project44AccessorialHeaders, ...accessorialData];
@@ -394,127 +457,108 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   
   // Create comprehensive instructions sheet
   const instructionsData = [
-    ['Comprehensive Project44 API Template Instructions'],
+    ['Multi-Item Dimensions Project44 API Template Instructions'],
     [''],
-    ['🧠 SMART ROUTING SYSTEM'],
-    ['This template uses a single "isReefer" field to control routing:'],
+    ['🧠 SMART ROUTING WITH MULTI-ITEM SUPPORT'],
+    ['This template supports shipments with multiple items having different dimensions:'],
     ['• isReefer = TRUE → Routes to FreshX reefer network'],
     ['• isReefer = FALSE → Routes to Project44 networks (LTL/VLTL based on size)'],
+    ['• Each shipment can contain up to 5 different items with unique dimensions'],
     [''],
-    ['📊 COMPREHENSIVE PROJECT44 API SUPPORT:'],
+    ['📦 MULTI-ITEM CAPABILITIES:'],
     [''],
-    ['This template includes ALL fields supported by the Project44 API:'],
-    ['• Complete address information (street, city, state, country)'],
-    ['• Detailed contact information (pickup and delivery contacts)'],
-    ['• Comprehensive shipment details (dimensions, weight, class, NMFC)'],
-    ['• Hazmat information (class, ID, packing group, emergency contact)'],
-    ['• Timing windows (pickup and delivery time windows)'],
-    ['• API configuration options (timeouts, service level preferences)'],
-    ['• Insurance and valuation information'],
-    ['• International shipping support (country codes, harmonized codes)'],
-    ['• All 67 Project44 accessorial services as individual columns'],
+    ['Each shipment can contain multiple items with different:'],
+    ['• Dimensions (length, width, height)'],
+    ['• Weights and freight classes'],
+    ['• Package types (PLT, BOX, CRATE, etc.)'],
+    ['• Stackability requirements'],
+    ['• Descriptions and commodity types'],
     [''],
-    ['📋 REQUIRED FIELDS:'],
-    ['• fromDate: Pickup date (YYYY-MM-DD format)'],
-    ['• fromZip/toZip: 5-digit US zip codes'],
-    ['• pallets: Number of pallets (affects LTL vs VLTL classification)'],
-    ['• grossWeight: Total weight in pounds (affects LTL vs VLTL classification)'],
-    ['• isStackable: TRUE/FALSE for stackable pallets'],
-    ['• isReefer: TRUE for FreshX reefer, FALSE for Project44 networks'],
+    ['🏗️ ITEM FIELD STRUCTURE:'],
     [''],
-    ['🎯 OPTIONAL ENHANCED FIELDS:'],
-    ['• Address Details: Full street addresses, cities, states, countries'],
-    ['• Contact Information: Names, phones, emails for pickup/delivery'],
-    ['• Shipment Details: Freight class, NMFC codes, package types'],
-    ['• Dimensions: Length, width, height for accurate cubic calculations'],
-    ['• Hazmat: Complete DOT hazmat information including emergency contacts'],
-    ['• Timing: Specific pickup and delivery time windows'],
-    ['• Valuation: Total value and insurance amounts'],
-    ['• International: Country of manufacture, harmonized codes'],
-    ['• API Config: Timeout settings, service level preferences'],
+    ['For each item (1-5), use these field patterns:'],
+    ['• item1_description: "Electronics Equipment"'],
+    ['• item1_totalWeight: 1500 (pounds)'],
+    ['• item1_freightClass: "70"'],
+    ['• item1_packageLength: 48 (inches)'],
+    ['• item1_packageWidth: 40 (inches)'],
+    ['• item1_packageHeight: 60 (inches)'],
+    ['• item1_packageType: "PLT" (or BOX, CRATE, etc.)'],
+    ['• item1_totalPackages: 2'],
+    ['• item1_stackable: TRUE/FALSE'],
     [''],
-    ['🔧 API CONFIGURATION OPTIONS:'],
-    ['• allowUnacceptedAccessorials: Allow quotes even if carrier rejects some accessorials'],
-    ['• fetchAllGuaranteed: Get all guaranteed service level options'],
-    ['• fetchAllInsideDelivery: Get all inside delivery options'],
-    ['• fetchAllServiceLevels: Get all available service levels'],
-    ['• enableUnitConversion: Allow automatic unit conversions'],
-    ['• fallBackToDefaultAccountGroup: Use default if account group invalid'],
-    ['• apiTimeout: Request timeout in seconds (default: 30)'],
+    ['📋 REQUIRED FIELDS FOR EACH ITEM:'],
+    ['• description: Brief description of the item'],
+    ['• totalWeight: Weight in pounds (required)'],
+    ['• freightClass: NMFC freight class (required)'],
+    ['• packageLength: Length in inches (required)'],
+    ['• packageWidth: Width in inches (required)'],
+    ['• packageHeight: Height in inches (required)'],
     [''],
-    ['📦 PACKAGE AND SHIPMENT DETAILS:'],
-    ['• packageType: PLT, BOX, CRATE, DRUM, etc.'],
-    ['• packageLength/Width/Height: Dimensions in inches'],
-    ['• totalPackages: Number of packages'],
-    ['• totalPieces: Total piece count'],
-    ['• freightClass: NMFC freight class (50, 70, 85, etc.)'],
-    ['• nmfcCode: NMFC item code'],
-    ['• commodityDescription: Detailed description'],
-    ['• totalValue: For insurance calculations'],
+    ['🎯 OPTIONAL ITEM FIELDS:'],
+    ['• packageType: PLT, BOX, CRATE, CARTON, DRUM, etc.'],
+    ['• totalPackages: Number of packages for this item'],
+    ['• stackable: Whether this specific item can be stacked'],
+    ['• totalValue: Value for insurance purposes'],
+    ['• nmfcItemCode: Specific NMFC code for this item'],
+    ['• hazmat: TRUE if this item is hazardous'],
     [''],
-    ['☢️ HAZMAT INFORMATION:'],
-    ['• hazmat: TRUE/FALSE if shipment contains hazardous materials'],
-    ['• hazmatClass: DOT hazard class (1-9)'],
-    ['• hazmatIdNumber: UN or NA identification number'],
-    ['• hazmatPackingGroup: I, II, III, or NONE'],
-    ['• hazmatProperShippingName: Official shipping name'],
-    ['• emergencyContactName/Phone/Company: 24/7 emergency contact'],
+    ['⚖️ WEIGHT VALIDATION:'],
     [''],
-    ['🌍 INTERNATIONAL SHIPPING:'],
-    ['• originCountry/destinationCountry: ISO country codes'],
-    ['• countryOfManufacture: Where goods were manufactured'],
-    ['• harmonizedCode: HS code for customs'],
-    ['• preferredCurrency: USD, CAD, MXN, EUR'],
+    ['The system validates that:'],
+    ['• grossWeight = sum of all item weights'],
+    ['• Each item has a valid weight > 0'],
+    ['• Total weight is reasonable for the number of pallets'],
     [''],
-    ['⏰ TIMING AND WINDOWS:'],
-    ['• deliveryDate: Requested delivery date'],
-    ['• pickupStartTime/EndTime: Pickup window (HH:MM format)'],
-    ['• deliveryStartTime/EndTime: Delivery window (HH:MM format)'],
+    ['📊 EXAMPLE MULTI-ITEM SCENARIOS:'],
     [''],
-    ['💰 PAYMENT AND BILLING:'],
-    ['• paymentTerms: PREPAID, COLLECT, THIRD_PARTY'],
-    ['• direction: SHIPPER, CONSIGNEE, THIRD_PARTY'],
-    ['• preferredSystemOfMeasurement: METRIC or IMPERIAL'],
+    ['1. ELECTRONICS SHIPMENT:'],
+    ['   • item1: Large servers (60"×48"×72", 8000 lbs, Class 85)'],
+    ['   • item2: Small components (36"×24"×36", 3000 lbs, Class 92.5)'],
+    ['   • item3: Accessories (24"×18"×24", 2000 lbs, Class 100)'],
     [''],
-    ['📞 CONTACT INFORMATION:'],
-    ['• pickupContactName/Phone/Email/Company: Pickup location contact'],
-    ['• deliveryContactName/Phone/Email/Company: Delivery location contact'],
+    ['2. CONSTRUCTION MATERIALS:'],
+    ['   • item1: Steel beams (120"×8"×8", 6000 lbs, Class 125)'],
+    ['   • item2: Concrete blocks (48"×40"×24", 4000 lbs, Class 150)'],
+    ['   • item3: Hardware boxes (24"×18"×18", 1000 lbs, Class 100)'],
     [''],
-    ['📏 VOLUME LTL SPECIFIC:'],
-    ['• totalLinearFeet: Required for VLTL quotes (auto-calculated if not provided)'],
+    ['3. MIXED FOOD PRODUCTS:'],
+    ['   • item1: Dairy pallets (48"×40"×36", 1500 lbs, Class 70)'],
+    ['   • item2: Frozen meat (36"×24"×48", 2000 lbs, Class 70)'],
+    ['   • item3: Fresh produce (24"×18"×18", 1000 lbs, Class 70)'],
     [''],
     ['🔄 PROCESSING WORKFLOW:'],
     ['1. Upload this comprehensive file to Smart Routing Processor'],
-    ['2. System validates all fields and applies smart routing logic'],
+    ['2. System validates all fields and item dimensions'],
     ['3. Routes to FreshX (if isReefer=TRUE) or Project44 (if isReefer=FALSE)'],
-    ['4. For Project44: Uses ALL provided data for most accurate quotes'],
-    ['5. Automatically determines LTL vs VLTL based on size/weight'],
+    ['4. For Project44: Uses ALL item data for most accurate cubic calculations'],
+    ['5. Each item contributes to total linear feet and cubic volume'],
     ['6. Returns detailed quotes with full Project44 API response data'],
     [''],
-    ['💡 BEST PRACTICES:'],
-    ['• Fill in as many fields as possible for most accurate quotes'],
-    ['• Use complete addresses for better routing and pricing'],
-    ['• Provide contact information for smoother shipment coordination'],
-    ['• Include accurate dimensions for precise cubic calculations'],
-    ['• Specify freight class and NMFC codes when known'],
-    ['• Set appropriate API timeouts for your network conditions'],
+    ['💡 BEST PRACTICES FOR MULTI-ITEM SHIPMENTS:'],
+    ['• Provide accurate dimensions for each item type'],
+    ['• Use appropriate freight classes for each item'],
+    ['• Specify stackability for each item individually'],
+    ['• Include detailed descriptions for better handling'],
+    ['• Ensure total weight equals sum of all item weights'],
+    ['• Use consistent units (inches for dimensions, pounds for weight)'],
     [''],
     ['⚠️ IMPORTANT NOTES:'],
-    ['• The isReefer field is the primary routing control'],
-    ['• More data = more accurate quotes and better service'],
-    ['• All fields are optional except the core required fields'],
-    ['• System will use sensible defaults for missing optional data'],
-    ['• Hazmat shipments require complete hazmat information'],
-    ['• International shipments need country and customs codes'],
+    ['• Leave unused item fields blank (e.g., if only 2 items, leave item3-5 blank)'],
+    ['• Each item can have different freight classes and package types'],
+    ['• System automatically calculates total cubic volume from all items'],
+    ['• Linear feet calculation considers all item dimensions'],
+    ['• Stackability is evaluated per item, not per shipment'],
+    ['• Mixed freight classes may affect overall pricing'],
     [''],
     ['🎯 EXPECTED RESULTS:'],
-    ['Each shipment will be processed with maximum API data utilization:'],
-    ['• isReefer=TRUE: FreshX reefer network with temperature controls'],
-    ['• isReefer=FALSE: Project44 with full API feature utilization'],
-    ['• Comprehensive quote details including all charges and fees'],
-    ['• Accurate transit times based on complete shipment data'],
-    ['• Detailed carrier information and service level options'],
-    ['• Full accessorial service pricing and availability']
+    ['Each multi-item shipment will be processed with:'],
+    ['• Accurate cubic calculations based on actual item dimensions'],
+    ['• Proper freight class handling for mixed-class shipments'],
+    ['• Optimized loading and space utilization'],
+    ['• Detailed breakdown of charges per item when available'],
+    ['• Enhanced carrier selection based on item-specific requirements'],
+    ['• Improved transit time estimates considering all items']
   ];
   
   const instructionsWs = XLSX.utils.aoa_to_sheet(instructionsData);
@@ -526,7 +570,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
 };
 
 export const downloadProject44ExcelTemplate = () => {
-  console.log('Generating comprehensive Project44 API Excel template...');
+  console.log('Generating multi-item dimensions Project44 API Excel template...');
   const excelBuffer = generateUnifiedSmartTemplate();
   const blob = new Blob([excelBuffer], { 
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
@@ -535,7 +579,7 @@ export const downloadProject44ExcelTemplate = () => {
   
   const link = document.createElement('a');
   link.href = url;
-  link.download = 'project44-comprehensive-api-template.xlsx';
+  link.download = 'project44-multi-item-dimensions-template.xlsx';
   link.style.display = 'none';
   
   document.body.appendChild(link);
@@ -543,7 +587,7 @@ export const downloadProject44ExcelTemplate = () => {
   document.body.removeChild(link);
   
   URL.revokeObjectURL(url);
-  console.log('Comprehensive Project44 API template download initiated');
+  console.log('Multi-item dimensions Project44 API template download initiated');
 };
 
 // Legacy functions for backward compatibility
