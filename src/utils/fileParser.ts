@@ -133,9 +133,12 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
   const packageType = row.packagetype || '';
   const totalPackages = parseInt(row.totalpackages || '0') || undefined;
   const totalPieces = parseInt(row.totalpieces || '0') || undefined;
-  const packageLength = parseFloat(row.packagelength || '0') || undefined;
-  const packageWidth = parseFloat(row.packagewidth || '0') || undefined;
-  const packageHeight = parseFloat(row.packageheight || '0') || undefined;
+  
+  // REMOVED: Legacy packageLength/Width/Height parsing - using ONLY itemized approach
+  // const packageLength = parseFloat(row.packagelength || '0') || undefined;
+  // const packageWidth = parseFloat(row.packagewidth || '0') || undefined;
+  // const packageHeight = parseFloat(row.packageheight || '0') || undefined;
+  
   const lengthUnit = row.lengthunit || '';
   const weightUnit = row.weightunit || '';
   const preferredCurrency = row.preferredcurrency || '';
@@ -182,7 +185,7 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
   const apiTimeout = parseInt(row.apitimeout || '30') || undefined;
   const totalLinearFeet = parseInt(row.totallinearfeet || '0') || undefined;
   
-  // Parse multiple line items with different dimensions
+  // Parse multiple line items with different dimensions - ONLY itemized approach
   const lineItems = parseLineItems(row, index);
   
   // Validation
@@ -200,6 +203,14 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
   }
   if (!grossWeight || grossWeight < 1 || grossWeight > 100000) {
     errors.push('Gross weight must be between 1 and 100000');
+  }
+  
+  // Validate that if line items exist, total weight matches
+  if (lineItems.length > 0) {
+    const itemTotalWeight = lineItems.reduce((sum, item) => sum + item.totalWeight, 0);
+    if (Math.abs(grossWeight - itemTotalWeight) > 10) { // Allow 10 lb tolerance
+      errors.push(`Gross weight (${grossWeight}) must equal sum of item weights (${itemTotalWeight})`);
+    }
   }
   
   if (errors.length > 0) {
@@ -240,9 +251,12 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
   if (packageType) result.packageType = packageType as any;
   if (totalPackages) result.totalPackages = totalPackages;
   if (totalPieces) result.totalPieces = totalPieces;
-  if (packageLength) result.packageLength = packageLength;
-  if (packageWidth) result.packageWidth = packageWidth;
-  if (packageHeight) result.packageHeight = packageHeight;
+  
+  // REMOVED: Legacy dimension fields - using ONLY itemized approach
+  // if (packageLength) result.packageLength = packageLength;
+  // if (packageWidth) result.packageWidth = packageWidth;
+  // if (packageHeight) result.packageHeight = packageHeight;
+  
   if (lengthUnit) result.lengthUnit = lengthUnit as any;
   if (weightUnit) result.weightUnit = weightUnit as any;
   if (preferredCurrency) result.preferredCurrency = preferredCurrency as any;
@@ -329,6 +343,13 @@ const parseLineItems = (row: any, rowIndex: number): LineItemData[] => {
     
     // Skip if missing required fields
     if (!totalWeight || !freightClass || !packageLength || !packageWidth || !packageHeight) {
+      console.log(`⚠️ Skipping item ${itemId} - missing required fields:`, {
+        totalWeight,
+        freightClass,
+        packageLength,
+        packageWidth,
+        packageHeight
+      });
       return;
     }
     
@@ -358,12 +379,20 @@ const parseLineItems = (row: any, rowIndex: number): LineItemData[] => {
       hazmatProperShippingName: item.hazmatpropershippingname || ''
     };
     
+    console.log(`✅ Parsed item ${itemId}:`, {
+      description: lineItem.description,
+      totalWeight: lineItem.totalWeight,
+      freightClass: lineItem.freightClass,
+      dimensions: `${lineItem.packageLength}×${lineItem.packageWidth}×${lineItem.packageHeight}`
+    });
+    
     lineItems.push(lineItem);
   });
   
   // Sort by item ID
   lineItems.sort((a, b) => a.id - b.id);
   
+  console.log(`📦 Parsed ${lineItems.length} line items for row ${rowIndex + 1}`);
   return lineItems;
 };
 

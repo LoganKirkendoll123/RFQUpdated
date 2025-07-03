@@ -32,9 +32,10 @@ export interface RFQRow {
   packageType?: 'BAG' | 'BALE' | 'BOX' | 'BUCKET' | 'BUNDLE' | 'CAN' | 'CARTON' | 'CASE' | 'COIL' | 'CRATE' | 'CYLINDER' | 'DRUM' | 'PAIL' | 'PLT' | 'PIECES' | 'REEL' | 'ROLL' | 'SKID' | 'TOTE' | 'TUBE';
   totalPackages?: number;
   totalPieces?: number;
-  packageLength?: number;
-  packageWidth?: number;
-  packageHeight?: number;
+  // REMOVED: Legacy dimension fields - using ONLY itemized approach
+  // packageLength?: number;
+  // packageWidth?: number;
+  // packageHeight?: number;
   lengthUnit?: 'IN' | 'CM' | 'FT' | 'M';
   weightUnit?: 'LB' | 'KG';
   preferredCurrency?: 'USD' | 'CAD' | 'MXN' | 'EUR';
@@ -81,7 +82,7 @@ export interface RFQRow {
   apiTimeout?: number;
   totalLinearFeet?: number;
   
-  // Multi-item support with different dimensions
+  // Multi-item support with different dimensions - ONLY itemized approach
   lineItems?: LineItemData[];
   
   // Service level selection - kept for UI purposes but not sent to API
