@@ -19,12 +19,14 @@ import {
   Info,
   Filter,
   Calendar,
-  Loader
+  Loader,
+  MapPin
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
-import { Project44APIClient } from '../utils/apiClient';
+import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { loadProject44Config } from '../utils/credentialStorage';
+import { RFQRow } from '../types';
 
 interface CustomerCarrier {
   MarkupId: number;
@@ -111,7 +113,7 @@ export const MarginAnalysisTools: React.FC = () => {
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [customers, setCustomers] = useState<string[]>([]);
   const [carriers, setCarriers] = useState<string[]>([]);
-  const [carrierGroups, setCarrierGroups] = useState<{[key: string]: string[]}>({});
+  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
   
   // New Carrier Margin Discovery
   const [startDate, setStartDate] = useState<string>('');
@@ -178,28 +180,7 @@ export const MarginAnalysisTools: React.FC = () => {
       
       // Extract unique customers and carriers
       const uniqueCustomers = [...new Set((ccData || []).map(cc => cc.InternalName).filter(Boolean))];
-      const uniqueCarriers = [...new Set((ccData || []).map(cc => cc.P44CarrierCode).filter(Boolean))];
-      
       setCustomers(uniqueCustomers);
-      setCarriers(uniqueCarriers);
-      
-      // Group carriers by account group
-      const groups: {[key: string]: string[]} = {};
-      (ccData || []).forEach(cc => {
-        if (cc.P44CarrierCode) {
-          // For this example, we'll create simple groups based on the first letter
-          // In a real implementation, you would use actual account groups from your data
-          const groupKey = cc.P44CarrierCode.charAt(0).toUpperCase();
-          if (!groups[groupKey]) {
-            groups[groupKey] = [];
-          }
-          if (!groups[groupKey].includes(cc.P44CarrierCode)) {
-            groups[groupKey].push(cc.P44CarrierCode);
-          }
-        }
-      });
-      
-      setCarrierGroups(groups);
       
       // Set default dates for the last 30 days
       const today = new Date();
@@ -209,10 +190,45 @@ export const MarginAnalysisTools: React.FC = () => {
       setEndDate(today.toISOString().split('T')[0]);
       setStartDate(thirtyDaysAgo.toISOString().split('T')[0]);
       
+      // Load carrier groups from Project44
+      await loadCarrierGroups();
+      
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCarrierGroups = async () => {
+    try {
+      // Initialize Project44 client
+      const p44Config = loadProject44Config();
+      if (!p44Config) {
+        throw new Error('Project44 configuration not found');
+      }
+      
+      const p44Client = new Project44APIClient(p44Config);
+      
+      // Load carrier groups
+      const groups = await p44Client.getAvailableCarriersByGroup();
+      setCarrierGroups(groups);
+      
+      // Extract unique carriers
+      const allCarriers: string[] = [];
+      groups.forEach(group => {
+        group.carriers.forEach(carrier => {
+          if (carrier.id && !allCarriers.includes(carrier.id)) {
+            allCarriers.push(carrier.id);
+          }
+        });
+      });
+      
+      setCarriers(allCarriers);
+      
+    } catch (err) {
+      console.error('Error loading carrier groups:', err);
+      setError('Failed to load carrier groups from Project44. Please check your API configuration.');
     }
   };
 
@@ -273,7 +289,14 @@ export const MarginAnalysisTools: React.FC = () => {
       }
       
       // 2. Get competitor carriers in the selected group
-      const competitorCarriers = carrierGroups[competitorGroup] || [];
+      const selectedGroup = carrierGroups.find(group => group.groupCode === competitorGroup);
+      if (!selectedGroup) {
+        setError('Selected competitor group not found');
+        setIsProcessing(false);
+        return;
+      }
+      
+      const competitorCarriers = selectedGroup.carriers.map(c => c.id).filter(id => id !== newCarrierCode);
       if (competitorCarriers.length === 0) {
         setError('No competitor carriers found in the selected group');
         setIsProcessing(false);
@@ -307,7 +330,7 @@ export const MarginAnalysisTools: React.FC = () => {
         const shipment = filteredShipments[i];
         
         // Create RFQ from shipment
-        const rfq = {
+        const rfq: RFQRow = {
           fromDate: shipment["Pickup Date"] || new Date().toISOString().split('T')[0],
           fromZip: shipment["Origin Postal Code"] || '',
           toZip: shipment["Destination Postal Code"] || '',
@@ -353,7 +376,9 @@ export const MarginAnalysisTools: React.FC = () => {
               );
               
               const marginPercentage = margin ? parseFloat(margin.Percentage || '0') : 0;
-              const customerPrice = rate / (1 - (marginPercentage / 100));
+              const customerPrice = marginPercentage > 0 ? 
+                rate / (1 - (marginPercentage / 100)) : 
+                rate;
               
               competitorRates.push({
                 carrierCode: competitorCode,
@@ -375,7 +400,7 @@ export const MarginAnalysisTools: React.FC = () => {
           
           // Calculate margin needed to match average competitor price
           if (avgCompetitorPrice > newCarrierRate) {
-            recommendedMargin = ((avgCompetitorPrice - newCarrierRate) / newCarrierRate) * 100;
+            recommendedMargin = ((avgCompetitorPrice - newCarrierRate) / avgCompetitorPrice) * 100;
           }
         }
         
@@ -478,7 +503,7 @@ export const MarginAnalysisTools: React.FC = () => {
     
     const currentCost = shipment.Cost || 0;
     const targetPrice = shipment.Price || 0;
-    const requiredMargin = ((targetPrice - newNegotiatedRate) / newNegotiatedRate) * 100;
+    const requiredMargin = ((targetPrice - newNegotiatedRate) / targetPrice) * 100;
     const currentMargin = shipment.Margin || 0;
     const marginDifference = requiredMargin - currentMargin;
     const profitDifference = (targetPrice - newNegotiatedRate) - (targetPrice - currentCost);
@@ -631,8 +656,10 @@ export const MarginAnalysisTools: React.FC = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Select Competitor Group</option>
-              {Object.keys(carrierGroups).map(group => (
-                <option key={group} value={group}>Group {group} ({carrierGroups[group].length} carriers)</option>
+              {carrierGroups.map(group => (
+                <option key={group.groupCode} value={group.groupCode}>
+                  {group.groupName} ({group.carriers.length} carriers)
+                </option>
               ))}
             </select>
           </div>
@@ -774,7 +801,12 @@ export const MarginAnalysisTools: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">{shipment.originalShipment.Customer}</td>
                       <td className="px-6 py-4 text-sm text-gray-900">
-                        {shipment.originalShipment["Origin Postal Code"]} → {shipment.originalShipment["Destination Postal Code"]}
+                        <div className="flex items-center space-x-2">
+                          <MapPin className="h-4 w-4 text-gray-400" />
+                          <span>
+                            {shipment.originalShipment["Origin Postal Code"]} → {shipment.originalShipment["Destination Postal Code"]}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(shipment.newCarrierRate)}</td>
                       <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(avgCompetitorPrice)}</td>
