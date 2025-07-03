@@ -383,39 +383,65 @@ export const MarginAnalysisTools: React.FC = () => {
     return rates.filter(rate => rate >= lowerBound && rate <= upperBound);
   };
 
-  // FIXED: Function to get customer margin for a specific carrier from database
+  // FIXED: Function to get customer margin for a specific carrier - now case-insensitive
   const getCustomerMarginForCarrier = (customerName: string, carrierCode: string): number => {
-    console.log(`🔍 Looking up margin for customer: "${customerName}", carrier: "${carrierCode}"`);
+    // Normalize inputs - trim whitespace and convert to uppercase for case-insensitive comparison
+    const normalizedCustomerName = customerName.trim().toUpperCase();
+    const normalizedCarrierCode = carrierCode.trim().toUpperCase();
     
-    // First try exact match with carrier code
+    console.log(`🔍 Looking up margin for customer: "${normalizedCustomerName}", carrier: "${normalizedCarrierCode}"`);
+    
+    // First try exact match with carrier code (case-insensitive)
     let margin = customerCarrierMargins.find(
-      m => m["InternalName"] === customerName && m["P44CarrierCode"] === carrierCode
+      m => m["InternalName"]?.trim().toUpperCase() === normalizedCustomerName && 
+           m["P44CarrierCode"]?.trim().toUpperCase() === normalizedCarrierCode
     );
     
     if (margin) {
       const percentage = parseFloat(margin["Percentage"] || '15');
-      console.log(`✅ Found exact match: ${customerName} + ${carrierCode} = ${percentage}%`);
+      console.log(`✅ Found exact match: ${normalizedCustomerName} + ${normalizedCarrierCode} = ${percentage}%`);
       return percentage;
     }
     
-    // Try to find by carrier name if no exact code match
-    const targetCarrier = getCarriersInGroup(selectedTargetGroup).find(c => c.id === carrierCode);
+    // Try to find by carrier name if no exact code match (case-insensitive)
+    const targetCarrier = getCarriersInGroup(selectedTargetGroup).find(c => c.id.toUpperCase() === normalizedCarrierCode);
     if (targetCarrier) {
+      const normalizedTargetCarrierName = targetCarrier.name.trim().toUpperCase();
+      
       margin = customerCarrierMargins.find(
-        m => m["InternalName"] === customerName && 
-        (m["P44CarrierCode"] === targetCarrier.name || 
-         m["P44CarrierCode"]?.toLowerCase().includes(targetCarrier.name.toLowerCase()) ||
-         targetCarrier.name.toLowerCase().includes(m["P44CarrierCode"]?.toLowerCase() || ''))
+        m => m["InternalName"]?.trim().toUpperCase() === normalizedCustomerName && 
+        (m["P44CarrierCode"]?.trim().toUpperCase() === normalizedTargetCarrierName || 
+         m["P44CarrierCode"]?.trim().toUpperCase().includes(normalizedTargetCarrierName) ||
+         normalizedTargetCarrierName.includes(m["P44CarrierCode"]?.trim().toUpperCase() || ''))
       );
       
       if (margin) {
         const percentage = parseFloat(margin["Percentage"] || '15');
-        console.log(`✅ Found name match: ${customerName} + ${targetCarrier.name} = ${percentage}%`);
+        console.log(`✅ Found name match: ${normalizedCustomerName} + ${normalizedTargetCarrierName} = ${percentage}%`);
         return percentage;
       }
     }
     
-    console.log(`⚠️ No margin found for ${customerName} + ${carrierCode}, using default 15%`);
+    // Try partial matching for customer name (case-insensitive)
+    const partialMatches = customerCarrierMargins.filter(
+      m => m["InternalName"]?.trim().toUpperCase().includes(normalizedCustomerName) || 
+           normalizedCustomerName.includes(m["InternalName"]?.trim().toUpperCase() || '')
+    );
+    
+    if (partialMatches.length > 0) {
+      // Find the best partial match with the carrier
+      const bestMatch = partialMatches.find(
+        m => m["P44CarrierCode"]?.trim().toUpperCase() === normalizedCarrierCode
+      );
+      
+      if (bestMatch) {
+        const percentage = parseFloat(bestMatch["Percentage"] || '15');
+        console.log(`✅ Found partial customer match: ${bestMatch["InternalName"]} + ${normalizedCarrierCode} = ${percentage}%`);
+        return percentage;
+      }
+    }
+    
+    console.log(`⚠️ No margin found for ${normalizedCustomerName} + ${normalizedCarrierCode}, using default 15%`);
     return 15; // Default to 15% if not found
   };
 
@@ -931,7 +957,7 @@ export const MarginAnalysisTools: React.FC = () => {
                   <li>Get rates from target carrier: <strong>{getCarriersInGroup(selectedTargetGroup).find(c => c.id === selectedTargetCarrier)?.name || 'Not selected'}</strong></li>
                   <li>Get rates from <strong>ALL carriers</strong> in competitor group: {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
                   <li><strong>Remove outliers</strong> from competitor costs using IQR method</li>
-                  <li><strong>Look up customer-carrier margins</strong> from CustomerCarriers database table</li>
+                  <li><strong>Look up customer-carrier margins</strong> from CustomerCarriers database table (case-insensitive)</li>
                   <li>Mark up remaining competitor costs using <strong>database margins and CORRECT formula: cost / (1 - margin)</strong></li>
                   <li>Calculate average of marked-up competitor prices as <strong>target price</strong></li>
                   <li>Calculate recommended margin: <strong>(Target Price - Target Carrier Cost) / Target Price</strong></li>
