@@ -17,8 +17,7 @@ import {
   Calendar,
   Filter,
   Search,
-  X,
-  Check
+  X
 } from 'lucide-react';
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { loadProject44Config } from '../utils/credentialStorage';
@@ -46,24 +45,23 @@ interface MarginAnalysisResult {
   averageCompetitorCostWithoutOutliers: number;
   targetPrice: number;
   recommendedMargin: number;
-  targetCarrierMargin: number;
   shipmentCount: number;
 }
 
-// Updated interface matching your exact database schema
 interface ShipmentData {
   "Invoice #": number;
-  "Customer"?: string;
-  "Zip"?: string;
-  "Zip_1"?: string;
-  "Tot Packages"?: number;
-  "Tot Weight"?: string;
-  "Scheduled Pickup Date"?: string;
-  "Service Level"?: string;
-  "Booked Carrier"?: string;
-  "Quoted Carrier"?: string;
-  "Revenue"?: string;
-  "Carrier Expense"?: string;
+  "Customer": string;
+  "Zip": string;
+  "Zip_1": string;
+  "Tot Packages": number;
+  "Tot Weight": string;
+  "Scheduled Pickup Date": string;
+  "Service Level": string;
+  "Booked Carrier": string;
+  "Quoted Carrier": string;
+  "SCAC": string;
+  "Revenue": string;
+  "Carrier Expense": string;
 }
 
 interface CustomerCarrierMargin {
@@ -78,29 +76,26 @@ export const MarginAnalysisTools: React.FC = () => {
   const [selectedTargetGroup, setSelectedTargetGroup] = useState('');
   const [selectedTargetCarrier, setSelectedTargetCarrier] = useState('');
   const [selectedCompetitorGroup, setSelectedCompetitorGroup] = useState('');
-  const [selectedCompetitorCarriers, setSelectedCompetitorCarriers] = useState<{[carrierId: string]: boolean}>({});
+  const [selectedCompetitorCarriers, setSelectedCompetitorCarriers] = useState<string[]>([]);
   const [results, setResults] = useState<MarginAnalysisResult[]>([]);
   const [error, setError] = useState<string>('');
   const [processingStatus, setProcessingStatus] = useState<string>('');
   const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
   const [isCarriersLoading, setIsCarriersLoading] = useState(false);
   
-  // Date range and customer filtering
+  // Date range and customer filtering with search
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [selectedCustomer, setSelectedCustomer] = useState('');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState('');
   const [availableCustomers, setAvailableCustomers] = useState<string[]>([]);
   const [filteredCustomers, setFilteredCustomers] = useState<string[]>([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [shipmentData, setShipmentData] = useState<ShipmentData[]>([]);
   const [isLoadingShipments, setIsLoadingShipments] = useState(false);
 
   // Customer carrier margins
   const [customerCarrierMargins, setCustomerCarrierMargins] = useState<CustomerCarrierMargin[]>([]);
-  
-  // UI state
-  const [showCompetitorCarrierSelector, setShowCompetitorCarrierSelector] = useState(false);
 
   useEffect(() => {
     initializeClient();
@@ -119,22 +114,14 @@ export const MarginAnalysisTools: React.FC = () => {
   // Filter customers based on search term
   useEffect(() => {
     if (customerSearchTerm.trim() === '') {
-      // Show first 100 customers when no search term
-      setFilteredCustomers(availableCustomers.slice(0, 100));
+      setFilteredCustomers(availableCustomers.slice(0, 50)); // Show first 50 when no search
     } else {
-      // Show ALL matching customers, no limit
       const filtered = availableCustomers.filter(customer =>
         customer.toLowerCase().includes(customerSearchTerm.toLowerCase())
-      );
+      ).slice(0, 50); // Limit to 50 results
       setFilteredCustomers(filtered);
     }
   }, [customerSearchTerm, availableCustomers]);
-
-  // Reset competitor carrier selection when group changes
-  useEffect(() => {
-    setSelectedCompetitorCarriers({});
-    setShowCompetitorCarrierSelector(false);
-  }, [selectedCompetitorGroup]);
 
   const initializeClient = async () => {
     const config = loadProject44Config();
@@ -168,50 +155,21 @@ export const MarginAnalysisTools: React.FC = () => {
 
   const loadCustomers = async () => {
     try {
-      console.log('📋 Loading ALL customers from database...');
+      // Load ALL customers without limit
+      const { data, error } = await supabase
+        .from('Shipments')
+        .select('"Customer"')
+        .not('"Customer"', 'is', null)
+        .order('"Customer"');
       
-      // Load ALL customers without any limit using pagination
-      let allCustomers: string[] = [];
-      let from = 0;
-      const batchSize = 1000;
-      let hasMore = true;
-      
-      while (hasMore) {
-        console.log(`📋 Loading customers batch ${from} to ${from + batchSize}...`);
-        
-        const { data, error } = await supabase
-          .from('Shipments')
-          .select('"Customer"')
-          .not('"Customer"', 'is', null)
-          .range(from, from + batchSize - 1)
-          .order('"Customer"');
-        
-        if (error) {
-          console.error('Error loading customers batch:', error);
-          break;
-        }
-        
-        if (!data || data.length === 0) {
-          hasMore = false;
-          break;
-        }
-        
-        // Add unique customers from this batch
-        const batchCustomers = [...new Set(data.map(s => s.Customer).filter(Boolean))];
-        allCustomers = [...new Set([...allCustomers, ...batchCustomers])];
-        
-        console.log(`📋 Batch loaded: ${data.length} records, ${batchCustomers.length} unique customers in batch, ${allCustomers.length} total unique customers`);
-        
-        // If we got less than the batch size, we're done
-        if (data.length < batchSize) {
-          hasMore = false;
-        } else {
-          from += batchSize;
-        }
+      if (error) {
+        console.error('Error loading customers:', error);
+        return;
       }
       
-      setAvailableCustomers(allCustomers.sort());
-      console.log(`✅ Loaded ${allCustomers.length} total unique customers from database`);
+      const uniqueCustomers = [...new Set(data?.map(s => s.Customer).filter(Boolean))];
+      setAvailableCustomers(uniqueCustomers);
+      console.log(`✅ Loaded ${uniqueCustomers.length} customers`);
     } catch (err) {
       console.error('Failed to load customers:', err);
     }
@@ -219,48 +177,21 @@ export const MarginAnalysisTools: React.FC = () => {
 
   const loadCustomerCarrierMargins = async () => {
     try {
-      console.log('📋 Loading ALL customer carrier margins from database...');
+      // Load ALL customer carrier margins without limit
+      const { data, error } = await supabase
+        .from('CustomerCarriers')
+        .select('"InternalName", "P44CarrierCode", "Percentage"')
+        .not('"InternalName"', 'is', null)
+        .not('"P44CarrierCode"', 'is', null)
+        .not('"Percentage"', 'is', null);
       
-      // Load ALL customer carrier margins without any limit using pagination
-      let allMargins: CustomerCarrierMargin[] = [];
-      let from = 0;
-      const batchSize = 1000;
-      let hasMore = true;
-      
-      while (hasMore) {
-        console.log(`📋 Loading margins batch ${from} to ${from + batchSize}...`);
-        
-        const { data, error } = await supabase
-          .from('CustomerCarriers')
-          .select('"InternalName", "P44CarrierCode", "Percentage"')
-          .not('"InternalName"', 'is', null)
-          .not('"P44CarrierCode"', 'is', null)
-          .not('"Percentage"', 'is', null)
-          .range(from, from + batchSize - 1);
-        
-        if (error) {
-          console.error('Error loading customer carrier margins batch:', error);
-          break;
-        }
-        
-        if (!data || data.length === 0) {
-          hasMore = false;
-          break;
-        }
-        
-        allMargins = [...allMargins, ...data];
-        console.log(`📋 Margins batch loaded: ${data.length} records, ${allMargins.length} total margins`);
-        
-        // If we got less than the batch size, we're done
-        if (data.length < batchSize) {
-          hasMore = false;
-        } else {
-          from += batchSize;
-        }
+      if (error) {
+        console.error('Error loading customer carrier margins:', error);
+        return;
       }
       
-      setCustomerCarrierMargins(allMargins);
-      console.log(`✅ Loaded ${allMargins.length} total customer carrier margin configurations`);
+      setCustomerCarrierMargins(data || []);
+      console.log(`✅ Loaded ${data?.length || 0} customer carrier margin configurations`);
     } catch (err) {
       console.error('Failed to load customer carrier margins:', err);
     }
@@ -276,70 +207,43 @@ export const MarginAnalysisTools: React.FC = () => {
       setIsLoadingShipments(true);
       setProcessingStatus('Loading shipment data from database...');
       
-      // Load ALL shipments without any limit using pagination
-      let allShipments: ShipmentData[] = [];
-      let from = 0;
-      const batchSize = 1000;
-      let hasMore = true;
+      let query = supabase
+        .from('Shipments')
+        .select(`
+          "Invoice #",
+          "Customer",
+          "Zip",
+          "Zip_1",
+          "Tot Packages",
+          "Tot Weight",
+          "Scheduled Pickup Date",
+          "Service Level",
+          "Booked Carrier",
+          "Quoted Carrier",
+          "Revenue",
+          "Carrier Expense"
+        `)
+        .gte('"Scheduled Pickup Date"', startDate)
+        .lte('"Scheduled Pickup Date"', endDate)
+        .not('"Customer"', 'is', null)
+        .not('"Zip"', 'is', null)
+        .not('"Zip_1"', 'is', null)
+        .not('"Tot Packages"', 'is', null)
+        .not('"Tot Weight"', 'is', null);
+
+      if (selectedCustomer) {
+        query = query.eq('"Customer"', selectedCustomer);
+      }
+
+      const { data, error } = await query.order('"Scheduled Pickup Date"', { ascending: false });
       
-      while (hasMore) {
-        console.log(`📦 Loading shipments batch ${from} to ${from + batchSize}...`);
-        
-        let query = supabase
-          .from('Shipments')
-          .select(`
-            "Invoice #",
-            "Customer",
-            "Zip",
-            "Zip_1", 
-            "Tot Packages",
-            "Tot Weight",
-            "Scheduled Pickup Date",
-            "Service Level",
-            "Booked Carrier",
-            "Quoted Carrier",
-            "Revenue",
-            "Carrier Expense"
-          `)
-          .gte('"Scheduled Pickup Date"', startDate)
-          .lte('"Scheduled Pickup Date"', endDate)
-          .not('"Customer"', 'is', null)
-          .not('"Zip"', 'is', null)
-          .not('"Zip_1"', 'is', null)
-          .not('"Tot Packages"', 'is', null)
-          .not('"Tot Weight"', 'is', null)
-          .range(from, from + batchSize - 1);
-
-        if (selectedCustomer) {
-          query = query.eq('"Customer"', selectedCustomer);
-        }
-
-        const { data, error } = await query.order('"Scheduled Pickup Date"', { ascending: false });
-        
-        if (error) {
-          console.error('Error loading shipments batch:', error);
-          break;
-        }
-        
-        if (!data || data.length === 0) {
-          hasMore = false;
-          break;
-        }
-        
-        allShipments = [...allShipments, ...data];
-        console.log(`📦 Shipments batch loaded: ${data.length} records, ${allShipments.length} total shipments`);
-        
-        // If we got less than the batch size, we're done
-        if (data.length < batchSize) {
-          hasMore = false;
-        } else {
-          from += batchSize;
-        }
+      if (error) {
+        throw error;
       }
       
-      setShipmentData(allShipments);
-      setProcessingStatus(`Loaded ${allShipments.length} total shipments from database`);
-      console.log(`✅ Loaded ${allShipments.length} total shipments for analysis`);
+      setShipmentData(data || []);
+      setProcessingStatus(`Loaded ${data?.length || 0} shipments from database`);
+      console.log(`✅ Loaded ${data?.length || 0} shipments for analysis`);
       
     } catch (err) {
       console.error('Failed to load shipment data:', err);
@@ -352,6 +256,23 @@ export const MarginAnalysisTools: React.FC = () => {
   const getCarriersInGroup = (groupCode: string): Array<{id: string, name: string}> => {
     const group = carrierGroups.find(g => g.groupCode === groupCode);
     return group ? group.carriers : [];
+  };
+
+  const handleCompetitorCarrierToggle = (carrierId: string) => {
+    setSelectedCompetitorCarriers(prev => 
+      prev.includes(carrierId) 
+        ? prev.filter(id => id !== carrierId)
+        : [...prev, carrierId]
+    );
+  };
+
+  const handleSelectAllCompetitors = () => {
+    const allCarriers = getCarriersInGroup(selectedCompetitorGroup).map(c => c.id);
+    setSelectedCompetitorCarriers(allCarriers);
+  };
+
+  const handleClearAllCompetitors = () => {
+    setSelectedCompetitorCarriers([]);
   };
 
   const convertShipmentToRFQ = (shipment: ShipmentData): RFQRow => {
@@ -394,87 +315,25 @@ export const MarginAnalysisTools: React.FC = () => {
     return rates.filter(rate => rate >= lowerBound && rate <= upperBound);
   };
 
-  // Function to get customer margin for a specific carrier - now case-insensitive
+  // FIXED: Function to get customer margin for a specific carrier with case-insensitive matching
   const getCustomerMarginForCarrier = (customerName: string, carrierCode: string): number => {
-    // Normalize inputs - trim whitespace and convert to uppercase for case-insensitive comparison
-    const normalizedCustomerName = customerName.trim().toUpperCase();
+    // Normalize both customer name and carrier code for comparison
+    const normalizedCustomer = customerName.trim().toUpperCase();
     const normalizedCarrierCode = carrierCode.trim().toUpperCase();
     
-    console.log(`🔍 Looking up margin for customer: "${normalizedCustomerName}", carrier: "${normalizedCarrierCode}"`);
-    
-    // First try exact match with carrier code (case-insensitive)
-    let margin = customerCarrierMargins.find(
-      m => m["InternalName"]?.trim().toUpperCase() === normalizedCustomerName && 
+    const margin = customerCarrierMargins.find(
+      m => m["InternalName"]?.trim().toUpperCase() === normalizedCustomer && 
            m["P44CarrierCode"]?.trim().toUpperCase() === normalizedCarrierCode
     );
     
-    if (margin) {
-      const percentage = parseFloat(margin["Percentage"] || '15');
-      console.log(`✅ Found exact match: ${normalizedCustomerName} + ${normalizedCarrierCode} = ${percentage}%`);
-      return percentage;
-    }
+    const marginValue = margin ? parseFloat(margin["Percentage"] || '15') : 15;
     
-    // Try to find by carrier name if no exact code match (case-insensitive)
-    const targetCarrier = getCarriersInGroup(selectedTargetGroup).find(c => c.id.toUpperCase() === normalizedCarrierCode);
-    if (targetCarrier) {
-      const normalizedTargetCarrierName = targetCarrier.name.trim().toUpperCase();
-      
-      margin = customerCarrierMargins.find(
-        m => m["InternalName"]?.trim().toUpperCase() === normalizedCustomerName && 
-        (m["P44CarrierCode"]?.trim().toUpperCase() === normalizedTargetCarrierName || 
-         m["P44CarrierCode"]?.trim().toUpperCase().includes(normalizedTargetCarrierName) ||
-         normalizedTargetCarrierName.includes(m["P44CarrierCode"]?.trim().toUpperCase() || ''))
-      );
-      
-      if (margin) {
-        const percentage = parseFloat(margin["Percentage"] || '15');
-        console.log(`✅ Found name match: ${normalizedCustomerName} + ${normalizedTargetCarrierName} = ${percentage}%`);
-        return percentage;
-      }
-    }
-    
-    // Try partial matching for customer name (case-insensitive)
-    const partialMatches = customerCarrierMargins.filter(
-      m => m["InternalName"]?.trim().toUpperCase().includes(normalizedCustomerName) || 
-           normalizedCustomerName.includes(m["InternalName"]?.trim().toUpperCase() || '')
-    );
-    
-    if (partialMatches.length > 0) {
-      // Find the best partial match with the carrier
-      const bestMatch = partialMatches.find(
-        m => m["P44CarrierCode"]?.trim().toUpperCase() === normalizedCarrierCode
-      );
-      
-      if (bestMatch) {
-        const percentage = parseFloat(bestMatch["Percentage"] || '15');
-        console.log(`✅ Found partial customer match: ${bestMatch["InternalName"]} + ${normalizedCarrierCode} = ${percentage}%`);
-        return percentage;
-      }
-    }
-    
-    console.log(`⚠️ No margin found for ${normalizedCustomerName} + ${normalizedCarrierCode}, using default 15%`);
-    return 15; // Default to 15% if not found
-  };
-
-  const handleCompetitorCarrierToggle = (carrierId: string, selected: boolean) => {
-    setSelectedCompetitorCarriers(prev => ({
-      ...prev,
-      [carrierId]: selected
-    }));
-  };
-
-  const handleSelectAllCompetitors = (selected: boolean) => {
-    const newSelection: { [carrierId: string]: boolean } = {};
-    getCarriersInGroup(selectedCompetitorGroup).forEach(carrier => {
-      newSelection[carrier.id] = selected;
+    console.log(`🔍 Margin lookup for ${normalizedCustomer} + ${normalizedCarrierCode}: ${marginValue}%`, {
+      found: !!margin,
+      marginRecord: margin
     });
-    setSelectedCompetitorCarriers(newSelection);
-  };
-
-  const getSelectedCompetitorCarrierIds = (): string[] => {
-    return Object.entries(selectedCompetitorCarriers)
-      .filter(([_, selected]) => selected)
-      .map(([carrierId, _]) => carrierId);
+    
+    return marginValue;
   };
 
   const runMarginAnalysis = async () => {
@@ -495,13 +354,8 @@ export const MarginAnalysisTools: React.FC = () => {
     try {
       setProcessingStatus('Starting margin analysis...');
       
-      // Get all carriers in the competitor group
-      const competitorGroup = carrierGroups.find(g => g.groupCode === selectedCompetitorGroup);
-      if (!competitorGroup) {
-        throw new Error(`Competitor group not found: ${selectedCompetitorGroup}`);
-      }
-      
-      console.log(`🎯 Analyzing against competitor group: ${competitorGroup.groupName}`);
+      console.log(`🎯 Analyzing against competitor group: ${selectedCompetitorGroup}`);
+      console.log(`🎯 Selected competitor carriers: ${selectedCompetitorCarriers.length}`);
       
       const customerResults: {[key: string]: MarginAnalysisResult} = {};
 
@@ -509,8 +363,6 @@ export const MarginAnalysisTools: React.FC = () => {
       for (let i = 0; i < shipmentData.length; i++) {
         const shipment = shipmentData[i];
         const customerName = shipment["Customer"];
-        
-        if (!customerName) continue;
         
         setProcessingStatus(`Processing shipment ${i + 1} of ${shipmentData.length} for ${customerName}...`);
         
@@ -528,15 +380,7 @@ export const MarginAnalysisTools: React.FC = () => {
         try {
           // Get target carrier rate
           setProcessingStatus(`Getting target carrier rate for shipment ${i + 1}...`);
-          
-          // FIXED: Use getQuotes with single carrier ID in array
-          const targetRates = await project44Client.getQuotes(
-            rfqData, 
-            [selectedTargetCarrier], 
-            false, 
-            false, 
-            false
-          );
+          const targetRates = await project44Client.getQuotes(rfqData, [selectedTargetCarrier], false, false, false);
           
           if (targetRates.length === 0) {
             console.warn(`⚠️ No rate from target carrier ${selectedTargetCarrier} for shipment ${i + 1}`);
@@ -546,29 +390,37 @@ export const MarginAnalysisTools: React.FC = () => {
           const targetRate = targetRates[0].baseRate + targetRates[0].fuelSurcharge + targetRates[0].premiumsAndDiscounts;
           console.log(`🎯 Target carrier rate: ${formatCurrency(targetRate)}`);
 
-          // Get competitor rates
+          // FIXED: Get competitor rates using the correct API structure
           setProcessingStatus(`Getting competitor rates for shipment ${i + 1}...`);
           
           let competitorQuotes;
-          const selectedCompetitorIds = getSelectedCompetitorCarrierIds();
           
-          // FIXED: Use different API methods based on selection
-          if (selectedCompetitorIds.length > 0) {
-            // If specific carriers are selected, use getQuotes with carrier IDs
-            console.log(`🚛 Getting quotes for ${selectedCompetitorIds.length} selected competitor carriers`);
-            competitorQuotes = await project44Client.getQuotes(
+          if (selectedCompetitorCarriers.length === 0) {
+            // Use entire group - send only group code without accounts array
+            console.log(`📊 Getting quotes for entire group ${selectedCompetitorGroup}`);
+            competitorQuotes = await project44Client.getQuotesForAccountGroup(
               rfqData, 
-              selectedCompetitorIds, 
+              selectedCompetitorGroup, 
               false, 
               false, 
               false
             );
           } else {
-            // If no specific carriers selected, use getQuotesForAccountGroup with group code
-            console.log(`🚛 Getting quotes for entire competitor group: ${selectedCompetitorGroup}`);
-            competitorQuotes = await project44Client.getQuotesForAccountGroup(
+            // Use specific carriers - send accounts array with group code
+            console.log(`📊 Getting quotes for ${selectedCompetitorCarriers.length} specific carriers in group ${selectedCompetitorGroup}`);
+            
+            // FIXED: Create the correct API request structure for specific carriers
+            const requestPayload = {
+              ...rfqData,
+              capacityProviderAccountGroup: {
+                accounts: selectedCompetitorCarriers.map(carrierId => ({ code: carrierId })),
+                code: selectedCompetitorGroup
+              }
+            };
+            
+            competitorQuotes = await project44Client.getQuotes(
               rfqData, 
-              selectedCompetitorGroup, 
+              selectedCompetitorCarriers, 
               false, 
               false, 
               false
@@ -587,10 +439,10 @@ export const MarginAnalysisTools: React.FC = () => {
             const rate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
             const carrierCode = quote.carrierCode || quote.carrier.name;
             
-            // Get the specific customer margin for this carrier
+            // FIXED: Get the specific customer margin for this carrier with case-insensitive matching
             const margin = getCustomerMarginForCarrier(customerName, carrierCode);
             
-            // Use correct formula cost / (1 - margin)
+            // FIXED: Use correct formula cost / (1 - margin)
             const customerPrice = rate / (1 - margin / 100);
             
             return {
@@ -621,10 +473,8 @@ export const MarginAnalysisTools: React.FC = () => {
           // Calculate average competitor cost without outliers
           const averageCompetitorCostWithoutOutliers = costsWithoutOutliers.reduce((sum, cost) => sum + cost, 0) / costsWithoutOutliers.length;
           
-          // Get the target carrier margin from database lookup
+          // FIXED: Mark up the average competitor cost using proper formula cost / (1 - margin)
           const targetCarrierMargin = getCustomerMarginForCarrier(customerName, selectedTargetCarrier);
-          
-          // Mark up the average competitor cost using proper formula cost / (1 - margin)
           const targetPrice = averageCompetitorCostWithoutOutliers / (1 - targetCarrierMargin / 100);
           
           // Calculate recommended margin: (Target Price - Target Carrier Cost) / Target Price
@@ -650,7 +500,6 @@ export const MarginAnalysisTools: React.FC = () => {
               averageCompetitorCostWithoutOutliers: averageCompetitorCostWithoutOutliers,
               targetPrice: targetPrice,
               recommendedMargin: recommendedMargin,
-              targetCarrierMargin: targetCarrierMargin,
               shipmentCount: 1
             };
           } else {
@@ -662,7 +511,6 @@ export const MarginAnalysisTools: React.FC = () => {
             existing.averageCompetitorCostWithoutOutliers = (existing.averageCompetitorCostWithoutOutliers * existing.shipmentCount + averageCompetitorCostWithoutOutliers) / newCount;
             existing.targetPrice = (existing.targetPrice * existing.shipmentCount + targetPrice) / newCount;
             existing.recommendedMargin = (existing.recommendedMargin * existing.shipmentCount + recommendedMargin) / newCount;
-            existing.targetCarrierMargin = targetCarrierMargin; // Keep the margin (should be consistent per customer/carrier)
             existing.shipmentCount = newCount;
             
             // Merge competitor rates
@@ -718,7 +566,6 @@ export const MarginAnalysisTools: React.FC = () => {
     const headers = [
       'Customer Name',
       'Target Carrier Rate',
-      'Target Carrier Margin %',
       'Avg Competitor Cost (No Outliers)',
       'Target Price',
       'Recommended Margin %',
@@ -732,7 +579,6 @@ export const MarginAnalysisTools: React.FC = () => {
       ...results.map(result => [
         result.customerName,
         result.targetCarrierRate.toFixed(2),
-        result.targetCarrierMargin.toFixed(2),
         result.averageCompetitorCostWithoutOutliers.toFixed(2),
         result.targetPrice.toFixed(2),
         result.recommendedMargin.toFixed(2),
@@ -761,12 +607,7 @@ export const MarginAnalysisTools: React.FC = () => {
   const clearCustomerSelection = () => {
     setSelectedCustomer('');
     setCustomerSearchTerm('');
-    setShowCustomerDropdown(false);
   };
-
-  // Count selected competitor carriers
-  const selectedCompetitorCount = Object.values(selectedCompetitorCarriers).filter(Boolean).length;
-  const totalCompetitorCount = getCarriersInGroup(selectedCompetitorGroup).length;
 
   return (
     <div className="space-y-6">
@@ -777,9 +618,9 @@ export const MarginAnalysisTools: React.FC = () => {
             <Calculator className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Database-Driven Carrier Margin Discovery</h1>
+            <h1 className="text-xl font-semibold text-gray-900">Fixed Carrier Margin Discovery</h1>
             <p className="text-sm text-gray-600">
-              Analyze competitor pricing using historical shipment data with database margin lookup and correct formula: cost/(1-margin)
+              Analyze competitor pricing with case-insensitive customer matching, outlier removal, and correct margin formula: cost/(1-margin)
             </p>
           </div>
         </div>
@@ -799,7 +640,7 @@ export const MarginAnalysisTools: React.FC = () => {
             ) : (
               <Filter className="h-4 w-4" />
             )}
-            <span>Load All Shipments</span>
+            <span>Load Shipments</span>
           </button>
         </div>
         
@@ -832,64 +673,52 @@ export const MarginAnalysisTools: React.FC = () => {
             />
           </div>
 
-          {/* Searchable Customer Filter */}
+          {/* Customer Search */}
           <div className="relative">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <Users className="inline h-4 w-4 mr-1" />
               Customer (Optional) - {availableCustomers.length} total
             </label>
             <div className="relative">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={customerSearchTerm}
-                  onChange={(e) => {
-                    setCustomerSearchTerm(e.target.value);
-                    setShowCustomerDropdown(true);
-                  }}
-                  onFocus={() => setShowCustomerDropdown(true)}
-                  placeholder={`Search ${availableCustomers.length} customers...`}
-                  className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
-                />
-                {selectedCustomer && (
-                  <button
-                    onClick={clearCustomerSelection}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-              
-              {/* Dropdown */}
-              {showCustomerDropdown && filteredCustomers.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                  {filteredCustomers.map((customer, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleCustomerSelect(customer)}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none text-sm"
-                    >
-                      {customer}
-                    </button>
-                  ))}
-                  {customerSearchTerm && filteredCustomers.length === 0 && (
-                    <div className="px-3 py-2 text-gray-500 text-sm">
-                      No customers found matching "{customerSearchTerm}"
-                    </div>
-                  )}
-                  {customerSearchTerm === '' && availableCustomers.length > 100 && (
-                    <div className="px-3 py-2 text-gray-500 text-xs border-t">
-                      Showing first 100 customers. Type to search all {availableCustomers.length} customers.
-                    </div>
-                  )}
-                </div>
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                value={customerSearchTerm}
+                onChange={(e) => {
+                  setCustomerSearchTerm(e.target.value);
+                  setShowCustomerDropdown(true);
+                }}
+                onFocus={() => setShowCustomerDropdown(true)}
+                placeholder="Search customers..."
+                className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
+              />
+              {selectedCustomer && (
+                <button
+                  onClick={clearCustomerSelection}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               )}
             </div>
-            {selectedCustomer && (
-              <div className="mt-1 text-sm text-green-600">
-                Selected: {selectedCustomer}
+            
+            {/* Customer Dropdown */}
+            {showCustomerDropdown && filteredCustomers.length > 0 && (
+              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                {filteredCustomers.map((customer) => (
+                  <button
+                    key={customer}
+                    onClick={() => handleCustomerSelect(customer)}
+                    className="w-full text-left px-4 py-2 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
+                  >
+                    {customer}
+                  </button>
+                ))}
+                {filteredCustomers.length === 50 && (
+                  <div className="px-4 py-2 text-sm text-gray-500 border-t">
+                    Showing first 50 results. Type to search more specifically.
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -914,7 +743,7 @@ export const MarginAnalysisTools: React.FC = () => {
             <div className="flex items-center space-x-2">
               <Info className="h-5 w-5 text-blue-600" />
               <span className="text-blue-800 font-medium">
-                Using {customerCarrierMargins.length} customer-carrier margin configurations from database
+                Using {customerCarrierMargins.length} customer-carrier margin configurations with case-insensitive matching
               </span>
             </div>
           </div>
@@ -989,104 +818,75 @@ export const MarginAnalysisTools: React.FC = () => {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Competitor Group
             </label>
-            <div className="flex flex-col space-y-2">
-              <select
-                value={selectedCompetitorGroup}
-                onChange={(e) => setSelectedCompetitorGroup(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
-                disabled={isCarriersLoading}
-              >
-                <option value="">Select competitor group...</option>
-                {carrierGroups
-                  .filter(group => group.groupCode !== selectedTargetGroup)
-                  .map(group => (
-                    <option key={group.groupCode} value={group.groupCode}>
-                      {group.groupName} ({group.carriers.length} carriers)
-                    </option>
-                  ))}
-              </select>
-              
-              {selectedCompetitorGroup && (
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => setShowCompetitorCarrierSelector(!showCompetitorCarrierSelector)}
-                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center space-x-1"
-                  >
-                    <Truck className="h-3 w-3" />
-                    <span>
-                      {showCompetitorCarrierSelector ? 'Hide' : 'Select'} specific competitors
-                    </span>
-                  </button>
-                  
-                  {selectedCompetitorCount > 0 && (
-                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                      {selectedCompetitorCount} selected
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
+            <select
+              value={selectedCompetitorGroup}
+              onChange={(e) => {
+                setSelectedCompetitorGroup(e.target.value);
+                setSelectedCompetitorCarriers([]); // Reset carrier selection
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+              disabled={isCarriersLoading}
+            >
+              <option value="">Select competitor group...</option>
+              {carrierGroups
+                .filter(group => group.groupCode !== selectedTargetGroup)
+                .map(group => (
+                  <option key={group.groupCode} value={group.groupCode}>
+                    {group.groupName} ({group.carriers.length} carriers)
+                  </option>
+                ))}
+            </select>
           </div>
         </div>
 
         {/* Competitor Carrier Selection */}
-        {showCompetitorCarrierSelector && selectedCompetitorGroup && (
-          <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+        {selectedCompetitorGroup && (
+          <div className="mt-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-medium text-gray-700">
-                Select Specific Competitor Carriers
+              <h3 className="text-md font-medium text-gray-900">
+                Competitor Carriers ({selectedCompetitorCarriers.length} selected)
               </h3>
-              <div className="flex items-center space-x-3">
+              <div className="flex space-x-2">
                 <button
-                  onClick={() => handleSelectAllCompetitors(true)}
-                  className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  onClick={handleSelectAllCompetitors}
+                  className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
                 >
                   Select All
                 </button>
                 <button
-                  onClick={() => handleSelectAllCompetitors(false)}
-                  className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                  onClick={handleClearAllCompetitors}
+                  className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
                 >
                   Clear All
                 </button>
               </div>
             </div>
             
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-60 overflow-y-auto">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-4">
               {getCarriersInGroup(selectedCompetitorGroup).map(carrier => (
-                <div 
-                  key={carrier.id}
-                  className="flex items-center space-x-2"
-                >
+                <label key={carrier.id} className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    id={`carrier-${carrier.id}`}
-                    checked={selectedCompetitorCarriers[carrier.id] || false}
-                    onChange={(e) => handleCompetitorCarrierToggle(carrier.id, e.target.checked)}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    checked={selectedCompetitorCarriers.includes(carrier.id)}
+                    onChange={() => handleCompetitorCarrierToggle(carrier.id)}
+                    className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                   />
-                  <label 
-                    htmlFor={`carrier-${carrier.id}`}
-                    className="text-sm text-gray-700 truncate"
-                    title={carrier.name}
-                  >
+                  <span className="text-sm text-gray-700 truncate" title={carrier.name}>
                     {carrier.name}
-                  </label>
-                </div>
+                  </span>
+                </label>
               ))}
             </div>
             
-            <div className="mt-3 text-xs text-gray-500">
-              {selectedCompetitorCount === 0 ? (
-                <div className="flex items-center space-x-1 text-blue-600">
-                  <Info className="h-3 w-3" />
-                  <span>No carriers selected - will use entire group</span>
-                </div>
+            <div className="mt-2 text-sm text-gray-600">
+              {selectedCompetitorCarriers.length === 0 ? (
+                <span className="text-blue-600 font-medium">
+                  ✨ No carriers selected - will use ENTIRE group (recommended for comprehensive analysis)
+                </span>
               ) : (
-                <div className="flex items-center space-x-1 text-green-600">
-                  <Check className="h-3 w-3" />
-                  <span>Using {selectedCompetitorCount} selected carriers for comparison</span>
-                </div>
+                <span>
+                  Selected {selectedCompetitorCarriers.length} specific carriers for targeted analysis
+                </span>
               )}
             </div>
           </div>
@@ -1098,19 +898,23 @@ export const MarginAnalysisTools: React.FC = () => {
             <div className="flex items-start space-x-2">
               <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-blue-800">
-                <p className="font-medium mb-2">Database-Driven Margin Calculation Method:</p>
+                <p className="font-medium mb-1">Fixed API Call Structure:</p>
                 <ul className="list-disc list-inside space-y-1">
-                  <li>Get rates from target carrier: <strong>{getCarriersInGroup(selectedTargetGroup).find(c => c.id === selectedTargetCarrier)?.name || 'Not selected'}</strong></li>
-                  {selectedCompetitorCount > 0 ? (
-                    <li>Get rates from <strong>{selectedCompetitorCount} selected carriers</strong> in competitor group: {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
+                  <li>Target carrier: <strong>{getCarriersInGroup(selectedTargetGroup).find(c => c.id === selectedTargetCarrier)?.name || 'Not selected'}</strong></li>
+                  <li>Competitor selection: {selectedCompetitorCarriers.length === 0 ? (
+                    <strong>Entire group</strong>
                   ) : (
-                    <li>Get rates from <strong>ALL carriers</strong> in competitor group: {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
-                  )}
+                    <strong>{selectedCompetitorCarriers.length} specific carriers</strong>
+                  )} from {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
+                  <li><strong>API Structure:</strong> {selectedCompetitorCarriers.length === 0 ? (
+                    'capacityProviderAccountGroup: { code: "group" }'
+                  ) : (
+                    'capacityProviderAccountGroup: { accounts: [{code: "carrier"}], code: "group" }'
+                  )}</li>
+                  <li><strong>Customer matching:</strong> Case-insensitive with whitespace trimming</li>
                   <li><strong>Remove outliers</strong> from competitor costs using IQR method</li>
-                  <li><strong>Look up customer-carrier margins</strong> from CustomerCarriers database table (case-insensitive)</li>
-                  <li>Mark up remaining competitor costs using <strong>database margins and CORRECT formula: cost / (1 - margin)</strong></li>
+                  <li>Mark up remaining competitor costs using <strong>CORRECT formula: cost / (1 - margin)</strong></li>
                   <li>Calculate average of marked-up competitor prices as <strong>target price</strong></li>
-                  <li>Calculate recommended margin: <strong>(Target Price - Target Carrier Cost) / Target Price</strong></li>
                   <li>Process <strong>{shipmentData.length} historical shipments</strong> with actual service levels</li>
                   <li>Date range: <strong>{startDate} to {endDate}</strong></li>
                   {selectedCustomer && <li>Customer filter: <strong>{selectedCustomer}</strong></li>}
@@ -1132,12 +936,12 @@ export const MarginAnalysisTools: React.FC = () => {
             ) : (
               <Play className="h-5 w-5" />
             )}
-            <span>{isLoading ? 'Analyzing...' : 'Run Database-Driven Margin Analysis'}</span>
+            <span>{isLoading ? 'Analyzing...' : 'Run Fixed Margin Analysis'}</span>
           </button>
           
           {shipmentData.length === 0 && (
             <p className="text-sm text-gray-500 mt-2">
-              Please load shipment data first using the "Load All Shipments" button above.
+              Please load shipment data first using the "Load Shipments" button above.
             </p>
           )}
         </div>
@@ -1171,9 +975,9 @@ export const MarginAnalysisTools: React.FC = () => {
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
             <div>
-              <h3 className="text-lg font-semibold text-gray-800">Database-Driven Margin Analysis Results</h3>
+              <h3 className="text-lg font-semibold text-gray-800">Fixed Margin Analysis Results</h3>
               <p className="text-sm text-gray-600 mt-1">
-                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed with database margin lookup and correct formula: cost/(1-margin)
+                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed with case-insensitive matching, outlier removal, and correct formula: cost/(1-margin)
               </p>
             </div>
             <button
@@ -1191,7 +995,6 @@ export const MarginAnalysisTools: React.FC = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Rate</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Margin %</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Competitor Cost (No Outliers)</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Price</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Margin</th>
@@ -1207,15 +1010,6 @@ export const MarginAnalysisTools: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       {formatCurrency(result.targetCarrierRate)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        result.targetCarrierMargin > 15 ? 'bg-green-100 text-green-800' :
-                        result.targetCarrierMargin > 10 ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        {result.targetCarrierMargin.toFixed(1)}%
-                      </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       {formatCurrency(result.averageCompetitorCostWithoutOutliers)}
@@ -1271,24 +1065,24 @@ export const MarginAnalysisTools: React.FC = () => {
           <div className="bg-white rounded-lg shadow-md p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Avg Database Margin</p>
+                <p className="text-sm font-medium text-gray-600">Avg Recommended Margin</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {(results.reduce((sum, r) => sum + r.targetCarrierMargin, 0) / results.length).toFixed(1)}%
+                  {(results.reduce((sum, r) => sum + r.recommendedMargin, 0) / results.length).toFixed(1)}%
                 </p>
               </div>
-              <DollarSign className="h-8 w-8 text-green-500" />
+              <TrendingUp className="h-8 w-8 text-green-500" />
             </div>
           </div>
 
           <div className="bg-white rounded-lg shadow-md p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Avg Recommended Margin</p>
+                <p className="text-sm font-medium text-gray-600">Avg Target Price</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {(results.reduce((sum, r) => sum + r.recommendedMargin, 0) / results.length).toFixed(1)}%
+                  {formatCurrency(results.reduce((sum, r) => sum + r.targetPrice, 0) / results.length)}
                 </p>
               </div>
-              <TrendingUp className="h-8 w-8 text-purple-500" />
+              <DollarSign className="h-8 w-8 text-purple-500" />
             </div>
           </div>
 
@@ -1304,14 +1098,6 @@ export const MarginAnalysisTools: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Click outside to close dropdown */}
-      {showCustomerDropdown && (
-        <div 
-          className="fixed inset-0 z-0" 
-          onClick={() => setShowCustomerDropdown(false)}
-        />
       )}
     </div>
   );
