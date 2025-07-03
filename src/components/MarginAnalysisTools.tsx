@@ -137,7 +137,18 @@ export const MarginAnalysisTools: React.FC = () => {
   const [comparisonPeriod, setComparisonPeriod] = useState<'30' | '90' | '365'>('90');
 
   useEffect(() => {
+    // Add COEP header to prevent iframe blocking
+    const meta = document.createElement('meta');
+    meta.httpEquiv = 'Cross-Origin-Embedder-Policy';
+    meta.content = 'credentialless';
+    document.head.appendChild(meta);
+    
     loadInitialData();
+    
+    return () => {
+      // Clean up the meta tag when component unmounts
+      document.head.removeChild(meta);
+    };
   }, []);
 
   const loadInitialData = async () => {
