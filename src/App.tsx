@@ -9,9 +9,11 @@ import { ApiKeyInput } from './components/ApiKeyInput';
 import { TemplateDownload } from './components/TemplateDownload';
 import { SupabaseStatus } from './components/SupabaseStatus';
 import { SupabaseSetup } from './components/SupabaseSetup';
+import { DatabaseManager } from './components/DatabaseManager';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { calculatePricing } from './utils/pricingCalculator';
 import { Project44APIClient, FreshXAPIClient, CarrierGroup } from './utils/apiClient';
+import { saveRFQResultsToDatabase } from './utils/database';
 import { 
   RFQRow, 
   ProcessingResult, 
@@ -451,6 +453,16 @@ function App() {
     console.log('📊 Exporting smart quoting analytics...');
   };
 
+  const handleSaveResultsToDatabase = async (customerName: string) => {
+    try {
+      await saveRFQResultsToDatabase(results, customerName);
+      alert(`Successfully saved ${results.length} shipments to database for customer: ${customerName}`);
+    } catch (error) {
+      console.error('Failed to save results to database:', error);
+      alert('Failed to save results to database. Please check your Supabase connection.');
+    }
+  };
+
   const getSuccessfulResults = () => results.filter(r => r.status === 'success');
   const getErrorResults = () => results.filter(r => r.status === 'error');
 
@@ -622,7 +634,7 @@ function App() {
               { id: 'upload', label: 'Setup & Processing', icon: Upload, badge: rfqData.length },
               { id: 'results', label: 'Smart Quotes', icon: Target, badge: results.length },
               { id: 'analytics', label: 'Business Intelligence', icon: BarChart3 },
-              { id: 'database', label: 'Database Setup', icon: Database }
+              { id: 'database', label: 'Database Management', icon: Database }
             ].map((tab) => {
               const Icon = tab.icon;
               return (
@@ -998,6 +1010,9 @@ function App() {
           <div className="space-y-8">
             {/* Supabase Status */}
             <SupabaseStatus />
+            
+            {/* Database Manager */}
+            <DatabaseManager onSaveResults={handleSaveResultsToDatabase} />
             
             {/* Supabase Setup Instructions */}
             <SupabaseSetup />
