@@ -33,8 +33,16 @@ interface MarginAnalysisResult {
     margin: number;
     customerPrice: number;
   }>;
+  competitorRatesWithoutOutliers: Array<{
+    carrierId: string;
+    carrierName: string;
+    rate: number;
+    margin: number;
+    customerPrice: number;
+  }>;
+  averageCompetitorCostWithoutOutliers: number;
+  targetPrice: number;
   recommendedMargin: number;
-  recommendedPrice: number;
   shipmentCount: number;
 }
 
@@ -51,6 +59,12 @@ interface ShipmentData {
   "SCAC": string;
   "Cost": number;
   "Price": number;
+}
+
+interface CustomerCarrierMargin {
+  "InternalName": string;
+  "P44CarrierCode": string;
+  "Percentage": string;
 }
 
 export const MarginAnalysisTools: React.FC = () => {
@@ -73,9 +87,13 @@ export const MarginAnalysisTools: React.FC = () => {
   const [shipmentData, setShipmentData] = useState<ShipmentData[]>([]);
   const [isLoadingShipments, setIsLoadingShipments] = useState(false);
 
+  // Customer carrier margins
+  const [customerCarrierMargins, setCustomerCarrierMargins] = useState<CustomerCarrierMargin[]>([]);
+
   useEffect(() => {
     initializeClient();
     loadCustomers();
+    loadCustomerCarrierMargins();
     
     // Set default date range to last 30 days
     const endDate = new Date();
@@ -134,6 +152,27 @@ export const MarginAnalysisTools: React.FC = () => {
       console.log(`✅ Loaded ${uniqueCustomers.length} customers`);
     } catch (err) {
       console.error('Failed to load customers:', err);
+    }
+  };
+
+  const loadCustomerCarrierMargins = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('CustomerCarriers')
+        .select('"InternalName", "P44CarrierCode", "Percentage"')
+        .not('"InternalName"', 'is', null)
+        .not('"P44CarrierCode"', 'is', null)
+        .not('"Percentage"', 'is', null);
+      
+      if (error) {
+        console.error('Error loading customer carrier margins:', error);
+        return;
+      }
+      
+      setCustomerCarrierMargins(data || []);
+      console.log(`✅ Loaded ${data?.length || 0} customer carrier margin configurations`);
+    } catch (err) {
+      console.error('Failed to load customer carrier margins:', err);
     }
   };
 
@@ -222,6 +261,30 @@ export const MarginAnalysisTools: React.FC = () => {
     };
   };
 
+  // Function to remove outliers using IQR method
+  const removeOutliers = (rates: number[]): number[] => {
+    if (rates.length < 4) return rates; // Need at least 4 data points for meaningful outlier detection
+    
+    const sorted = [...rates].sort((a, b) => a - b);
+    const q1Index = Math.floor(sorted.length * 0.25);
+    const q3Index = Math.floor(sorted.length * 0.75);
+    const q1 = sorted[q1Index];
+    const q3 = sorted[q3Index];
+    const iqr = q3 - q1;
+    const lowerBound = q1 - 1.5 * iqr;
+    const upperBound = q3 + 1.5 * iqr;
+    
+    return rates.filter(rate => rate >= lowerBound && rate <= upperBound);
+  };
+
+  // Function to get customer margin for a specific carrier
+  const getCustomerMarginForCarrier = (customerName: string, carrierCode: string): number => {
+    const margin = customerCarrierMargins.find(
+      m => m["InternalName"] === customerName && m["P44CarrierCode"] === carrierCode
+    );
+    return margin ? parseFloat(margin["Percentage"] || '15') : 15; // Default to 15% if not found
+  };
+
   const runMarginAnalysis = async () => {
     if (!project44Client || !selectedTargetGroup || !selectedTargetCarrier || !selectedCompetitorGroup) {
       setError('Please select target carrier group, target carrier, and competitor group');
@@ -300,15 +363,17 @@ export const MarginAnalysisTools: React.FC = () => {
             continue;
           }
           
-          // Process competitor quotes
+          // Process competitor quotes with proper customer margins
           const competitorRates = competitorQuotes.map(quote => {
             const rate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
-            // Assume 15% margin for competitors (this could be configurable)
-            const margin = 15;
+            const carrierCode = quote.carrierCode || quote.carrier.name;
+            
+            // Get the specific customer margin for this carrier
+            const margin = getCustomerMarginForCarrier(customerName, carrierCode);
             const customerPrice = rate / (1 - margin / 100);
             
             return {
-              carrierId: quote.carrierCode || quote.carrier.name,
+              carrierId: carrierCode,
               carrierName: quote.carrier.name,
               rate: rate,
               margin: margin,
@@ -316,12 +381,40 @@ export const MarginAnalysisTools: React.FC = () => {
             };
           });
           
-          // Find the lowest competitor customer price
-          const lowestCompetitorPrice = Math.min(...competitorRates.map(cr => cr.customerPrice));
+          // Remove outliers from competitor costs
+          const competitorCosts = competitorRates.map(cr => cr.rate);
+          const costsWithoutOutliers = removeOutliers(competitorCosts);
           
-          // Calculate recommended margin to match the lowest competitor
-          const recommendedMargin = lowestCompetitorPrice > targetRate ? 
-            ((lowestCompetitorPrice - targetRate) / lowestCompetitorPrice) * 100 : 0;
+          // Filter competitor rates to only include those without outliers
+          const competitorRatesWithoutOutliers = competitorRates.filter(cr => 
+            costsWithoutOutliers.includes(cr.rate)
+          );
+          
+          console.log(`📊 Removed ${competitorRates.length - competitorRatesWithoutOutliers.length} outliers from competitor rates`);
+          
+          if (competitorRatesWithoutOutliers.length === 0) {
+            console.warn(`⚠️ No competitor rates remaining after outlier removal for shipment ${i + 1}`);
+            continue;
+          }
+          
+          // Calculate average competitor cost without outliers
+          const averageCompetitorCostWithoutOutliers = costsWithoutOutliers.reduce((sum, cost) => sum + cost, 0) / costsWithoutOutliers.length;
+          
+          // Mark up the average competitor cost using proper customer carrier margin
+          const targetCarrierMargin = getCustomerMarginForCarrier(customerName, selectedTargetCarrier);
+          const targetPrice = averageCompetitorCostWithoutOutliers / (1 - targetCarrierMargin / 100);
+          
+          // Calculate recommended margin: (Target Price - Target Carrier Cost) / Target Price
+          const recommendedMargin = targetPrice > targetRate ? 
+            ((targetPrice - targetRate) / targetPrice) * 100 : 0;
+          
+          console.log(`💰 Analysis for ${customerName}:`, {
+            targetRate: formatCurrency(targetRate),
+            avgCompetitorCost: formatCurrency(averageCompetitorCostWithoutOutliers),
+            targetCarrierMargin: `${targetCarrierMargin}%`,
+            targetPrice: formatCurrency(targetPrice),
+            recommendedMargin: `${recommendedMargin.toFixed(1)}%`
+          });
           
           // Add to or update customer results
           if (!customerResults[customerName]) {
@@ -329,17 +422,22 @@ export const MarginAnalysisTools: React.FC = () => {
               customerName,
               targetCarrierRate: targetRate,
               competitorRates: competitorRates,
+              competitorRatesWithoutOutliers: competitorRatesWithoutOutliers,
+              averageCompetitorCostWithoutOutliers: averageCompetitorCostWithoutOutliers,
+              targetPrice: targetPrice,
               recommendedMargin: recommendedMargin,
-              recommendedPrice: lowestCompetitorPrice,
               shipmentCount: 1
             };
           } else {
             // Update existing customer with average values
             const existing = customerResults[customerName];
-            existing.targetCarrierRate = (existing.targetCarrierRate * existing.shipmentCount + targetRate) / (existing.shipmentCount + 1);
-            existing.recommendedMargin = (existing.recommendedMargin * existing.shipmentCount + recommendedMargin) / (existing.shipmentCount + 1);
-            existing.recommendedPrice = (existing.recommendedPrice * existing.shipmentCount + lowestCompetitorPrice) / (existing.shipmentCount + 1);
-            existing.shipmentCount += 1;
+            const newCount = existing.shipmentCount + 1;
+            
+            existing.targetCarrierRate = (existing.targetCarrierRate * existing.shipmentCount + targetRate) / newCount;
+            existing.averageCompetitorCostWithoutOutliers = (existing.averageCompetitorCostWithoutOutliers * existing.shipmentCount + averageCompetitorCostWithoutOutliers) / newCount;
+            existing.targetPrice = (existing.targetPrice * existing.shipmentCount + targetPrice) / newCount;
+            existing.recommendedMargin = (existing.recommendedMargin * existing.shipmentCount + recommendedMargin) / newCount;
+            existing.shipmentCount = newCount;
             
             // Merge competitor rates
             const allCompetitorRates = [...existing.competitorRates];
@@ -357,6 +455,7 @@ export const MarginAnalysisTools: React.FC = () => {
               }
             });
             existing.competitorRates = allCompetitorRates;
+            existing.competitorRatesWithoutOutliers = competitorRatesWithoutOutliers;
           }
           
         } catch (error) {
@@ -393,10 +492,11 @@ export const MarginAnalysisTools: React.FC = () => {
     const headers = [
       'Customer Name',
       'Target Carrier Rate',
-      'Lowest Competitor Price',
+      'Avg Competitor Cost (No Outliers)',
+      'Target Price',
       'Recommended Margin %',
-      'Recommended Price',
       'Competitor Count',
+      'Competitors After Outlier Removal',
       'Shipment Count'
     ];
     
@@ -405,10 +505,11 @@ export const MarginAnalysisTools: React.FC = () => {
       ...results.map(result => [
         result.customerName,
         result.targetCarrierRate.toFixed(2),
-        result.recommendedPrice.toFixed(2),
+        result.averageCompetitorCostWithoutOutliers.toFixed(2),
+        result.targetPrice.toFixed(2),
         result.recommendedMargin.toFixed(2),
-        result.recommendedPrice.toFixed(2),
         result.competitorRates.length,
+        result.competitorRatesWithoutOutliers.length,
         result.shipmentCount
       ].join(','))
     ].join('\n');
@@ -434,7 +535,7 @@ export const MarginAnalysisTools: React.FC = () => {
           <div>
             <h1 className="text-xl font-semibold text-gray-900">New Carrier Margin Discovery</h1>
             <p className="text-sm text-gray-600">
-              Analyze competitor pricing using historical shipment data to determine optimal margins
+              Analyze competitor pricing using historical shipment data with outlier removal and proper customer margins
             </p>
           </div>
         </div>
@@ -516,6 +617,18 @@ export const MarginAnalysisTools: React.FC = () => {
               <span className="text-green-800 font-medium">
                 Loaded {shipmentData.length} shipments from {startDate} to {endDate}
                 {selectedCustomer && ` for ${selectedCustomer}`}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Customer Carrier Margins Status */}
+        {customerCarrierMargins.length > 0 && (
+          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center space-x-2">
+              <Info className="h-5 w-5 text-blue-600" />
+              <span className="text-blue-800 font-medium">
+                Using {customerCarrierMargins.length} customer-carrier margin configurations from database
               </span>
             </div>
           </div>
@@ -614,13 +727,15 @@ export const MarginAnalysisTools: React.FC = () => {
             <div className="flex items-start space-x-2">
               <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-blue-800">
-                <p className="font-medium mb-1">Analysis Plan:</p>
+                <p className="font-medium mb-1">New Margin Calculation Method:</p>
                 <ul className="list-disc list-inside space-y-1">
                   <li>Get rates from target carrier: <strong>{getCarriersInGroup(selectedTargetGroup).find(c => c.id === selectedTargetCarrier)?.name || 'Not selected'}</strong></li>
                   <li>Get rates from <strong>ALL carriers</strong> in competitor group: {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
-                  <li>Calculate recommended margins to match competitor pricing</li>
-                  <li>Process <strong>{shipmentData.length} historical shipments</strong> from your database</li>
-                  <li>Use actual service levels from shipment history</li>
+                  <li><strong>Remove outliers</strong> from competitor costs using IQR method</li>
+                  <li>Mark up remaining competitor costs using <strong>proper customer carrier margins</strong> from database</li>
+                  <li>Calculate average of marked-up competitor prices as <strong>target price</strong></li>
+                  <li>Calculate recommended margin: <strong>(Target Price - Target Carrier Cost) / Target Price</strong></li>
+                  <li>Process <strong>{shipmentData.length} historical shipments</strong> with actual service levels</li>
                   <li>Date range: <strong>{startDate} to {endDate}</strong></li>
                   {selectedCustomer && <li>Customer filter: <strong>{selectedCustomer}</strong></li>}
                 </ul>
@@ -682,7 +797,7 @@ export const MarginAnalysisTools: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-800">Margin Analysis Results</h3>
               <p className="text-sm text-gray-600 mt-1">
-                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed from {startDate} to {endDate}
+                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed with outlier removal and proper customer margins
               </p>
             </div>
             <button
@@ -700,10 +815,10 @@ export const MarginAnalysisTools: React.FC = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Rate</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Competitor Count</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lowest Competitor Price</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Competitor Cost (No Outliers)</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Price</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Margin</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Price</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Competitors</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shipments</th>
                 </tr>
               </thead>
@@ -717,12 +832,10 @@ export const MarginAnalysisTools: React.FC = () => {
                       {formatCurrency(result.targetCarrierRate)}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        {result.competitorRates.length} carriers
-                      </span>
+                      {formatCurrency(result.averageCompetitorCostWithoutOutliers)}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
-                      {formatCurrency(result.recommendedPrice)}
+                      {formatCurrency(result.targetPrice)}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
@@ -734,7 +847,14 @@ export const MarginAnalysisTools: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
-                      {formatCurrency(result.recommendedPrice)}
+                      <div className="flex flex-col">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          {result.competitorRatesWithoutOutliers.length} after outlier removal
+                        </span>
+                        <span className="text-xs text-gray-500 mt-1">
+                          ({result.competitorRates.length} total)
+                        </span>
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       {result.shipmentCount}
@@ -777,12 +897,12 @@ export const MarginAnalysisTools: React.FC = () => {
           <div className="bg-white rounded-lg shadow-md p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Total Competitors</p>
+                <p className="text-sm font-medium text-gray-600">Avg Target Price</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {results.reduce((max, r) => Math.max(max, r.competitorRates.length), 0)}
+                  {formatCurrency(results.reduce((sum, r) => sum + r.targetPrice, 0) / results.length)}
                 </p>
               </div>
-              <Users className="h-8 w-8 text-purple-500" />
+              <DollarSign className="h-8 w-8 text-purple-500" />
             </div>
           </div>
 
