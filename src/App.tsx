@@ -7,6 +7,8 @@ import { ResultsTable } from './components/ResultsTable';
 import { Analytics } from './components/Analytics';
 import { ApiKeyInput } from './components/ApiKeyInput';
 import { TemplateDownload } from './components/TemplateDownload';
+import { SupabaseStatus } from './components/SupabaseStatus';
+import { SupabaseSetup } from './components/SupabaseSetup';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { calculatePricing } from './utils/pricingCalculator';
 import { Project44APIClient, FreshXAPIClient, CarrierGroup } from './utils/apiClient';
@@ -52,7 +54,8 @@ import {
   Sparkles,
   Building2,
   Globe,
-  Layers
+  Layers,
+  Database
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -97,7 +100,7 @@ function App() {
   });
   
   // UI state
-  const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database'>('upload');
   const [fileError, setFileError] = useState<string>('');
   
   // API clients - store as instance variables to maintain token state
@@ -618,7 +621,8 @@ function App() {
             {[
               { id: 'upload', label: 'Setup & Processing', icon: Upload, badge: rfqData.length },
               { id: 'results', label: 'Smart Quotes', icon: Target, badge: results.length },
-              { id: 'analytics', label: 'Business Intelligence', icon: BarChart3 }
+              { id: 'analytics', label: 'Business Intelligence', icon: BarChart3 },
+              { id: 'database', label: 'Database Setup', icon: Database }
             ].map((tab) => {
               const Icon = tab.icon;
               return (
@@ -987,6 +991,16 @@ function App() {
                 onExport={exportAnalytics}
               />
             </div>
+          </div>
+        )}
+
+        {activeTab === 'database' && (
+          <div className="space-y-8">
+            {/* Supabase Status */}
+            <SupabaseStatus />
+            
+            {/* Supabase Setup Instructions */}
+            <SupabaseSetup />
           </div>
         )}
       </main>
