@@ -370,6 +370,8 @@ export const MarginAnalysisTools: React.FC = () => {
             
             // Get the specific customer margin for this carrier
             const margin = getCustomerMarginForCarrier(customerName, carrierCode);
+            
+            // FIXED: Use correct formula cost / (1 - margin)
             const customerPrice = rate / (1 - margin / 100);
             
             return {
@@ -400,7 +402,7 @@ export const MarginAnalysisTools: React.FC = () => {
           // Calculate average competitor cost without outliers
           const averageCompetitorCostWithoutOutliers = costsWithoutOutliers.reduce((sum, cost) => sum + cost, 0) / costsWithoutOutliers.length;
           
-          // Mark up the average competitor cost using proper customer carrier margin
+          // FIXED: Mark up the average competitor cost using proper formula cost / (1 - margin)
           const targetCarrierMargin = getCustomerMarginForCarrier(customerName, selectedTargetCarrier);
           const targetPrice = averageCompetitorCostWithoutOutliers / (1 - targetCarrierMargin / 100);
           
@@ -413,7 +415,8 @@ export const MarginAnalysisTools: React.FC = () => {
             avgCompetitorCost: formatCurrency(averageCompetitorCostWithoutOutliers),
             targetCarrierMargin: `${targetCarrierMargin}%`,
             targetPrice: formatCurrency(targetPrice),
-            recommendedMargin: `${recommendedMargin.toFixed(1)}%`
+            recommendedMargin: `${recommendedMargin.toFixed(1)}%`,
+            formula: `${formatCurrency(averageCompetitorCostWithoutOutliers)} / (1 - ${targetCarrierMargin}%) = ${formatCurrency(targetPrice)}`
           });
           
           // Add to or update customer results
@@ -533,9 +536,9 @@ export const MarginAnalysisTools: React.FC = () => {
             <Calculator className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">New Carrier Margin Discovery</h1>
+            <h1 className="text-xl font-semibold text-gray-900">Corrected Carrier Margin Discovery</h1>
             <p className="text-sm text-gray-600">
-              Analyze competitor pricing using historical shipment data with outlier removal and proper customer margins
+              Analyze competitor pricing using historical shipment data with outlier removal and correct margin formula: cost/(1-margin)
             </p>
           </div>
         </div>
@@ -727,12 +730,12 @@ export const MarginAnalysisTools: React.FC = () => {
             <div className="flex items-start space-x-2">
               <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-blue-800">
-                <p className="font-medium mb-1">New Margin Calculation Method:</p>
+                <p className="font-medium mb-1">Corrected Margin Calculation Method:</p>
                 <ul className="list-disc list-inside space-y-1">
                   <li>Get rates from target carrier: <strong>{getCarriersInGroup(selectedTargetGroup).find(c => c.id === selectedTargetCarrier)?.name || 'Not selected'}</strong></li>
                   <li>Get rates from <strong>ALL carriers</strong> in competitor group: {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
                   <li><strong>Remove outliers</strong> from competitor costs using IQR method</li>
-                  <li>Mark up remaining competitor costs using <strong>proper customer carrier margins</strong> from database</li>
+                  <li>Mark up remaining competitor costs using <strong>CORRECT formula: cost / (1 - margin)</strong></li>
                   <li>Calculate average of marked-up competitor prices as <strong>target price</strong></li>
                   <li>Calculate recommended margin: <strong>(Target Price - Target Carrier Cost) / Target Price</strong></li>
                   <li>Process <strong>{shipmentData.length} historical shipments</strong> with actual service levels</li>
@@ -756,7 +759,7 @@ export const MarginAnalysisTools: React.FC = () => {
             ) : (
               <Play className="h-5 w-5" />
             )}
-            <span>{isLoading ? 'Analyzing...' : 'Run Margin Analysis'}</span>
+            <span>{isLoading ? 'Analyzing...' : 'Run Corrected Margin Analysis'}</span>
           </button>
           
           {shipmentData.length === 0 && (
@@ -795,9 +798,9 @@ export const MarginAnalysisTools: React.FC = () => {
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
             <div>
-              <h3 className="text-lg font-semibold text-gray-800">Margin Analysis Results</h3>
+              <h3 className="text-lg font-semibold text-gray-800">Corrected Margin Analysis Results</h3>
               <p className="text-sm text-gray-600 mt-1">
-                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed with outlier removal and proper customer margins
+                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed with outlier removal and correct formula: cost/(1-margin)
               </p>
             </div>
             <button
