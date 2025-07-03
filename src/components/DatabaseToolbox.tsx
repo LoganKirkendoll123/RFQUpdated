@@ -167,6 +167,7 @@ export const DatabaseToolbox: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers'>('shipments');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
+  const [debugInfo, setDebugInfo] = useState<string>('');
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -192,36 +193,99 @@ export const DatabaseToolbox: React.FC = () => {
     loadFilterOptions();
   }, [activeTab, currentPage, searchTerm, filterStatus, filterCustomer]);
 
+  const testSupabaseConnection = async () => {
+    try {
+      console.log('🔍 Testing Supabase connection...');
+      setDebugInfo('Testing Supabase connection...');
+      
+      // Test basic connection
+      const { data: testData, error: testError } = await supabase
+        .from('Shipments')
+        .select('count', { count: 'exact', head: true });
+      
+      if (testError) {
+        console.error('❌ Supabase connection test failed:', testError);
+        setDebugInfo(`Connection test failed: ${testError.message}`);
+        return false;
+      }
+      
+      console.log('✅ Supabase connection successful');
+      setDebugInfo(`Connection successful. Found ${testData || 0} records in Shipments table.`);
+      return true;
+    } catch (err) {
+      console.error('❌ Connection test error:', err);
+      setDebugInfo(`Connection error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      return false;
+    }
+  };
+
   const loadFilterOptions = async () => {
     try {
+      console.log('🔍 Loading filter options...');
+      
+      // Test connection first
+      const connectionOk = await testSupabaseConnection();
+      if (!connectionOk) {
+        return;
+      }
+      
       // Load unique customers from Shipments
-      const { data: customerData } = await supabase
+      console.log('📋 Loading unique customers...');
+      const { data: customerData, error: customerError } = await supabase
         .from('Shipments')
         .select('"Customer"')
-        .not('"Customer"', 'is', null);
+        .not('"Customer"', 'is', null)
+        .limit(100);
       
-      const customers = [...new Set(customerData?.map(s => s.Customer).filter(Boolean))];
-      setUniqueCustomers(customers);
+      if (customerError) {
+        console.error('❌ Error loading customers:', customerError);
+        setDebugInfo(prev => prev + `\nCustomer load error: ${customerError.message}`);
+      } else {
+        const customers = [...new Set(customerData?.map(s => s.Customer).filter(Boolean))];
+        setUniqueCustomers(customers);
+        console.log(`✅ Loaded ${customers.length} unique customers`);
+        setDebugInfo(prev => prev + `\nLoaded ${customers.length} customers`);
+      }
       
       // Load unique statuses from Shipments
-      const { data: statusData } = await supabase
+      console.log('📋 Loading unique statuses...');
+      const { data: statusData, error: statusError } = await supabase
         .from('Shipments')
         .select('"Status"')
-        .not('"Status"', 'is', null);
+        .not('"Status"', 'is', null)
+        .limit(100);
       
-      const statuses = [...new Set(statusData?.map(s => s.Status).filter(Boolean))];
-      setUniqueStatuses(statuses);
+      if (statusError) {
+        console.error('❌ Error loading statuses:', statusError);
+        setDebugInfo(prev => prev + `\nStatus load error: ${statusError.message}`);
+      } else {
+        const statuses = [...new Set(statusData?.map(s => s.Status).filter(Boolean))];
+        setUniqueStatuses(statuses);
+        console.log(`✅ Loaded ${statuses.length} unique statuses`);
+        setDebugInfo(prev => prev + `\nLoaded ${statuses.length} statuses`);
+      }
       
     } catch (err) {
-      console.error('Failed to load filter options:', err);
+      console.error('❌ Failed to load filter options:', err);
+      setDebugInfo(prev => prev + `\nFilter load error: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
   const loadData = async () => {
     setLoading(true);
     setError('');
+    setDebugInfo('');
     
     try {
+      console.log(`🔄 Loading data for tab: ${activeTab}`);
+      
+      // Test connection first
+      const connectionOk = await testSupabaseConnection();
+      if (!connectionOk) {
+        setError('Failed to connect to Supabase. Please check your configuration.');
+        return;
+      }
+      
       const offset = (currentPage - 1) * itemsPerPage;
       
       switch (activeTab) {
@@ -233,8 +297,10 @@ export const DatabaseToolbox: React.FC = () => {
           break;
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load data';
+      setError(errorMsg);
       console.error('❌ Data loading failed:', err);
+      setDebugInfo(prev => prev + `\nData load error: ${errorMsg}`);
     } finally {
       setLoading(false);
     }
@@ -242,6 +308,9 @@ export const DatabaseToolbox: React.FC = () => {
 
   const loadShipments = async (offset: number) => {
     try {
+      console.log('📦 Loading shipments...');
+      setDebugInfo(prev => prev + '\nLoading shipments...');
+      
       let query = supabase
         .from('Shipments')
         .select('*', { count: 'exact' })
@@ -250,23 +319,27 @@ export const DatabaseToolbox: React.FC = () => {
       
       // Apply search filter
       if (searchTerm) {
+        console.log(`🔍 Applying search filter: ${searchTerm}`);
         query = query.or(`"Shipment ID".ilike.%${searchTerm}%,"Customer".ilike.%${searchTerm}%,"Carrier".ilike.%${searchTerm}%,"Origin Postal Code".ilike.%${searchTerm}%,"Destination Postal Code".ilike.%${searchTerm}%`);
       }
       
       // Apply status filter
       if (filterStatus) {
+        console.log(`📊 Applying status filter: ${filterStatus}`);
         query = query.eq('"Status"', filterStatus);
       }
       
       // Apply customer filter
       if (filterCustomer) {
+        console.log(`👤 Applying customer filter: ${filterCustomer}`);
         query = query.eq('"Customer"', filterCustomer);
       }
       
       const { data, error, count } = await query;
       
       if (error) {
-        console.error('Shipments query error:', error);
+        console.error('❌ Shipments query error:', error);
+        setDebugInfo(prev => prev + `\nShipments query error: ${error.message}`);
         throw error;
       }
       
@@ -274,7 +347,8 @@ export const DatabaseToolbox: React.FC = () => {
       setTotalCount(count || 0);
       setTotalPages(Math.ceil((count || 0) / itemsPerPage));
       
-      console.log(`✅ Loaded ${data?.length || 0} Shipments records`);
+      console.log(`✅ Loaded ${data?.length || 0} Shipments records (${count} total)`);
+      setDebugInfo(prev => prev + `\nLoaded ${data?.length || 0} shipments (${count} total)`);
     } catch (err) {
       console.error('❌ Failed to load Shipments:', err);
       throw err;
@@ -283,6 +357,9 @@ export const DatabaseToolbox: React.FC = () => {
 
   const loadCustomerCarriers = async (offset: number) => {
     try {
+      console.log('🚛 Loading customer carriers...');
+      setDebugInfo(prev => prev + '\nLoading customer carriers...');
+      
       let query = supabase
         .from('CustomerCarriers')
         .select('*', { count: 'exact' })
@@ -291,13 +368,15 @@ export const DatabaseToolbox: React.FC = () => {
       
       // Apply search filter
       if (searchTerm) {
+        console.log(`🔍 Applying search filter: ${searchTerm}`);
         query = query.or(`"InternalName".ilike.%${searchTerm}%,"P44CarrierCode".ilike.%${searchTerm}%`);
       }
       
       const { data, error, count } = await query;
       
       if (error) {
-        console.error('CustomerCarriers query error:', error);
+        console.error('❌ CustomerCarriers query error:', error);
+        setDebugInfo(prev => prev + `\nCustomerCarriers query error: ${error.message}`);
         throw error;
       }
       
@@ -305,7 +384,8 @@ export const DatabaseToolbox: React.FC = () => {
       setTotalCount(count || 0);
       setTotalPages(Math.ceil((count || 0) / itemsPerPage));
       
-      console.log(`✅ Loaded ${data?.length || 0} CustomerCarriers records`);
+      console.log(`✅ Loaded ${data?.length || 0} CustomerCarriers records (${count} total)`);
+      setDebugInfo(prev => prev + `\nLoaded ${data?.length || 0} customer carriers (${count} total)`);
     } catch (err) {
       console.error('❌ Failed to load CustomerCarriers:', err);
       throw err;
@@ -421,6 +501,19 @@ export const DatabaseToolbox: React.FC = () => {
         </button>
       </div>
 
+      {/* Debug Info */}
+      {debugInfo && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start space-x-2">
+            <Database className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-800">
+              <p className="font-medium mb-1">Debug Information:</p>
+              <pre className="whitespace-pre-wrap text-xs">{debugInfo}</pre>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Search and Filters */}
       <div className="bg-white rounded-lg shadow-md p-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -440,7 +533,7 @@ export const DatabaseToolbox: React.FC = () => {
             onChange={(e) => setFilterCustomer(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
           >
-            <option value="">All Customers</option>
+            <option value="">All Customers ({uniqueCustomers.length})</option>
             {uniqueCustomers.map(customer => (
               <option key={customer} value={customer}>{customer}</option>
             ))}
@@ -451,7 +544,7 @@ export const DatabaseToolbox: React.FC = () => {
             onChange={(e) => setFilterStatus(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
           >
-            <option value="">All Statuses</option>
+            <option value="">All Statuses ({uniqueStatuses.length})</option>
             {uniqueStatuses.map(status => (
               <option key={status} value={status}>{status}</option>
             ))}
@@ -557,6 +650,9 @@ export const DatabaseToolbox: React.FC = () => {
           <div className="text-center py-8 text-gray-500">
             <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
             <p>No shipments found</p>
+            {debugInfo && (
+              <p className="text-xs mt-2">Check debug info above for details</p>
+            )}
           </div>
         )}
         
@@ -581,6 +677,19 @@ export const DatabaseToolbox: React.FC = () => {
           <span>Refresh</span>
         </button>
       </div>
+
+      {/* Debug Info */}
+      {debugInfo && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start space-x-2">
+            <Database className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-800">
+              <p className="font-medium mb-1">Debug Information:</p>
+              <pre className="whitespace-pre-wrap text-xs">{debugInfo}</pre>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <div className="bg-white rounded-lg shadow-md p-4">
@@ -663,6 +772,9 @@ export const DatabaseToolbox: React.FC = () => {
           <div className="text-center py-8 text-gray-500">
             <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
             <p>No customer carriers found</p>
+            {debugInfo && (
+              <p className="text-xs mt-2">Check debug info above for details</p>
+            )}
           </div>
         )}
         
