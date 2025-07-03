@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, MapPin, Package, Clock, Thermometer, XCircle, CheckCircle, Truck } from 'lucide-react';
 import { ProcessingResult } from '../types';
-import { QuotePricingCard } from './QuotePricingCard';
+import { CarrierCards } from './CarrierCards';
 import { formatCurrency } from '../utils/pricingCalculator';
 
 interface RFQCardProps {
@@ -34,11 +34,26 @@ export const RFQCard: React.FC<RFQCardProps> = ({ result, onPriceUpdate }) => {
     }
   };
 
+  // Get the best quote across all carriers for this RFQ
   const bestQuote = result.quotes.length > 0 
-    ? result.quotes.reduce((best, current) => 
-        (current as any).customerPrice < (best as any).customerPrice ? current : best
-      )
+    ? result.quotes.reduce((best, current) => {
+        const bestPrice = (best as any).customerPrice || (best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts);
+        const currentPrice = (current as any).customerPrice || (current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts);
+        return currentPrice < bestPrice ? current : best;
+      })
     : null;
+
+  // Group quotes by carrier for summary stats
+  const carrierGroups = result.quotes.reduce((groups, quote) => {
+    const carrierKey = quote.carrierCode || quote.carrier.name;
+    if (!groups[carrierKey]) {
+      groups[carrierKey] = [];
+    }
+    groups[carrierKey].push(quote);
+    return groups;
+  }, {} as Record<string, typeof result.quotes>);
+
+  const uniqueCarrierCount = Object.keys(carrierGroups).length;
 
   return (
     <div className={`bg-white rounded-lg shadow-md border ${getStatusColor()} overflow-hidden`}>
@@ -78,12 +93,14 @@ export const RFQCard: React.FC<RFQCardProps> = ({ result, onPriceUpdate }) => {
             {bestQuote ? (
               <div>
                 <div className="text-2xl font-bold text-green-600">
-                  {formatCurrency((bestQuote as any).customerPrice)}
+                  {formatCurrency((bestQuote as any).customerPrice || (bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts))}
                 </div>
                 <div className="text-sm text-gray-500">Best Price</div>
-                <div className="text-sm text-green-600">
-                  Profit: {formatCurrency((bestQuote as any).profit)}
-                </div>
+                {(bestQuote as any).customerPrice && (
+                  <div className="text-sm text-green-600">
+                    Profit: {formatCurrency((bestQuote as any).profit || 0)}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-gray-500">No quotes</div>
@@ -108,14 +125,14 @@ export const RFQCard: React.FC<RFQCardProps> = ({ result, onPriceUpdate }) => {
             <div className="flex items-center space-x-2">
               <Truck className="h-4 w-4 text-blue-500" />
               <span className="text-sm font-medium text-gray-700">
-                {result.quotes.length} quote{result.quotes.length !== 1 ? 's' : ''} received
+                {result.quotes.length} quote{result.quotes.length !== 1 ? 's' : ''} from {uniqueCarrierCount} carrier{uniqueCarrierCount !== 1 ? 's' : ''}
               </span>
             </div>
             <button
               onClick={() => setIsExpanded(!isExpanded)}
               className="flex items-center space-x-2 text-sm text-blue-600 hover:text-blue-700 transition-colors"
             >
-              <span>{isExpanded ? 'Hide' : 'Show'} Details</span>
+              <span>{isExpanded ? 'Hide' : 'Show'} Carrier Details</span>
               {isExpanded ? (
                 <ChevronUp className="h-4 w-4" />
               ) : (
@@ -126,17 +143,20 @@ export const RFQCard: React.FC<RFQCardProps> = ({ result, onPriceUpdate }) => {
         </div>
       )}
 
-      {/* Expanded Quote Details */}
+      {/* Expanded Carrier Details */}
       {isExpanded && result.quotes.length > 0 && (
-        <div className="p-6 space-y-4">
-          {result.quotes.map((quote) => (
-            <QuotePricingCard
-              key={quote.quoteId}
-              quote={quote as any}
-              onPriceUpdate={onPriceUpdate}
-              isExpanded={true}
-            />
-          ))}
+        <div className="p-6">
+          <CarrierCards
+            quotes={result.quotes as any}
+            onPriceUpdate={onPriceUpdate}
+            shipmentInfo={{
+              fromZip: result.originalData.fromZip,
+              toZip: result.originalData.toZip,
+              weight: result.originalData.grossWeight,
+              pallets: result.originalData.pallets,
+              pickupDate: result.originalData.fromDate
+            }}
+          />
         </div>
       )}
     </div>
