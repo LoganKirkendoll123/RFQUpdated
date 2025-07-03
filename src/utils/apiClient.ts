@@ -443,7 +443,8 @@ export class Project44APIClient {
       temperature: rfq.temperature,
       isReeferMode,
       isVolumeMode,
-      totalLinearFeet: rfq.totalLinearFeet
+      totalLinearFeet: rfq.totalLinearFeet,
+      selectedCarriers: selectedCarrierIds.length
     });
 
     const isDev = import.meta.env.DEV;
@@ -488,6 +489,16 @@ export class Project44APIClient {
     if (isVolumeMode) {
       requestPayload.totalLinearFeet = rfq.totalLinearFeet || this.calculateLinearFeet(rfq);
       console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
+    }
+
+    // CRITICAL FIX: Add capacity provider account group to filter by selected carriers
+    if (selectedCarrierIds.length > 0) {
+      requestPayload.capacityProviderAccountGroup = {
+        accounts: selectedCarrierIds.map(carrierId => ({ code: carrierId }))
+      };
+      console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
+    } else {
+      console.log('⚠️ No carriers selected - will get quotes from all available carriers');
     }
 
     console.log('📤 Sending request payload:', JSON.stringify(requestPayload, null, 2));
@@ -597,7 +608,7 @@ export class Project44APIClient {
       return quote;
     });
 
-    console.log(`✅ Transformed ${quotes.length} filtered ${modeDescription} quotes`);
+    console.log(`✅ Transformed ${quotes.length} filtered ${modeDescription} quotes from selected carriers`);
     return quotes;
   }
 
