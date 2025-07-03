@@ -86,80 +86,199 @@ const PROJECT44_ACCESSORIALS = [
 export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   const workbook = XLSX.utils.book_new();
   
-  // Create the main data sheet with individual accessorial columns
+  // Create comprehensive headers including all Project44 API fields
   const baseHeaders = [
+    // Core required fields
     'fromDate',
     'fromZip', 
     'toZip',
     'pallets',
     'grossWeight',
     'isStackable',
+    'isReefer',
+    
+    // Enhanced shipment details
     'temperature',
     'commodity',
     'isFoodGrade',
-    'isReefer'  // New field to explicitly mark reefer shipments
+    'freightClass',
+    'nmfcCode',
+    'nmfcSubCode',
+    'commodityDescription',
+    'commodityType',
+    'packageType',
+    'totalPackages',
+    'totalPieces',
+    'packageLength',
+    'packageWidth',
+    'packageHeight',
+    'lengthUnit',
+    'weightUnit',
+    'totalValue',
+    'insuranceAmount',
+    'harmonizedCode',
+    'countryOfManufacture',
+    
+    // Hazmat information
+    'hazmat',
+    'hazmatClass',
+    'hazmatIdNumber',
+    'hazmatPackingGroup',
+    'hazmatProperShippingName',
+    'emergencyContactName',
+    'emergencyContactPhone',
+    'emergencyContactCompany',
+    
+    // Timing and delivery windows
+    'deliveryDate',
+    'deliveryStartTime',
+    'deliveryEndTime',
+    'pickupStartTime',
+    'pickupEndTime',
+    
+    // Address details
+    'originAddressLines',
+    'originCity',
+    'originState',
+    'originCountry',
+    'destinationAddressLines',
+    'destinationCity',
+    'destinationState',
+    'destinationCountry',
+    
+    // Contact information
+    'pickupContactName',
+    'pickupContactPhone',
+    'pickupContactEmail',
+    'pickupCompanyName',
+    'deliveryContactName',
+    'deliveryContactPhone',
+    'deliveryContactEmail',
+    'deliveryCompanyName',
+    
+    // API configuration
+    'preferredCurrency',
+    'paymentTerms',
+    'direction',
+    'preferredSystemOfMeasurement',
+    'allowUnacceptedAccessorials',
+    'fetchAllGuaranteed',
+    'fetchAllInsideDelivery',
+    'fetchAllServiceLevels',
+    'enableUnitConversion',
+    'fallBackToDefaultAccountGroup',
+    'apiTimeout',
+    'totalLinearFeet'
   ];
   
   // Add each Project44 accessorial as its own column
   const accessorialHeaders = PROJECT44_ACCESSORIALS.map(acc => acc.code);
   const allHeaders = [...baseHeaders, ...accessorialHeaders];
   
-  // Comprehensive sample data for testing smart routing
+  // Comprehensive sample data for testing all Project44 API capabilities
   const sampleData = [
-    // Row 1: Standard LTL - Small dry goods shipment
+    // Row 1: Standard LTL - Basic shipment with minimal data
     [
-      '2025-02-15', '60607', '30033', 3, 2500, false, 'AMBIENT', '', false, false,
+      '2025-02-15', '60607', '30033', 3, 2500, false, false,
+      'AMBIENT', '', false, '70', '', '', 'General Freight', '', 'PLT', 3, 3, 48, 40, 48, 'IN', 'LB', 5000, 0, '', 'US',
+      false, '', '', '', '', '', '', '',
+      '', '', '', '', '',
+      '', 'Chicago', 'IL', 'US', '', 'Atlanta', 'GA', 'US',
+      '', '', '', '', '', '', '', '',
+      'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 30, 0,
       ...PROJECT44_ACCESSORIALS.map(acc => 
         ['LGDEL', 'APPTDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 2: Volume LTL - Large dry goods shipment (triggers VLTL)
+    // Row 2: Volume LTL - Large shipment with comprehensive data
     [
-      '2025-02-16', '90210', '10001', 12, 18000, true, 'AMBIENT', '', false, false,
+      '2025-02-16', '90210', '10001', 12, 18000, true, false,
+      'AMBIENT', '', false, '85', '123456', '01', 'Electronics Equipment', 'ELECTRONICS', 'PLT', 12, 24, 48, 40, 60, 'IN', 'LB', 25000, 2500, 'HTS123456', 'US',
+      false, '', '', '', '', '', '', '',
+      '2025-02-17', '08:00', '17:00', '09:00', '16:00',
+      '123 Main St', 'Beverly Hills', 'CA', 'US', '456 Broadway', 'New York', 'NY', 'US',
+      'John Smith', '555-123-4567', 'john@company.com', 'Shipper Corp', 'Jane Doe', '555-987-6543', 'jane@receiver.com', 'Receiver Inc',
+      'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 45, 30,
       ...PROJECT44_ACCESSORIALS.map(acc => 
         ['INPU', 'INDEL', 'RESPU', 'RESDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 3: FreshX Reefer - Chilled food shipment (marked as reefer)
+    // Row 3: FreshX Reefer - Temperature-controlled with hazmat
     [
-      '2025-02-17', '10001', '90210', 5, 4500, false, 'CHILLED', 'FOODSTUFFS', true, true,
+      '2025-02-17', '10001', '90210', 5, 4500, false, true,
+      'CHILLED', 'FOODSTUFFS', true, '70', '654321', '02', 'Refrigerated Food Products', 'FOOD', 'CARTON', 50, 100, 24, 18, 12, 'IN', 'LB', 15000, 1500, 'FOOD789', 'US',
+      true, '9', 'UN1234', 'II', 'Dangerous Goods Sample', 'Emergency Contact', '555-HELP-911', 'Emergency Corp',
+      '2025-02-18', '06:00', '18:00', '07:00', '15:00',
+      '789 Cold St', 'New York', 'NY', 'US', '321 Freeze Ave', 'Los Angeles', 'CA', 'US',
+      'Cold Handler', '555-COLD-123', 'cold@shipper.com', 'Cold Chain Co', 'Freeze Receiver', '555-FREEZE-456', 'freeze@receiver.com', 'Frozen Foods Inc',
+      'USD', 'COLLECT', 'CONSIGNEE', 'IMPERIAL', true, true, true, true, true, true, 60, 0,
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['LGPU', 'LGDEL', 'NOTIFY'].includes(acc.code) ? true : false
+        ['LGPU', 'LGDEL', 'NOTIFY', 'APPTPU', 'APPTDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 4: FreshX Reefer - Frozen food shipment (marked as reefer)
+    // Row 4: International shipment with full address details
     [
-      '2025-02-18', '77001', '30309', 8, 7200, true, 'FROZEN', 'ICE_CREAM', true, true,
+      '2025-02-18', '77001', '30309', 8, 7200, true, false,
+      'AMBIENT', '', false, '92.5', '789012', '03', 'Automotive Parts', 'AUTO_PARTS', 'CRATE', 8, 16, 60, 48, 36, 'IN', 'LB', 35000, 3500, 'AUTO456', 'MX',
+      false, '', '', '', '', '', '', '',
+      '2025-02-19', '10:00', '14:00', '08:00', '12:00',
+      '100 Industrial Blvd;Suite 200', 'Houston', 'TX', 'US', '200 Peachtree St;Floor 5', 'Atlanta', 'GA', 'US',
+      'Maria Rodriguez', '555-PARTS-123', 'maria@autoparts.com', 'Auto Parts Supplier', 'David Johnson', '555-RECEIVE-789', 'david@warehouse.com', 'Distribution Center',
+      'CAD', 'THIRD_PARTY', 'THIRD_PARTY', 'METRIC', false, false, false, false, true, false, 25, 20,
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['INPU', 'INDEL', 'APPTPU', 'APPTDEL'].includes(acc.code) ? true : false
+        ['INPU', 'INDEL', 'SATPU', 'SATDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 5: Project44 Standard LTL - Temperature-controlled but not reefer (isReefer = false)
+    // Row 5: High-value shipment with insurance
     [
-      '2025-02-19', '94102', '02101', 4, 3200, false, 'CHILLED', '', false, false,
+      '2025-02-19', '94102', '02101', 4, 3200, false, false,
+      'AMBIENT', '', false, '50', '345678', '04', 'High Value Electronics', 'ELECTRONICS', 'BOX', 20, 40, 30, 24, 18, 'IN', 'LB', 100000, 10000, 'ELEC789', 'US',
+      false, '', '', '', '', '', '', '',
+      '', '', '', '', '',
+      '500 Tech Way', 'San Francisco', 'CA', 'US', '100 Innovation Dr', 'Boston', 'MA', 'US',
+      'Tech Shipper', '555-TECH-456', 'tech@silicon.com', 'Silicon Valley Tech', 'Innovation Receiver', '555-INNOV-789', 'receive@innovation.com', 'Innovation Labs',
+      'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 30, 0,
       ...PROJECT44_ACCESSORIALS.map(acc => 
         ['LGDEL', 'RESDEL', 'NOTIFY'].includes(acc.code) ? true : false
       )
     ],
-    // Row 6: Multi-mode opportunity - Medium shipment (could be Standard or Volume)
+    // Row 6: Multi-accessorial complex shipment
     [
-      '2025-02-20', '80202', '98101', 9, 12000, true, 'AMBIENT', '', false, false,
+      '2025-02-20', '80202', '98101', 9, 12000, true, false,
+      'AMBIENT', '', false, '125', '456789', '05', 'Construction Materials', 'CONSTRUCTION', 'PALLET', 9, 18, 48, 40, 72, 'IN', 'LB', 20000, 2000, 'CONST123', 'US',
+      false, '', '', '', '', '', '', '',
+      '2025-02-21', '07:00', '19:00', '06:00', '18:00',
+      '1000 Construction Ave', 'Denver', 'CO', 'US', '2000 Builder Blvd', 'Seattle', 'WA', 'US',
+      'Build Manager', '555-BUILD-123', 'build@construction.com', 'Construction Co', 'Site Supervisor', '555-SITE-456', 'site@builder.com', 'Builder Inc',
+      'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 40, 22,
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['SATPU', 'SATDEL', 'LTDDEL'].includes(acc.code) ? true : false
+        ['SATPU', 'SATDEL', 'LTDDEL', 'CONPU', 'CONDEL', 'INPU', 'INDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 7: Large reefer shipment (marked as reefer)
+    // Row 7: Large reefer shipment with all features
     [
-      '2025-02-21', '30309', '60607', 15, 22000, true, 'FROZEN', 'FROZEN_SEAFOOD', true, true,
+      '2025-02-21', '30309', '60607', 15, 22000, true, true,
+      'FROZEN', 'FROZEN_SEAFOOD', true, '70', '567890', '06', 'Frozen Seafood Products', 'SEAFOOD', 'PLT', 15, 30, 48, 40, 48, 'IN', 'LB', 50000, 5000, 'SEAFOOD456', 'US',
+      false, '', '', '', '', '', '', '',
+      '2025-02-22', '05:00', '20:00', '04:00', '19:00',
+      '3000 Seafood Port;Dock 5', 'Atlanta', 'GA', 'US', '4000 Fish Market St;Cold Storage', 'Chicago', 'IL', 'US',
+      'Port Manager', '555-PORT-789', 'port@seafood.com', 'Seafood Port Co', 'Cold Storage Mgr', '555-COLD-012', 'cold@fishmarket.com', 'Fish Market Inc',
+      'USD', 'COLLECT', 'CONSIGNEE', 'IMPERIAL', true, true, true, true, true, true, 60, 36,
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['INPU', 'INDEL', 'LGPU', 'LGDEL', 'APPTPU', 'APPTDEL'].includes(acc.code) ? true : false
+        ['INPU', 'INDEL', 'LGPU', 'LGDEL', 'APPTPU', 'APPTDEL', 'PIERPU', 'PIERDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 8: Small reefer shipment (marked as reefer)
+    // Row 8: Small precision shipment with special handling
     [
-      '2025-02-22', '85001', '19101', 2, 1800, false, 'CHILLED', 'PRODUCE', false, true,
+      '2025-02-22', '85001', '19101', 2, 1800, false, false,
+      'AMBIENT', '', false, '60', '678901', '07', 'Precision Instruments', 'INSTRUMENTS', 'CRATE', 2, 4, 36, 24, 24, 'IN', 'LB', 75000, 7500, 'PREC789', 'US',
+      false, '', '', '', '', '', '', '',
+      '', '', '', '', '',
+      '5000 Precision Way', 'Phoenix', 'AZ', 'US', '6000 Laboratory Dr', 'Philadelphia', 'PA', 'US',
+      'Precision Tech', '555-PREC-345', 'precision@tech.com', 'Precision Technologies', 'Lab Coordinator', '555-LAB-678', 'lab@research.com', 'Research Lab',
+      'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 35, 0,
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['RESDEL', 'LGDEL'].includes(acc.code) ? true : false
+        ['RESDEL', 'LGDEL', 'APPTDEL', 'EDUPU', 'EDUDEL'].includes(acc.code) ? true : false
       )
     ]
   ];
@@ -170,79 +289,70 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   
   // Set column widths - base columns get normal width, accessorial columns get smaller width
   const colWidths = [
-    { wch: 12 }, // fromDate
-    { wch: 10 }, // fromZip
-    { wch: 10 }, // toZip
-    { wch: 8 },  // pallets
-    { wch: 12 }, // grossWeight
-    { wch: 12 }, // isStackable
-    { wch: 12 }, // temperature
-    { wch: 15 }, // commodity
-    { wch: 12 }, // isFoodGrade
-    { wch: 10 }, // isReefer
+    // Core fields
+    { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
+    // Enhanced fields
+    { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 20 }, { wch: 15 },
+    { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
+    { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
+    // Hazmat fields
+    { wch: 8 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 20 },
+    // Timing fields
+    { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+    // Address fields
+    { wch: 20 }, { wch: 15 }, { wch: 8 }, { wch: 8 }, { wch: 20 }, { wch: 15 }, { wch: 8 }, { wch: 8 },
+    // Contact fields
+    { wch: 20 }, { wch: 15 }, { wch: 25 }, { wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 25 }, { wch: 20 },
+    // API config fields
+    { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
+    { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 15 },
     // All accessorial columns get smaller width
     ...PROJECT44_ACCESSORIALS.map(() => ({ wch: 8 }))
   ];
   
   mainWs['!cols'] = colWidths;
   
-  // Add data validation for all boolean columns and dropdowns
-  for (let row = 1; row <= sampleData.length; row++) {
-    // isStackable column (column F)
-    const stackableCellRef = XLSX.utils.encode_cell({ r: row, c: 5 });
-    if (!mainWs['!dataValidation']) {
-      mainWs['!dataValidation'] = {};
-    }
-    mainWs['!dataValidation'][stackableCellRef] = {
-      type: 'list',
-      allowBlank: false,
-      formula1: 'TRUE,FALSE'
-    };
-
-    // temperature column (column G)
-    const tempCellRef = XLSX.utils.encode_cell({ r: row, c: 6 });
-    mainWs['!dataValidation'][tempCellRef] = {
-      type: 'list',
-      allowBlank: true,
-      formula1: 'AMBIENT,CHILLED,FROZEN'
-    };
-
-    // commodity column (column H)
-    const commodityCellRef = XLSX.utils.encode_cell({ r: row, c: 7 });
-    mainWs['!dataValidation'][commodityCellRef] = {
-      type: 'list',
-      allowBlank: true,
-      formula1: 'ALCOHOL,FOODSTUFFS,FRESH_SEAFOOD,FROZEN_SEAFOOD,ICE_CREAM,PRODUCE'
-    };
-
-    // isFoodGrade column (column I)
-    const foodGradeCellRef = XLSX.utils.encode_cell({ r: row, c: 8 });
-    mainWs['!dataValidation'][foodGradeCellRef] = {
-      type: 'list',
-      allowBlank: false,
-      formula1: 'TRUE,FALSE'
-    };
-
-    // isReefer column (column J)
-    const reeferCellRef = XLSX.utils.encode_cell({ r: row, c: 9 });
-    mainWs['!dataValidation'][reeferCellRef] = {
-      type: 'list',
-      allowBlank: false,
-      formula1: 'TRUE,FALSE'
-    };
-    
-    // Add validation for all accessorial columns
-    for (let col = 10; col < allHeaders.length; col++) { // Start from column K (first accessorial)
-      const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
-      mainWs['!dataValidation'][cellRef] = {
-        type: 'list',
-        allowBlank: false,
-        formula1: 'TRUE,FALSE'
-      };
-    }
-  }
-  
   XLSX.utils.book_append_sheet(workbook, mainWs, 'RFQ Data');
+  
+  // Create comprehensive field reference sheet
+  const fieldHeaders = ['Field Name', 'Description', 'Type', 'Required', 'Example Values'];
+  const fieldData = [
+    ['fromDate', 'Pickup date', 'Date (YYYY-MM-DD)', 'Yes', '2025-02-15'],
+    ['fromZip', 'Origin ZIP code', 'String (5 digits)', 'Yes', '60607'],
+    ['toZip', 'Destination ZIP code', 'String (5 digits)', 'Yes', '30033'],
+    ['pallets', 'Number of pallets', 'Integer', 'Yes', '3'],
+    ['grossWeight', 'Total weight in pounds', 'Integer', 'Yes', '2500'],
+    ['isStackable', 'Can pallets be stacked', 'Boolean', 'Yes', 'TRUE/FALSE'],
+    ['isReefer', 'Route to FreshX reefer network', 'Boolean', 'Yes', 'TRUE/FALSE'],
+    ['temperature', 'Temperature requirement', 'String', 'No', 'AMBIENT/CHILLED/FROZEN'],
+    ['commodity', 'Commodity type', 'String', 'No', 'FOODSTUFFS/ICE_CREAM/etc'],
+    ['freightClass', 'NMFC freight class', 'String', 'No', '70/85/92.5/etc'],
+    ['nmfcCode', 'NMFC item code', 'String', 'No', '123456'],
+    ['packageType', 'Type of packaging', 'String', 'No', 'PLT/BOX/CRATE/etc'],
+    ['hazmat', 'Contains hazardous materials', 'Boolean', 'No', 'TRUE/FALSE'],
+    ['hazmatClass', 'DOT hazard class', 'String', 'No', '9/3/etc'],
+    ['totalValue', 'Shipment value for insurance', 'Number', 'No', '5000'],
+    ['originCity', 'Origin city name', 'String', 'No', 'Chicago'],
+    ['originState', 'Origin state abbreviation', 'String', 'No', 'IL'],
+    ['destinationCity', 'Destination city name', 'String', 'No', 'Atlanta'],
+    ['destinationState', 'Destination state abbreviation', 'String', 'No', 'GA'],
+    ['pickupContactName', 'Pickup contact person', 'String', 'No', 'John Smith'],
+    ['pickupContactPhone', 'Pickup contact phone', 'String', 'No', '555-123-4567'],
+    ['deliveryContactName', 'Delivery contact person', 'String', 'No', 'Jane Doe'],
+    ['deliveryContactPhone', 'Delivery contact phone', 'String', 'No', '555-987-6543'],
+    ['preferredCurrency', 'Currency for quotes', 'String', 'No', 'USD/CAD/MXN'],
+    ['paymentTerms', 'Payment responsibility', 'String', 'No', 'PREPAID/COLLECT/THIRD_PARTY'],
+    ['totalLinearFeet', 'Linear feet (for VLTL)', 'Integer', 'No', '30'],
+    ['apiTimeout', 'API timeout in seconds', 'Integer', 'No', '30']
+  ];
+  
+  const fieldWsData = [fieldHeaders, ...fieldData];
+  const fieldWs = XLSX.utils.aoa_to_sheet(fieldWsData);
+  fieldWs['!cols'] = [
+    { wch: 25 }, { wch: 40 }, { wch: 20 }, { wch: 10 }, { wch: 30 }
+  ];
+  
+  XLSX.utils.book_append_sheet(workbook, fieldWs, 'Field Reference');
   
   // Create smart routing guide sheet
   const routingHeaders = ['Scenario', 'isReefer', 'Temperature', 'Pallets', 'Weight (lbs)', 'Expected Routing', 'Reasoning'];
@@ -259,13 +369,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   
   // Set column widths for routing guide
   routingWs['!cols'] = [
-    { wch: 20 }, // Scenario
-    { wch: 10 }, // isReefer
-    { wch: 15 }, // Temperature
-    { wch: 12 }, // Pallets
-    { wch: 15 }, // Weight
-    { wch: 25 }, // Expected Routing
-    { wch: 30 }  // Reasoning
+    { wch: 20 }, { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 25 }, { wch: 30 }
   ];
   
   XLSX.utils.book_append_sheet(workbook, routingWs, 'Smart Routing Guide');
@@ -275,7 +379,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   const accessorialData = PROJECT44_ACCESSORIALS.map((acc, index) => [
     acc.code,
     acc.label,
-    `Column ${String.fromCharCode(75 + index)}` // K, L, M, etc.
+    `Column ${String.fromCharCode(75 + baseHeaders.length + index)}` // After all base headers
   ]);
   
   const accessorialWsData = [project44AccessorialHeaders, ...accessorialData];
@@ -283,33 +387,32 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   
   // Set column widths for accessorial reference sheet
   accessorialWs['!cols'] = [
-    { wch: 15 }, // Code
-    { wch: 40 }, // Description
-    { wch: 15 }  // Column Position
+    { wch: 15 }, { wch: 40 }, { wch: 15 }
   ];
   
   XLSX.utils.book_append_sheet(workbook, accessorialWs, 'Accessorial Reference');
   
   // Create comprehensive instructions sheet
   const instructionsData = [
-    ['Unified Smart Routing Template Instructions'],
+    ['Comprehensive Project44 API Template Instructions'],
     [''],
     ['🧠 SMART ROUTING SYSTEM'],
     ['This template uses a single "isReefer" field to control routing:'],
     ['• isReefer = TRUE → Routes to FreshX reefer network'],
     ['• isReefer = FALSE → Routes to Project44 networks (LTL/VLTL based on size)'],
     [''],
-    ['📊 ROUTING LOGIC:'],
+    ['📊 COMPREHENSIVE PROJECT44 API SUPPORT:'],
     [''],
-    ['🌡️ REEFER ROUTING (isReefer = TRUE):'],
-    ['• All shipments marked as reefer go to FreshX'],
-    ['• Temperature and commodity fields provide additional context'],
-    ['• Ideal for specialized temperature-controlled freight'],
-    [''],
-    ['🚛 PROJECT44 ROUTING (isReefer = FALSE):'],
-    ['• Standard LTL: 1-9 pallets OR under 15,000 lbs'],
-    ['• Volume LTL: 10+ pallets OR 15,000+ lbs'],
-    ['• Can handle temperature-controlled goods through Project44 network'],
+    ['This template includes ALL fields supported by the Project44 API:'],
+    ['• Complete address information (street, city, state, country)'],
+    ['• Detailed contact information (pickup and delivery contacts)'],
+    ['• Comprehensive shipment details (dimensions, weight, class, NMFC)'],
+    ['• Hazmat information (class, ID, packing group, emergency contact)'],
+    ['• Timing windows (pickup and delivery time windows)'],
+    ['• API configuration options (timeouts, service level preferences)'],
+    ['• Insurance and valuation information'],
+    ['• International shipping support (country codes, harmonized codes)'],
+    ['• All 67 Project44 accessorial services as individual columns'],
     [''],
     ['📋 REQUIRED FIELDS:'],
     ['• fromDate: Pickup date (YYYY-MM-DD format)'],
@@ -319,48 +422,99 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['• isStackable: TRUE/FALSE for stackable pallets'],
     ['• isReefer: TRUE for FreshX reefer, FALSE for Project44 networks'],
     [''],
-    ['🎯 OPTIONAL FIELDS:'],
-    ['• temperature: AMBIENT, CHILLED, or FROZEN (informational)'],
-    ['• commodity: Food type for reefer shipments (FOODSTUFFS, ICE_CREAM, etc.)'],
-    ['• isFoodGrade: TRUE/FALSE for food-grade requirements'],
+    ['🎯 OPTIONAL ENHANCED FIELDS:'],
+    ['• Address Details: Full street addresses, cities, states, countries'],
+    ['• Contact Information: Names, phones, emails for pickup/delivery'],
+    ['• Shipment Details: Freight class, NMFC codes, package types'],
+    ['• Dimensions: Length, width, height for accurate cubic calculations'],
+    ['• Hazmat: Complete DOT hazmat information including emergency contacts'],
+    ['• Timing: Specific pickup and delivery time windows'],
+    ['• Valuation: Total value and insurance amounts'],
+    ['• International: Country of manufacture, harmonized codes'],
+    ['• API Config: Timeout settings, service level preferences'],
     [''],
-    ['📝 SAMPLE DATA SCENARIOS:'],
-    ['The template includes 8 test scenarios:'],
+    ['🔧 API CONFIGURATION OPTIONS:'],
+    ['• allowUnacceptedAccessorials: Allow quotes even if carrier rejects some accessorials'],
+    ['• fetchAllGuaranteed: Get all guaranteed service level options'],
+    ['• fetchAllInsideDelivery: Get all inside delivery options'],
+    ['• fetchAllServiceLevels: Get all available service levels'],
+    ['• enableUnitConversion: Allow automatic unit conversions'],
+    ['• fallBackToDefaultAccountGroup: Use default if account group invalid'],
+    ['• apiTimeout: Request timeout in seconds (default: 30)'],
     [''],
-    ['1. Standard LTL: Small dry goods (3 pallets, 2,500 lbs, isReefer=FALSE)'],
-    ['2. Volume LTL: Large dry goods (12 pallets, 18,000 lbs, isReefer=FALSE)'],
-    ['3. FreshX Reefer: Chilled food (5 pallets, CHILLED, isReefer=TRUE)'],
-    ['4. FreshX Reefer: Frozen food (8 pallets, FROZEN, isReefer=TRUE)'],
-    ['5. Project44 Temp: Non-reefer temp-controlled (4 pallets, CHILLED, isReefer=FALSE)'],
-    ['6. Multi-mode: Medium shipment (9 pallets, 12,000 lbs, isReefer=FALSE)'],
-    ['7. Large Reefer: Volume reefer (15 pallets, FROZEN, isReefer=TRUE)'],
-    ['8. Small Reefer: Comparison test (2 pallets, CHILLED, isReefer=TRUE)'],
+    ['📦 PACKAGE AND SHIPMENT DETAILS:'],
+    ['• packageType: PLT, BOX, CRATE, DRUM, etc.'],
+    ['• packageLength/Width/Height: Dimensions in inches'],
+    ['• totalPackages: Number of packages'],
+    ['• totalPieces: Total piece count'],
+    ['• freightClass: NMFC freight class (50, 70, 85, etc.)'],
+    ['• nmfcCode: NMFC item code'],
+    ['• commodityDescription: Detailed description'],
+    ['• totalValue: For insurance calculations'],
+    [''],
+    ['☢️ HAZMAT INFORMATION:'],
+    ['• hazmat: TRUE/FALSE if shipment contains hazardous materials'],
+    ['• hazmatClass: DOT hazard class (1-9)'],
+    ['• hazmatIdNumber: UN or NA identification number'],
+    ['• hazmatPackingGroup: I, II, III, or NONE'],
+    ['• hazmatProperShippingName: Official shipping name'],
+    ['• emergencyContactName/Phone/Company: 24/7 emergency contact'],
+    [''],
+    ['🌍 INTERNATIONAL SHIPPING:'],
+    ['• originCountry/destinationCountry: ISO country codes'],
+    ['• countryOfManufacture: Where goods were manufactured'],
+    ['• harmonizedCode: HS code for customs'],
+    ['• preferredCurrency: USD, CAD, MXN, EUR'],
+    [''],
+    ['⏰ TIMING AND WINDOWS:'],
+    ['• deliveryDate: Requested delivery date'],
+    ['• pickupStartTime/EndTime: Pickup window (HH:MM format)'],
+    ['• deliveryStartTime/EndTime: Delivery window (HH:MM format)'],
+    [''],
+    ['💰 PAYMENT AND BILLING:'],
+    ['• paymentTerms: PREPAID, COLLECT, THIRD_PARTY'],
+    ['• direction: SHIPPER, CONSIGNEE, THIRD_PARTY'],
+    ['• preferredSystemOfMeasurement: METRIC or IMPERIAL'],
+    [''],
+    ['📞 CONTACT INFORMATION:'],
+    ['• pickupContactName/Phone/Email/Company: Pickup location contact'],
+    ['• deliveryContactName/Phone/Email/Company: Delivery location contact'],
+    [''],
+    ['📏 VOLUME LTL SPECIFIC:'],
+    ['• totalLinearFeet: Required for VLTL quotes (auto-calculated if not provided)'],
     [''],
     ['🔄 PROCESSING WORKFLOW:'],
-    ['1. Upload this file to Smart Routing Processor'],
-    ['2. System checks isReefer field for each shipment'],
-    ['3. Routes to FreshX (if TRUE) or Project44 networks (if FALSE)'],
-    ['4. For Project44: Determines LTL vs VLTL based on size/weight'],
-    ['5. Presents results with clear routing explanations'],
+    ['1. Upload this comprehensive file to Smart Routing Processor'],
+    ['2. System validates all fields and applies smart routing logic'],
+    ['3. Routes to FreshX (if isReefer=TRUE) or Project44 (if isReefer=FALSE)'],
+    ['4. For Project44: Uses ALL provided data for most accurate quotes'],
+    ['5. Automatically determines LTL vs VLTL based on size/weight'],
+    ['6. Returns detailed quotes with full Project44 API response data'],
     [''],
-    ['💡 ROUTING TIPS:'],
-    ['• Use isReefer=TRUE for specialized temperature-controlled freight'],
-    ['• Use isReefer=FALSE for standard freight (even if temperature-controlled)'],
-    ['• Mixed files with both reefer and standard freight are fully supported'],
-    ['• System automatically determines optimal Project44 service level'],
+    ['💡 BEST PRACTICES:'],
+    ['• Fill in as many fields as possible for most accurate quotes'],
+    ['• Use complete addresses for better routing and pricing'],
+    ['• Provide contact information for smoother shipment coordination'],
+    ['• Include accurate dimensions for precise cubic calculations'],
+    ['• Specify freight class and NMFC codes when known'],
+    ['• Set appropriate API timeouts for your network conditions'],
     [''],
     ['⚠️ IMPORTANT NOTES:'],
     ['• The isReefer field is the primary routing control'],
-    ['• Temperature field is informational and does not control routing'],
-    ['• All accessorial checkboxes default to FALSE (unchecked)'],
-    ['• Weight and pallet count determine LTL vs Volume LTL for Project44'],
+    ['• More data = more accurate quotes and better service'],
+    ['• All fields are optional except the core required fields'],
+    ['• System will use sensible defaults for missing optional data'],
+    ['• Hazmat shipments require complete hazmat information'],
+    ['• International shipments need country and customs codes'],
     [''],
     ['🎯 EXPECTED RESULTS:'],
-    ['Each shipment will be routed based on isReefer field:'],
-    ['• isReefer=TRUE: FreshX reefer network'],
-    ['• isReefer=FALSE: Project44 LTL or Volume LTL (auto-determined)'],
-    ['• Clear routing explanations for each decision'],
-    ['• Competitive pricing across selected networks']
+    ['Each shipment will be processed with maximum API data utilization:'],
+    ['• isReefer=TRUE: FreshX reefer network with temperature controls'],
+    ['• isReefer=FALSE: Project44 with full API feature utilization'],
+    ['• Comprehensive quote details including all charges and fees'],
+    ['• Accurate transit times based on complete shipment data'],
+    ['• Detailed carrier information and service level options'],
+    ['• Full accessorial service pricing and availability']
   ];
   
   const instructionsWs = XLSX.utils.aoa_to_sheet(instructionsData);
@@ -372,7 +526,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
 };
 
 export const downloadProject44ExcelTemplate = () => {
-  console.log('Generating unified smart routing Excel template...');
+  console.log('Generating comprehensive Project44 API Excel template...');
   const excelBuffer = generateUnifiedSmartTemplate();
   const blob = new Blob([excelBuffer], { 
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
@@ -381,7 +535,7 @@ export const downloadProject44ExcelTemplate = () => {
   
   const link = document.createElement('a');
   link.href = url;
-  link.download = 'smart-routing-unified-template.xlsx';
+  link.download = 'project44-comprehensive-api-template.xlsx';
   link.style.display = 'none';
   
   document.body.appendChild(link);
@@ -389,7 +543,7 @@ export const downloadProject44ExcelTemplate = () => {
   document.body.removeChild(link);
   
   URL.revokeObjectURL(url);
-  console.log('Unified smart routing template download initiated');
+  console.log('Comprehensive Project44 API template download initiated');
 };
 
 // Legacy functions for backward compatibility

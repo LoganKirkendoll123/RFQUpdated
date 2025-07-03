@@ -16,7 +16,9 @@ import {
   CapacityProviderAccountInfosCollection,
   CapacityProviderAccountInfos,
   CapacityProviderAccountGroupInfo,
-  RateCharge
+  RateCharge,
+  Contact,
+  HazmatDetail
 } from '../types';
 
 // Carrier group interface for organizing carriers
@@ -458,10 +460,10 @@ export class Project44APIClient {
       endpoint = '/api/v4/truckload/quotes/rates/query';
     }
 
-    // Build the request payload
+    // Build the request payload with comprehensive data
     const requestPayload: Project44RateQuoteRequest = {
-      originAddress: this.buildAddress(rfq.fromZip),
-      destinationAddress: this.buildAddress(rfq.toZip),
+      originAddress: this.buildAddress(rfq),
+      destinationAddress: this.buildDestinationAddress(rfq),
       lineItems: this.buildLineItems(rfq),
       accessorialServices: this.buildAccessorialServices(rfq, isReeferMode),
       pickupWindow: this.buildPickupWindow(rfq),
@@ -501,7 +503,7 @@ export class Project44APIClient {
       console.log('⚠️ No carriers selected - will get quotes from all available carriers');
     }
 
-    console.log('📤 Sending request payload:', JSON.stringify(requestPayload, null, 2));
+    console.log('📤 Sending comprehensive request payload:', JSON.stringify(requestPayload, null, 2));
 
     const response = await fetch(`${baseUrl}${endpoint}`, {
       method: 'POST',
@@ -569,13 +571,13 @@ export class Project44APIClient {
         pallets: rfq.pallets,
         stackable: rfq.isStackable,
         pickup: {
-          city: '',
-          state: '',
+          city: rfq.originCity || '',
+          state: rfq.originState || '',
           zip: rfq.fromZip
         },
         dropoff: {
-          city: '',
-          state: '',
+          city: rfq.destinationCity || '',
+          state: rfq.destinationState || '',
           zip: rfq.toZip
         },
         submittedBy: `Project44 ${modeDescription}`,
@@ -597,7 +599,9 @@ export class Project44APIClient {
         currencyCode: rateQuote.currencyCode,
         laneType: rateQuote.laneType,
         quoteEffectiveDateTime: rateQuote.quoteEffectiveDateTime,
-        quoteExpirationDateTime: rateQuote.quoteExpirationDateTime
+        quoteExpirationDateTime: rateQuote.quoteExpirationDateTime,
+        deliveryDateTime: rateQuote.deliveryDateTime,
+        id: rateQuote.id
       };
 
       // Add temperature for reefer quotes
@@ -653,13 +657,23 @@ export class Project44APIClient {
     return codeToName[carrierCode] || carrierCode;
   }
 
-  private buildAddress(zipCode: string): Address {
+  private buildAddress(rfq: RFQRow): Address {
     return {
-      addressLines: [],
-      city: '',
-      country: 'US',
-      postalCode: zipCode,
-      state: ''
+      addressLines: rfq.originAddressLines || [],
+      city: rfq.originCity || '',
+      country: rfq.originCountry || 'US',
+      postalCode: rfq.fromZip,
+      state: rfq.originState || ''
+    };
+  }
+
+  private buildDestinationAddress(rfq: RFQRow): Address {
+    return {
+      addressLines: rfq.destinationAddressLines || [],
+      city: rfq.destinationCity || '',
+      country: rfq.destinationCountry || 'US',
+      postalCode: rfq.toZip,
+      state: rfq.destinationState || ''
     };
   }
 
@@ -697,7 +711,7 @@ export class Project44APIClient {
     }
 
     // Fallback to single line item from RFQ data
-    return [{
+    const lineItem: LineItem = {
       totalWeight: rfq.grossWeight,
       packageDimensions: {
         length: rfq.packageLength || 48,
@@ -710,19 +724,41 @@ export class Project44APIClient {
       nmfcSubCode: rfq.nmfcSubCode,
       commodityType: rfq.commodityType,
       countryOfManufacture: rfq.countryOfManufacture,
-      hazmatDetail: rfq.hazmat ? {
-        hazardClass: rfq.hazmatClass || '',
-        identificationNumber: rfq.hazmatIdNumber || '',
-        packingGroup: rfq.hazmatPackingGroup || 'III',
-        properShippingName: rfq.hazmatProperShippingName || ''
-      } : undefined,
       packageType: rfq.packageType,
       stackable: rfq.isStackable,
       totalPackages: rfq.totalPackages || rfq.pallets,
       totalPieces: rfq.totalPieces || rfq.pallets,
       totalValue: rfq.totalValue,
       harmonizedCode: rfq.harmonizedCode
-    }];
+    };
+
+    // Add hazmat details if present
+    if (rfq.hazmat) {
+      const hazmatDetail: HazmatDetail = {
+        hazardClass: rfq.hazmatClass || '',
+        identificationNumber: rfq.hazmatIdNumber || '',
+        packingGroup: rfq.hazmatPackingGroup || 'III',
+        properShippingName: rfq.hazmatProperShippingName || ''
+      };
+
+      // Add emergency contact if provided
+      if (rfq.emergencyContactName || rfq.emergencyContactPhone) {
+        hazmatDetail.emergencyContact = {
+          contactName: rfq.emergencyContactName,
+          phoneNumber: rfq.emergencyContactPhone,
+          companyName: rfq.emergencyContactCompany
+        };
+      }
+
+      lineItem.hazmatDetail = hazmatDetail;
+    }
+
+    // Add insurance amount if provided
+    if (rfq.insuranceAmount) {
+      lineItem.insuranceAmount = rfq.insuranceAmount;
+    }
+
+    return [lineItem];
   }
 
   private buildAccessorialServices(rfq: RFQRow, isReeferMode: boolean = false): AccessorialService[] {
@@ -834,13 +870,13 @@ export class FreshXAPIClient {
         stackable: rfq.isStackable,
         foodGrade: rfq.isFoodGrade,
         pickup: {
-          city: '',
-          state: '',
+          city: rfq.originCity || '',
+          state: rfq.originState || '',
           zip: rfq.fromZip
         },
         dropoff: {
-          city: '',
-          state: '',
+          city: rfq.destinationCity || '',
+          state: rfq.destinationState || '',
           zip: rfq.toZip
         },
         submittedBy: 'FreshX',

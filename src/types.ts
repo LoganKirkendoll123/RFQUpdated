@@ -12,6 +12,7 @@ export interface RFQRow {
   accessorial: string[];
   // NEW: Smart routing field - determines if shipment goes to FreshX (true) or Project44 (false)
   isReefer?: boolean;
+  
   // Enhanced Project44 fields - following API spec exactly
   deliveryDate?: string;
   deliveryStartTime?: string;
@@ -44,6 +45,32 @@ export interface RFQRow {
   nmfcSubCode?: string;
   commodityType?: string;
   preferredSystemOfMeasurement?: 'METRIC' | 'IMPERIAL';
+  
+  // Address details
+  originAddressLines?: string[];
+  originCity?: string;
+  originState?: string;
+  originCountry?: string;
+  destinationAddressLines?: string[];
+  destinationCity?: string;
+  destinationState?: string;
+  destinationCountry?: string;
+  
+  // Contact information
+  pickupContactName?: string;
+  pickupContactPhone?: string;
+  pickupContactEmail?: string;
+  pickupCompanyName?: string;
+  deliveryContactName?: string;
+  deliveryContactPhone?: string;
+  deliveryContactEmail?: string;
+  deliveryCompanyName?: string;
+  
+  // Emergency contact for hazmat
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactCompany?: string;
+  
   // API Configuration options
   allowUnacceptedAccessorials?: boolean;
   fetchAllGuaranteed?: boolean;
@@ -53,10 +80,13 @@ export interface RFQRow {
   fallBackToDefaultAccountGroup?: boolean;
   apiTimeout?: number;
   totalLinearFeet?: number;
+  
   // Multi-item support
   lineItems?: LineItemData[];
+  
   // Service level selection - kept for UI purposes but not sent to API
   requestedServiceLevels?: string[];
+  
   // Multi-mode classification metadata
   classificationMode?: 'standard' | 'volume' | 'ftl' | 'reefer';
   classificationReason?: string;
@@ -185,6 +215,7 @@ export interface HazmatDetail {
   identificationNumber: string;
   packingGroup: 'I' | 'II' | 'III' | 'NONE';
   properShippingName: string;
+  emergencyContact?: Contact;
 }
 
 export interface NmfcCode {
@@ -272,6 +303,8 @@ export interface Quote {
   laneType?: string;
   quoteEffectiveDateTime?: string;
   quoteExpirationDateTime?: string;
+  deliveryDateTime?: string;
+  id?: string;
 }
 
 export interface QuoteWithPricing extends Quote {
@@ -385,7 +418,7 @@ export interface Package {
   freightClass?: string;
   involvedParties?: InvolvedParty[];
   nmfcCodes?: NmfcCode[];
-  packageContainerType?: 'BAG' | 'BALE' | 'BOX' | 'BUCKET' | 'BUNDLE' | 'CAN' | 'CARTON' | 'CASE' | 'COIL' | 'CRATE' | 'CYLINDER' | 'DRUM' | 'PAIL' | 'PLT' | 'PIECES' | 'REEL' | 'ROLL' | 'SKID' | 'TOTE' | 'TUBE';
+  packageContainerType?: 'BAG' | 'BALE' | 'BOX' | 'BUCKET' | 'PAIL' | 'BUNDLE' | 'CAN' | 'CARTON' | 'CASE' | 'COIL' | 'CRATE' | 'CYLINDER' | 'EACH' | 'FLAT' | 'LOOSE' | 'ROLL' | 'TUBE';
   packageContents?: PackageContent[];
   packageDimensions?: PackageDimensions;
   packageQuantity?: number;

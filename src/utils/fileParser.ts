@@ -81,6 +81,7 @@ export const parseXLSX = (file: File, isProject44: boolean = false): Promise<RFQ
 const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow => {
   const errors: string[] = [];
   
+  // Core required fields
   const fromDate = row.fromdate || row.pickupdate || row.date || '';
   const fromZip = row.fromzip || row.pickupzip || row.originzip || '';
   const toZip = row.tozip || row.deliveryzip || row.destinationzip || '';
@@ -112,6 +113,74 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
       }
     });
   }
+  
+  // Enhanced Project44 fields
+  const deliveryDate = row.deliverydate || '';
+  const deliveryStartTime = row.deliverystarttime || '';
+  const deliveryEndTime = row.deliveryendtime || '';
+  const pickupStartTime = row.pickupstarttime || '';
+  const pickupEndTime = row.pickupendtime || '';
+  const freightClass = row.freightclass || '';
+  const nmfcCode = row.nmfccode || '';
+  const commodityDescription = row.commoditydescription || '';
+  const totalValue = parseFloat(row.totalvalue || '0') || undefined;
+  const insuranceAmount = parseFloat(row.insuranceamount || '0') || undefined;
+  const hazmat = parseBoolean(row.hazmat || 'false');
+  const hazmatClass = row.hazmatclass || '';
+  const hazmatIdNumber = row.hazmatidnumber || '';
+  const hazmatPackingGroup = row.hazmatpackinggroup || '';
+  const hazmatProperShippingName = row.hazmatpropershippingname || '';
+  const packageType = row.packagetype || '';
+  const totalPackages = parseInt(row.totalpackages || '0') || undefined;
+  const totalPieces = parseInt(row.totalpieces || '0') || undefined;
+  const packageLength = parseFloat(row.packagelength || '0') || undefined;
+  const packageWidth = parseFloat(row.packagewidth || '0') || undefined;
+  const packageHeight = parseFloat(row.packageheight || '0') || undefined;
+  const lengthUnit = row.lengthunit || '';
+  const weightUnit = row.weightunit || '';
+  const preferredCurrency = row.preferredcurrency || '';
+  const paymentTerms = row.paymentterms || '';
+  const direction = row.direction || '';
+  const countryOfManufacture = row.countryofmanufacture || '';
+  const harmonizedCode = row.harmonizedcode || '';
+  const nmfcSubCode = row.nmfcsubcode || '';
+  const commodityType = row.commoditytype || '';
+  const preferredSystemOfMeasurement = row.preferredsystemofmeasurement || '';
+  
+  // Address details
+  const originAddressLines = parseAddressLines(row.originaddresslines || '');
+  const originCity = row.origincity || '';
+  const originState = row.originstate || '';
+  const originCountry = row.origincountry || '';
+  const destinationAddressLines = parseAddressLines(row.destinationaddresslines || '');
+  const destinationCity = row.destinationcity || '';
+  const destinationState = row.destinationstate || '';
+  const destinationCountry = row.destinationcountry || '';
+  
+  // Contact information
+  const pickupContactName = row.pickupcontactname || '';
+  const pickupContactPhone = row.pickupcontactphone || '';
+  const pickupContactEmail = row.pickupcontactemail || '';
+  const pickupCompanyName = row.pickupcompanyname || '';
+  const deliveryContactName = row.deliverycontactname || '';
+  const deliveryContactPhone = row.deliverycontactphone || '';
+  const deliveryContactEmail = row.deliverycontactemail || '';
+  const deliveryCompanyName = row.deliverycompanyname || '';
+  
+  // Emergency contact for hazmat
+  const emergencyContactName = row.emergencycontactname || '';
+  const emergencyContactPhone = row.emergencycontactphone || '';
+  const emergencyContactCompany = row.emergencycontactcompany || '';
+  
+  // API Configuration options
+  const allowUnacceptedAccessorials = parseBoolean(row.allowunacceptedaccessorials || 'true');
+  const fetchAllGuaranteed = parseBoolean(row.fetchallguaranteed || 'true');
+  const fetchAllInsideDelivery = parseBoolean(row.fetchallinsidedelivery || 'true');
+  const fetchAllServiceLevels = parseBoolean(row.fetchallservicelevels || 'true');
+  const enableUnitConversion = parseBoolean(row.enableunitconversion || 'true');
+  const fallBackToDefaultAccountGroup = parseBoolean(row.fallbacktodefaultaccountgroup || 'true');
+  const apiTimeout = parseInt(row.apitimeout || '30') || undefined;
+  const totalLinearFeet = parseInt(row.totallinearfeet || '0') || undefined;
   
   // Validation
   if (!fromDate || !isValidDate(fromDate)) {
@@ -146,16 +215,76 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
     isReefer
   };
 
-  // Add optional fields
-  if (temperature) {
-    result.temperature = temperature as any;
-  }
-  if (commodity) {
-    result.commodity = commodity as any;
-  }
-  if (isFoodGrade !== undefined) {
-    result.isFoodGrade = isFoodGrade;
-  }
+  // Add optional fields only if they have values
+  if (temperature) result.temperature = temperature as any;
+  if (commodity) result.commodity = commodity as any;
+  if (isFoodGrade !== undefined) result.isFoodGrade = isFoodGrade;
+  if (deliveryDate) result.deliveryDate = deliveryDate;
+  if (deliveryStartTime) result.deliveryStartTime = deliveryStartTime;
+  if (deliveryEndTime) result.deliveryEndTime = deliveryEndTime;
+  if (pickupStartTime) result.pickupStartTime = pickupStartTime;
+  if (pickupEndTime) result.pickupEndTime = pickupEndTime;
+  if (freightClass) result.freightClass = freightClass;
+  if (nmfcCode) result.nmfcCode = nmfcCode;
+  if (commodityDescription) result.commodityDescription = commodityDescription;
+  if (totalValue) result.totalValue = totalValue;
+  if (insuranceAmount) result.insuranceAmount = insuranceAmount;
+  if (hazmat) result.hazmat = hazmat;
+  if (hazmatClass) result.hazmatClass = hazmatClass;
+  if (hazmatIdNumber) result.hazmatIdNumber = hazmatIdNumber;
+  if (hazmatPackingGroup) result.hazmatPackingGroup = hazmatPackingGroup as any;
+  if (hazmatProperShippingName) result.hazmatProperShippingName = hazmatProperShippingName;
+  if (packageType) result.packageType = packageType as any;
+  if (totalPackages) result.totalPackages = totalPackages;
+  if (totalPieces) result.totalPieces = totalPieces;
+  if (packageLength) result.packageLength = packageLength;
+  if (packageWidth) result.packageWidth = packageWidth;
+  if (packageHeight) result.packageHeight = packageHeight;
+  if (lengthUnit) result.lengthUnit = lengthUnit as any;
+  if (weightUnit) result.weightUnit = weightUnit as any;
+  if (preferredCurrency) result.preferredCurrency = preferredCurrency as any;
+  if (paymentTerms) result.paymentTerms = paymentTerms as any;
+  if (direction) result.direction = direction as any;
+  if (countryOfManufacture) result.countryOfManufacture = countryOfManufacture as any;
+  if (harmonizedCode) result.harmonizedCode = harmonizedCode;
+  if (nmfcSubCode) result.nmfcSubCode = nmfcSubCode;
+  if (commodityType) result.commodityType = commodityType;
+  if (preferredSystemOfMeasurement) result.preferredSystemOfMeasurement = preferredSystemOfMeasurement as any;
+  
+  // Address details
+  if (originAddressLines.length > 0) result.originAddressLines = originAddressLines;
+  if (originCity) result.originCity = originCity;
+  if (originState) result.originState = originState;
+  if (originCountry) result.originCountry = originCountry;
+  if (destinationAddressLines.length > 0) result.destinationAddressLines = destinationAddressLines;
+  if (destinationCity) result.destinationCity = destinationCity;
+  if (destinationState) result.destinationState = destinationState;
+  if (destinationCountry) result.destinationCountry = destinationCountry;
+  
+  // Contact information
+  if (pickupContactName) result.pickupContactName = pickupContactName;
+  if (pickupContactPhone) result.pickupContactPhone = pickupContactPhone;
+  if (pickupContactEmail) result.pickupContactEmail = pickupContactEmail;
+  if (pickupCompanyName) result.pickupCompanyName = pickupCompanyName;
+  if (deliveryContactName) result.deliveryContactName = deliveryContactName;
+  if (deliveryContactPhone) result.deliveryContactPhone = deliveryContactPhone;
+  if (deliveryContactEmail) result.deliveryContactEmail = deliveryContactEmail;
+  if (deliveryCompanyName) result.deliveryCompanyName = deliveryCompanyName;
+  
+  // Emergency contact for hazmat
+  if (emergencyContactName) result.emergencyContactName = emergencyContactName;
+  if (emergencyContactPhone) result.emergencyContactPhone = emergencyContactPhone;
+  if (emergencyContactCompany) result.emergencyContactCompany = emergencyContactCompany;
+  
+  // API Configuration options
+  if (allowUnacceptedAccessorials !== undefined) result.allowUnacceptedAccessorials = allowUnacceptedAccessorials;
+  if (fetchAllGuaranteed !== undefined) result.fetchAllGuaranteed = fetchAllGuaranteed;
+  if (fetchAllInsideDelivery !== undefined) result.fetchAllInsideDelivery = fetchAllInsideDelivery;
+  if (fetchAllServiceLevels !== undefined) result.fetchAllServiceLevels = fetchAllServiceLevels;
+  if (enableUnitConversion !== undefined) result.enableUnitConversion = enableUnitConversion;
+  if (fallBackToDefaultAccountGroup !== undefined) result.fallBackToDefaultAccountGroup = fallBackToDefaultAccountGroup;
+  if (apiTimeout) result.apiTimeout = apiTimeout;
+  if (totalLinearFeet) result.totalLinearFeet = totalLinearFeet;
 
   return result;
 };
@@ -169,6 +298,12 @@ const parseAccessorial = (value: string): string[] => {
   if (!value) return [];
   // Handle both comma and semicolon separators
   return value.split(/[,;]/).map(s => s.trim().toUpperCase()).filter(Boolean);
+};
+
+const parseAddressLines = (value: string): string[] => {
+  if (!value) return [];
+  // Split by semicolon or pipe for multiple address lines
+  return value.split(/[;|]/).map(s => s.trim()).filter(Boolean);
 };
 
 const isValidDate = (date: string): boolean => {
