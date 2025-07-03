@@ -12,7 +12,8 @@ import {
   Info,
   DollarSign,
   Target,
-  BarChart3
+  BarChart3,
+  RefreshCw
 } from 'lucide-react';
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { loadProject44Config } from '../utils/credentialStorage';
@@ -51,6 +52,7 @@ export const MarginAnalysisTools: React.FC = () => {
   const [error, setError] = useState<string>('');
   const [processingStatus, setProcessingStatus] = useState<string>('');
   const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
+  const [isCarriersLoading, setIsCarriersLoading] = useState(false);
 
   // Sample shipment data for testing
   const sampleShipments: RFQRow[] = [
@@ -83,6 +85,36 @@ export const MarginAnalysisTools: React.FC = () => {
       originState: 'CA',
       destinationCity: 'New York',
       destinationState: 'NY'
+    },
+    {
+      fromDate: '2025-01-17',
+      fromZip: '33101',
+      toZip: '98101',
+      pallets: 2,
+      grossWeight: 1800,
+      isStackable: true,
+      accessorial: [],
+      isReefer: false,
+      freightClass: '60',
+      originCity: 'Miami',
+      originState: 'FL',
+      destinationCity: 'Seattle',
+      destinationState: 'WA'
+    },
+    {
+      fromDate: '2025-01-18',
+      fromZip: '75201',
+      toZip: '80202',
+      pallets: 4,
+      grossWeight: 3200,
+      isStackable: false,
+      accessorial: [],
+      isReefer: false,
+      freightClass: '92.5',
+      originCity: 'Dallas',
+      originState: 'TX',
+      destinationCity: 'Denver',
+      destinationState: 'CO'
     }
   ];
 
@@ -103,7 +135,7 @@ export const MarginAnalysisTools: React.FC = () => {
 
   const loadCarrierGroups = async (client: Project44APIClient) => {
     try {
-      setIsLoading(true);
+      setIsCarriersLoading(true);
       setProcessingStatus('Loading carrier groups...');
       
       // Load all carrier groups (both standard and volume)
@@ -116,7 +148,7 @@ export const MarginAnalysisTools: React.FC = () => {
       console.error('❌ Failed to load carrier groups:', error);
       setError(`Failed to load carrier groups: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
-      setIsLoading(false);
+      setIsCarriersLoading(false);
     }
   };
 
@@ -139,14 +171,15 @@ export const MarginAnalysisTools: React.FC = () => {
       setProcessingStatus('Starting margin analysis...');
       
       // Get all carriers in the competitor group
-      const competitorCarriers = getCarriersInGroup(selectedCompetitorGroup);
-      console.log(`🎯 Analyzing against ${competitorCarriers.length} competitors in group ${selectedCompetitorGroup}`);
-      
-      if (competitorCarriers.length === 0) {
-        throw new Error(`No carriers found in competitor group: ${selectedCompetitorGroup}`);
+      const competitorGroup = carrierGroups.find(g => g.groupCode === selectedCompetitorGroup);
+      if (!competitorGroup) {
+        throw new Error(`Competitor group not found: ${selectedCompetitorGroup}`);
       }
-
+      
+      console.log(`🎯 Analyzing against competitor group: ${competitorGroup.groupName}`);
+      
       const analysisResults: MarginAnalysisResult[] = [];
+      const customerResults: {[key: string]: MarginAnalysisResult} = {};
 
       // Process each sample shipment
       for (let i = 0; i < sampleShipments.length; i++) {
@@ -167,89 +200,105 @@ export const MarginAnalysisTools: React.FC = () => {
         const targetRate = targetRates[0].baseRate + targetRates[0].fuelSurcharge + targetRates[0].premiumsAndDiscounts;
         console.log(`🎯 Target carrier rate: ${formatCurrency(targetRate)}`);
 
-        // Get competitor rates
+        // Get competitor rates using the new method for entire account group
         setProcessingStatus(`Getting competitor rates for shipment ${i + 1}...`);
-        const competitorRates: CarrierRate[] = [];
         
-        // Process competitors in batches to avoid overwhelming the API
-        const batchSize = 3;
-        for (let j = 0; j < competitorCarriers.length; j += batchSize) {
-          const batch = competitorCarriers.slice(j, j + batchSize);
-          const batchCarrierIds = batch.map(c => c.id);
+        try {
+          // Use the new method to get quotes for the entire account group
+          const competitorQuotes = await project44Client.getQuotesForAccountGroup(
+            shipment, 
+            selectedCompetitorGroup, 
+            false, 
+            false, 
+            false
+          );
           
-          setProcessingStatus(`Getting rates from competitors ${j + 1}-${Math.min(j + batchSize, competitorCarriers.length)} for shipment ${i + 1}...`);
+          console.log(`📊 Got ${competitorQuotes.length} competitor quotes from group ${selectedCompetitorGroup}`);
           
-          try {
-            const batchQuotes = await project44Client.getQuotes(shipment, batchCarrierIds, false, false, false);
-            
-            // Process each quote in the batch
-            for (const quote of batchQuotes) {
-              const carrierInfo = batch.find(c => c.id === quote.carrierCode || c.name === quote.carrier.name);
-              if (carrierInfo) {
-                const rate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
-                competitorRates.push({
-                  carrierId: carrierInfo.id,
-                  carrierName: carrierInfo.name,
-                  rate: rate
-                });
-                console.log(`💰 ${carrierInfo.name}: ${formatCurrency(rate)}`);
-              }
-            }
-          } catch (error) {
-            console.warn(`⚠️ Failed to get rates for batch ${j + 1}-${Math.min(j + batchSize, competitorCarriers.length)}:`, error);
-            // Continue with other batches
+          if (competitorQuotes.length === 0) {
+            console.warn(`⚠️ No competitor quotes for shipment ${i + 1}`);
+            continue;
           }
           
-          // Small delay between batches
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-
-        console.log(`📊 Got ${competitorRates.length} competitor rates out of ${competitorCarriers.length} possible`);
-
-        // Filter out invalid rates and calculate margins
-        const validCompetitorRates = competitorRates
-          .filter(cr => typeof cr.rate === 'number' && cr.rate > 0)
-          .map(cr => {
-            const rate = cr.rate as number;
+          // Process competitor quotes
+          const competitorRates = competitorQuotes.map(quote => {
+            const rate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
             // Assume 15% margin for competitors (this could be configurable)
             const margin = 15;
             const customerPrice = rate / (1 - margin / 100);
             
             return {
-              carrierId: cr.carrierId,
-              carrierName: cr.carrierName,
+              carrierId: quote.carrierCode || quote.carrier.name,
+              carrierName: quote.carrier.name,
               rate: rate,
               margin: margin,
               customerPrice: customerPrice
             };
           });
-
-        if (validCompetitorRates.length === 0) {
-          console.warn(`⚠️ No valid competitor rates for shipment ${i + 1}`);
-          continue;
+          
+          // Find the lowest competitor customer price
+          const lowestCompetitorPrice = Math.min(...competitorRates.map(cr => cr.customerPrice));
+          
+          // Calculate recommended margin to match the lowest competitor
+          const recommendedMargin = lowestCompetitorPrice > targetRate ? 
+            ((lowestCompetitorPrice - targetRate) / lowestCompetitorPrice) * 100 : 0;
+          
+          // Use a customer name from the shipment or a default
+          const customerName = `Customer-${i + 1}`;
+          
+          // Add to or update customer results
+          if (!customerResults[customerName]) {
+            customerResults[customerName] = {
+              customerName,
+              targetCarrierRate: targetRate,
+              competitorRates: competitorRates,
+              recommendedMargin: recommendedMargin,
+              recommendedPrice: lowestCompetitorPrice,
+              shipmentCount: 1
+            };
+          } else {
+            // Update existing customer with average values
+            const existing = customerResults[customerName];
+            existing.targetCarrierRate = (existing.targetCarrierRate * existing.shipmentCount + targetRate) / (existing.shipmentCount + 1);
+            existing.recommendedMargin = (existing.recommendedMargin * existing.shipmentCount + recommendedMargin) / (existing.shipmentCount + 1);
+            existing.recommendedPrice = (existing.recommendedPrice * existing.shipmentCount + lowestCompetitorPrice) / (existing.shipmentCount + 1);
+            existing.shipmentCount += 1;
+            
+            // Merge competitor rates
+            const allCompetitorRates = [...existing.competitorRates];
+            competitorRates.forEach(newRate => {
+              const existingRateIndex = allCompetitorRates.findIndex(r => r.carrierId === newRate.carrierId);
+              if (existingRateIndex >= 0) {
+                const existingRate = allCompetitorRates[existingRateIndex];
+                allCompetitorRates[existingRateIndex] = {
+                  ...existingRate,
+                  rate: (existingRate.rate + newRate.rate) / 2,
+                  customerPrice: (existingRate.customerPrice + newRate.customerPrice) / 2
+                };
+              } else {
+                allCompetitorRates.push(newRate);
+              }
+            });
+            existing.competitorRates = allCompetitorRates;
+          }
+          
+        } catch (error) {
+          console.warn(`⚠️ Failed to get competitor rates for shipment ${i + 1}:`, error);
+          // Continue with other shipments
         }
-
-        // Find the lowest competitor customer price
-        const lowestCompetitorPrice = Math.min(...validCompetitorRates.map(cr => cr.customerPrice));
-        
-        // Calculate recommended margin to match the lowest competitor
-        const recommendedMargin = lowestCompetitorPrice > targetRate ? 
-          ((lowestCompetitorPrice - targetRate) / lowestCompetitorPrice) * 100 : 0;
-
-        analysisResults.push({
-          customerName: `Customer-${i + 1}`, // In real implementation, this would come from shipment data
-          targetCarrierRate: targetRate,
-          competitorRates: validCompetitorRates,
-          recommendedMargin: recommendedMargin,
-          recommendedPrice: lowestCompetitorPrice,
-          shipmentCount: 1
-        });
       }
 
-      setResults(analysisResults);
-      setProcessingStatus(`Analysis complete! Processed ${analysisResults.length} shipments with competitor data.`);
+      // Convert customer results to array
+      const finalResults = Object.values(customerResults);
+      setResults(finalResults);
       
-      console.log(`✅ Margin analysis complete: ${analysisResults.length} results`);
+      if (finalResults.length === 0) {
+        setProcessingStatus('Analysis complete, but no valid results were found.');
+      } else {
+        setProcessingStatus(`Analysis complete! Processed ${finalResults.length} customers with competitor data.`);
+      }
+      
+      console.log(`✅ Margin analysis complete: ${finalResults.length} results`);
       
     } catch (error) {
       console.error('❌ Margin analysis failed:', error);
@@ -316,7 +365,22 @@ export const MarginAnalysisTools: React.FC = () => {
 
       {/* Configuration */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Analysis Configuration</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Analysis Configuration</h2>
+          
+          <button
+            onClick={() => loadCarrierGroups(project44Client!)}
+            disabled={isCarriersLoading || !project44Client}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+          >
+            {isCarriersLoading ? (
+              <Loader className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            <span>Refresh Carrier Groups</span>
+          </button>
+        </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Target Carrier Group */}
@@ -331,6 +395,7 @@ export const MarginAnalysisTools: React.FC = () => {
                 setSelectedTargetCarrier(''); // Reset carrier selection
               }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+              disabled={isCarriersLoading}
             >
               <option value="">Select target group...</option>
               {carrierGroups.map(group => (
@@ -349,7 +414,7 @@ export const MarginAnalysisTools: React.FC = () => {
             <select
               value={selectedTargetCarrier}
               onChange={(e) => setSelectedTargetCarrier(e.target.value)}
-              disabled={!selectedTargetGroup}
+              disabled={!selectedTargetGroup || isCarriersLoading}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100"
             >
               <option value="">Select target carrier...</option>
@@ -370,6 +435,7 @@ export const MarginAnalysisTools: React.FC = () => {
               value={selectedCompetitorGroup}
               onChange={(e) => setSelectedCompetitorGroup(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+              disabled={isCarriersLoading}
             >
               <option value="">Select competitor group...</option>
               {carrierGroups
@@ -392,9 +458,9 @@ export const MarginAnalysisTools: React.FC = () => {
                 <p className="font-medium mb-1">Analysis Plan:</p>
                 <ul className="list-disc list-inside space-y-1">
                   <li>Get rates from target carrier: <strong>{getCarriersInGroup(selectedTargetGroup).find(c => c.id === selectedTargetCarrier)?.name || 'Not selected'}</strong></li>
-                  <li>Get rates from <strong>{getCarriersInGroup(selectedCompetitorGroup).length} competitors</strong> in {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
+                  <li>Get rates from <strong>ALL carriers</strong> in competitor group: {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
                   <li>Calculate recommended margins to match competitor pricing</li>
-                  <li>Process <strong>{sampleShipments.length} sample shipments</strong></li>
+                  <li>Process <strong>{sampleShipments.length} sample shipments</strong> across multiple lanes</li>
                 </ul>
               </div>
             </div>
@@ -448,7 +514,7 @@ export const MarginAnalysisTools: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-800">Margin Analysis Results</h3>
               <p className="text-sm text-gray-600 mt-1">
-                {results.length} shipment{results.length !== 1 ? 's' : ''} analyzed
+                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed
               </p>
             </div>
             <button
@@ -470,6 +536,7 @@ export const MarginAnalysisTools: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lowest Competitor Price</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Margin</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Price</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shipments</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -500,6 +567,9 @@ export const MarginAnalysisTools: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       {formatCurrency(result.recommendedPrice)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {result.shipmentCount}
                     </td>
                   </tr>
                 ))}
@@ -541,7 +611,7 @@ export const MarginAnalysisTools: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Competitors</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {getCarriersInGroup(selectedCompetitorGroup).length}
+                  {results.reduce((max, r) => Math.max(max, r.competitorRates.length), 0)}
                 </p>
               </div>
               <Users className="h-8 w-8 text-purple-500" />
@@ -551,8 +621,10 @@ export const MarginAnalysisTools: React.FC = () => {
           <div className="bg-white rounded-lg shadow-md p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Shipments Analyzed</p>
-                <p className="text-2xl font-bold text-gray-900">{results.length}</p>
+                <p className="text-sm font-medium text-gray-600">Total Shipments</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {results.reduce((sum, r) => sum + r.shipmentCount, 0)}
+                </p>
               </div>
               <BarChart3 className="h-8 w-8 text-orange-500" />
             </div>

@@ -495,10 +495,22 @@ export class Project44APIClient {
 
     // CRITICAL FIX: Add capacity provider account group to filter by selected carriers
     if (selectedCarrierIds.length > 0) {
-      requestPayload.capacityProviderAccountGroup = {
-        accounts: selectedCarrierIds.map(carrierId => ({ code: carrierId }))
-      };
-      console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
+      // Check if the first carrier ID looks like a group code (contains underscore)
+      const isGroupCode = selectedCarrierIds[0].includes('_');
+      
+      if (isGroupCode) {
+        // If it's a group code, use it directly
+        requestPayload.capacityProviderAccountGroup = {
+          code: selectedCarrierIds[0]
+        };
+        console.log(`🎯 Using account group code directly: ${selectedCarrierIds[0]}`);
+      } else {
+        // Otherwise use the traditional approach with individual carrier accounts
+        requestPayload.capacityProviderAccountGroup = {
+          accounts: selectedCarrierIds.map(carrierId => ({ code: carrierId }))
+        };
+        console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
+      }
     } else {
       console.log('⚠️ No carriers selected - will get quotes from all available carriers');
     }
@@ -613,6 +625,172 @@ export class Project44APIClient {
     });
 
     console.log(`✅ Transformed ${quotes.length} filtered ${modeDescription} quotes from selected carriers`);
+    return quotes;
+  }
+
+  // New method to get quotes for an entire account group
+  async getQuotesForAccountGroup(
+    rfq: RFQRow,
+    accountGroupCode: string,
+    isVolumeMode: boolean = false,
+    isFTLMode: boolean = false,
+    isReeferMode: boolean = false
+  ): Promise<Quote[]> {
+    const token = await this.getAccessToken();
+    
+    const modeDescription = isReeferMode ? 'Refrigerated LTL' : 
+                           isVolumeMode ? 'Volume LTL (VLTL)' : 
+                           isFTLMode ? 'Full Truckload' : 'Standard LTL';
+    
+    console.log(`💰 Getting ${modeDescription} quotes for entire account group:`, {
+      accountGroup: accountGroupCode,
+      route: `${rfq.fromZip} → ${rfq.toZip}`,
+      pallets: rfq.pallets,
+      weight: rfq.grossWeight
+    });
+
+    const isDev = import.meta.env.DEV;
+    const baseUrl = isDev ? '/api/project44' : '/.netlify/functions/project44-proxy';
+    
+    // Use the appropriate endpoint based on mode
+    let endpoint = '/api/v4/ltl/quotes/rates/query';
+    if (isVolumeMode) {
+      endpoint = '/api/v4/vltl/quotes/rates/query';
+    } else if (isFTLMode) {
+      endpoint = '/api/v4/truckload/quotes/rates/query';
+    }
+
+    // Build the request payload with comprehensive data
+    const requestPayload: Project44RateQuoteRequest = {
+      originAddress: this.buildAddress(rfq),
+      destinationAddress: this.buildDestinationAddress(rfq),
+      lineItems: this.buildLineItems(rfq),
+      accessorialServices: this.buildAccessorialServices(rfq, isReeferMode),
+      pickupWindow: this.buildPickupWindow(rfq),
+      deliveryWindow: this.buildDeliveryWindow(rfq),
+      apiConfiguration: {
+        accessorialServiceConfiguration: {
+          allowUnacceptedAccessorials: rfq.allowUnacceptedAccessorials ?? true,
+          fetchAllGuaranteed: rfq.fetchAllGuaranteed ?? true,
+          fetchAllInsideDelivery: rfq.fetchAllInsideDelivery ?? true,
+          fetchAllServiceLevels: rfq.fetchAllServiceLevels ?? true
+        },
+        enableUnitConversion: rfq.enableUnitConversion ?? true,
+        fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
+        timeout: rfq.apiTimeout ?? 30000
+      },
+      directionOverride: rfq.direction,
+      lengthUnit: rfq.lengthUnit || 'IN',
+      paymentTermsOverride: rfq.paymentTerms,
+      preferredCurrency: rfq.preferredCurrency || 'USD',
+      preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
+      weightUnit: rfq.weightUnit || 'LB',
+      // CRITICAL: Use the account group code directly
+      capacityProviderAccountGroup: {
+        code: accountGroupCode
+      }
+    };
+
+    // Add totalLinearFeet for VLTL requests (required field)
+    if (isVolumeMode) {
+      requestPayload.totalLinearFeet = rfq.totalLinearFeet || this.calculateLinearFeet(rfq);
+      console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
+    }
+
+    console.log('📤 Sending group request payload:', JSON.stringify(requestPayload, null, 2));
+
+    const response = await fetch(`${baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(requestPayload)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Failed to get ${modeDescription} quotes for group:`, response.status, errorText);
+      throw new Error(`Failed to get ${modeDescription} quotes for group: ${response.status} - ${errorText}`);
+    }
+
+    const data: Project44RateQuoteResponse = await response.json();
+    console.log(`📥 Received ${modeDescription} group response with ${data.rateQuotes?.length || 0} quotes`);
+
+    if (!data.rateQuotes || data.rateQuotes.length === 0) {
+      console.log(`ℹ️ No ${modeDescription} quotes returned for group ${accountGroupCode}`);
+      return [];
+    }
+
+    // Filter out quotes with invalid pricing
+    const validQuotes = data.rateQuotes.filter(quote => 
+      quote.rateQuoteDetail?.total !== undefined && 
+      quote.rateQuoteDetail.total > 0
+    );
+
+    console.log(`🔍 Filtered ${data.rateQuotes.length} quotes down to ${validQuotes.length} valid quotes for group ${accountGroupCode}`);
+
+    // Transform the filtered quotes to our Quote interface
+    const quotes: Quote[] = validQuotes.map((rateQuote, index) => {
+      // Get carrier name from carrierCode mapping or use the code itself
+      const carrierName = this.getCarrierNameFromCode(rateQuote.carrierCode);
+      const carrierCode = rateQuote.carrierCode || '';
+
+      const quote: Quote = {
+        quoteId: index + 1,
+        baseRate: 0, // Will be set by pricing calculator
+        fuelSurcharge: 0, // Will be set by pricing calculator
+        accessorial: [], // Will be populated from charges
+        premiumsAndDiscounts: rateQuote.rateQuoteDetail?.total || 0, // Use total for now
+        readyByDate: rfq.fromDate,
+        estimatedDeliveryDate: rateQuote.deliveryDateTime || '',
+        weight: rfq.grossWeight,
+        pallets: rfq.pallets,
+        stackable: rfq.isStackable,
+        pickup: {
+          city: rfq.originCity || '',
+          state: rfq.originState || '',
+          zip: rfq.fromZip
+        },
+        dropoff: {
+          city: rfq.destinationCity || '',
+          state: rfq.destinationState || '',
+          zip: rfq.toZip
+        },
+        submittedBy: `Project44 ${modeDescription}`,
+        submissionDatetime: new Date().toISOString(),
+        carrier: {
+          name: carrierName,
+          mcNumber: '',
+          logo: '',
+          scac: carrierCode,
+          dotNumber: ''
+        },
+        // Project44 specific fields
+        rateQuoteDetail: rateQuote.rateQuoteDetail,
+        serviceLevel: rateQuote.serviceLevel,
+        transitDays: rateQuote.transitDays,
+        transitDaysRange: rateQuote.transitDaysRange,
+        carrierCode: rateQuote.carrierCode,
+        contractId: rateQuote.contractId,
+        currencyCode: rateQuote.currencyCode,
+        laneType: rateQuote.laneType,
+        quoteEffectiveDateTime: rateQuote.quoteEffectiveDateTime,
+        quoteExpirationDateTime: rateQuote.quoteExpirationDateTime,
+        deliveryDateTime: rateQuote.deliveryDateTime,
+        id: rateQuote.id
+      };
+
+      // Add temperature for reefer quotes
+      if (isReeferMode && rfq.temperature) {
+        quote.temperature = rfq.temperature;
+      }
+
+      return quote;
+    });
+
+    console.log(`✅ Transformed ${quotes.length} quotes from account group ${accountGroupCode}`);
     return quotes;
   }
 
