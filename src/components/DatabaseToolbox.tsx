@@ -171,7 +171,6 @@ export const DatabaseToolbox: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers'>('shipments');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
-  const [debugInfo, setDebugInfo] = useState<string>('');
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -192,149 +191,14 @@ export const DatabaseToolbox: React.FC = () => {
   const [uniqueCustomers, setUniqueCustomers] = useState<string[]>([]);
   const [uniqueStatuses, setUniqueStatuses] = useState<string[]>([]);
 
-  // Enhanced debugging state
-  const [tableInfo, setTableInfo] = useState<any>(null);
-  const [rlsStatus, setRlsStatus] = useState<any>(null);
-
   useEffect(() => {
     loadData();
     loadFilterOptions();
-    checkTableStructure();
   }, [activeTab, currentPage, searchTerm, filterStatus, filterCustomer]);
-
-  const checkTableStructure = async () => {
-    try {
-      console.log('🔍 Checking table structure and RLS status...');
-      setDebugInfo(prev => prev + '\nChecking table structure and RLS status...');
-      
-      // Check if tables exist and get basic info
-      const { data: tablesData, error: tablesError } = await supabase
-        .from('information_schema.tables')
-        .select('table_name, table_schema')
-        .eq('table_schema', 'public')
-        .in('table_name', ['Shipments', 'CustomerCarriers']);
-      
-      if (tablesError) {
-        console.error('❌ Error checking tables:', tablesError);
-        setDebugInfo(prev => prev + `\nTable check error: ${tablesError.message}`);
-      } else {
-        console.log('📋 Tables found:', tablesData);
-        setDebugInfo(prev => prev + `\nTables found: ${tablesData?.map(t => t.table_name).join(', ')}`);
-        setTableInfo(tablesData);
-      }
-
-      // Check RLS status
-      const { data: rlsData, error: rlsError } = await supabase
-        .from('pg_class')
-        .select('relname, relrowsecurity')
-        .in('relname', ['Shipments', 'CustomerCarriers']);
-      
-      if (rlsError) {
-        console.error('❌ Error checking RLS:', rlsError);
-        setDebugInfo(prev => prev + `\nRLS check error: ${rlsError.message}`);
-      } else {
-        console.log('🛡️ RLS status:', rlsData);
-        setDebugInfo(prev => prev + `\nRLS status: ${JSON.stringify(rlsData)}`);
-        setRlsStatus(rlsData);
-      }
-
-      // Try to get actual row counts using different methods
-      await checkActualRowCounts();
-
-    } catch (err) {
-      console.error('❌ Table structure check failed:', err);
-      setDebugInfo(prev => prev + `\nTable structure check error: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-  };
-
-  const checkActualRowCounts = async () => {
-    try {
-      console.log('📊 Checking actual row counts...');
-      setDebugInfo(prev => prev + '\nChecking actual row counts...');
-
-      // Method 1: Try direct count
-      console.log('📊 Method 1: Direct count query...');
-      const { count: shipmentsCount, error: shipmentsCountError } = await supabase
-        .from('Shipments')
-        .select('*', { count: 'exact', head: true });
-      
-      if (shipmentsCountError) {
-        console.error('❌ Shipments count error:', shipmentsCountError);
-        setDebugInfo(prev => prev + `\nShipments count error: ${shipmentsCountError.message}`);
-      } else {
-        console.log('✅ Shipments count (direct):', shipmentsCount);
-        setDebugInfo(prev => prev + `\nShipments count (direct): ${shipmentsCount}`);
-      }
-
-      const { count: carriersCount, error: carriersCountError } = await supabase
-        .from('CustomerCarriers')
-        .select('*', { count: 'exact', head: true });
-      
-      if (carriersCountError) {
-        console.error('❌ CustomerCarriers count error:', carriersCountError);
-        setDebugInfo(prev => prev + `\nCustomerCarriers count error: ${carriersCountError.message}`);
-      } else {
-        console.log('✅ CustomerCarriers count (direct):', carriersCount);
-        setDebugInfo(prev => prev + `\nCustomerCarriers count (direct): ${carriersCount}`);
-      }
-
-      // Method 2: Try to get first few records
-      console.log('📊 Method 2: Sample records query...');
-      const { data: sampleShipments, error: sampleShipmentsError } = await supabase
-        .from('Shipments')
-        .select('"Shipment ID", "Customer", "Status"')
-        .limit(5);
-      
-      if (sampleShipmentsError) {
-        console.error('❌ Sample shipments error:', sampleShipmentsError);
-        setDebugInfo(prev => prev + `\nSample shipments error: ${sampleShipmentsError.message}`);
-      } else {
-        console.log('✅ Sample shipments:', sampleShipments);
-        setDebugInfo(prev => prev + `\nSample shipments: ${JSON.stringify(sampleShipments?.slice(0, 2))}`);
-      }
-
-      const { data: sampleCarriers, error: sampleCarriersError } = await supabase
-        .from('CustomerCarriers')
-        .select('"MarkupId", "InternalName", "P44CarrierCode"')
-        .limit(5);
-      
-      if (sampleCarriersError) {
-        console.error('❌ Sample carriers error:', sampleCarriersError);
-        setDebugInfo(prev => prev + `\nSample carriers error: ${sampleCarriersError.message}`);
-      } else {
-        console.log('✅ Sample carriers:', sampleCarriers);
-        setDebugInfo(prev => prev + `\nSample carriers: ${JSON.stringify(sampleCarriers?.slice(0, 2))}`);
-      }
-
-      // Method 3: Check policies if RLS is enabled
-      if (rlsStatus?.some((table: any) => table.relrowsecurity)) {
-        console.log('🛡️ RLS is enabled, checking policies...');
-        setDebugInfo(prev => prev + '\nRLS is enabled, checking policies...');
-        
-        const { data: policies, error: policiesError } = await supabase
-          .from('pg_policies')
-          .select('tablename, policyname, permissive, roles, cmd, qual')
-          .in('tablename', ['Shipments', 'CustomerCarriers']);
-        
-        if (policiesError) {
-          console.error('❌ Policies check error:', policiesError);
-          setDebugInfo(prev => prev + `\nPolicies check error: ${policiesError.message}`);
-        } else {
-          console.log('🛡️ Policies found:', policies);
-          setDebugInfo(prev => prev + `\nPolicies: ${JSON.stringify(policies)}`);
-        }
-      }
-
-    } catch (err) {
-      console.error('❌ Row count check failed:', err);
-      setDebugInfo(prev => prev + `\nRow count check error: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-  };
 
   const testSupabaseConnection = async () => {
     try {
       console.log('🔍 Testing Supabase connection...');
-      setDebugInfo('Testing Supabase connection...');
       
       // Test basic connection
       const { data: testData, error: testError } = await supabase
@@ -343,16 +207,13 @@ export const DatabaseToolbox: React.FC = () => {
       
       if (testError) {
         console.error('❌ Supabase connection test failed:', testError);
-        setDebugInfo(`Connection test failed: ${testError.message}`);
         return false;
       }
       
       console.log('✅ Supabase connection successful');
-      setDebugInfo(`Connection successful. Found ${testData || 0} records in Shipments table.`);
       return true;
     } catch (err) {
       console.error('❌ Connection test error:', err);
-      setDebugInfo(`Connection error: ${err instanceof Error ? err.message : 'Unknown error'}`);
       return false;
     }
   };
@@ -377,12 +238,10 @@ export const DatabaseToolbox: React.FC = () => {
       
       if (customerError) {
         console.error('❌ Error loading customers:', customerError);
-        setDebugInfo(prev => prev + `\nCustomer load error: ${customerError.message}`);
       } else {
         const customers = [...new Set(customerData?.map(s => s.Customer).filter(Boolean))];
         setUniqueCustomers(customers);
         console.log(`✅ Loaded ${customers.length} unique customers`);
-        setDebugInfo(prev => prev + `\nLoaded ${customers.length} customers`);
       }
       
       // Load unique statuses from Shipments
@@ -395,24 +254,20 @@ export const DatabaseToolbox: React.FC = () => {
       
       if (statusError) {
         console.error('❌ Error loading statuses:', statusError);
-        setDebugInfo(prev => prev + `\nStatus load error: ${statusError.message}`);
       } else {
         const statuses = [...new Set(statusData?.map(s => s.Status).filter(Boolean))];
         setUniqueStatuses(statuses);
         console.log(`✅ Loaded ${statuses.length} unique statuses`);
-        setDebugInfo(prev => prev + `\nLoaded ${statuses.length} statuses`);
       }
       
     } catch (err) {
       console.error('❌ Failed to load filter options:', err);
-      setDebugInfo(prev => prev + `\nFilter load error: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
   const loadData = async () => {
     setLoading(true);
     setError('');
-    setDebugInfo('');
     
     try {
       console.log(`🔄 Loading data for tab: ${activeTab}`);
@@ -438,7 +293,6 @@ export const DatabaseToolbox: React.FC = () => {
       const errorMsg = err instanceof Error ? err.message : 'Failed to load data';
       setError(errorMsg);
       console.error('❌ Data loading failed:', err);
-      setDebugInfo(prev => prev + `\nData load error: ${errorMsg}`);
     } finally {
       setLoading(false);
     }
@@ -447,7 +301,6 @@ export const DatabaseToolbox: React.FC = () => {
   const loadShipments = async (offset: number) => {
     try {
       console.log('📦 Loading shipments...');
-      setDebugInfo(prev => prev + '\nLoading shipments...');
       
       let query = supabase
         .from('Shipments')
@@ -477,7 +330,6 @@ export const DatabaseToolbox: React.FC = () => {
       
       if (error) {
         console.error('❌ Shipments query error:', error);
-        setDebugInfo(prev => prev + `\nShipments query error: ${error.message}`);
         throw error;
       }
       
@@ -486,7 +338,6 @@ export const DatabaseToolbox: React.FC = () => {
       setTotalPages(Math.ceil((count || 0) / itemsPerPage));
       
       console.log(`✅ Loaded ${data?.length || 0} Shipments records (${count} total)`);
-      setDebugInfo(prev => prev + `\nLoaded ${data?.length || 0} shipments (${count} total)`);
     } catch (err) {
       console.error('❌ Failed to load Shipments:', err);
       throw err;
@@ -496,7 +347,6 @@ export const DatabaseToolbox: React.FC = () => {
   const loadCustomerCarriers = async (offset: number) => {
     try {
       console.log('🚛 Loading customer carriers...');
-      setDebugInfo(prev => prev + '\nLoading customer carriers...');
       
       let query = supabase
         .from('CustomerCarriers')
@@ -514,7 +364,6 @@ export const DatabaseToolbox: React.FC = () => {
       
       if (error) {
         console.error('❌ CustomerCarriers query error:', error);
-        setDebugInfo(prev => prev + `\nCustomerCarriers query error: ${error.message}`);
         throw error;
       }
       
@@ -523,7 +372,6 @@ export const DatabaseToolbox: React.FC = () => {
       setTotalPages(Math.ceil((count || 0) / itemsPerPage));
       
       console.log(`✅ Loaded ${data?.length || 0} CustomerCarriers records (${count} total)`);
-      setDebugInfo(prev => prev + `\nLoaded ${data?.length || 0} customer carriers (${count} total)`);
     } catch (err) {
       console.error('❌ Failed to load CustomerCarriers:', err);
       throw err;
@@ -638,43 +486,6 @@ export const DatabaseToolbox: React.FC = () => {
           <span>Refresh</span>
         </button>
       </div>
-
-      {/* Enhanced Debug Info */}
-      {debugInfo && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-start space-x-2">
-            <Database className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-blue-800">
-              <p className="font-medium mb-1">🔍 Enhanced Debug Information:</p>
-              <pre className="whitespace-pre-wrap text-xs bg-blue-100 p-2 rounded">{debugInfo}</pre>
-              
-              {tableInfo && (
-                <div className="mt-2 p-2 bg-blue-100 rounded">
-                  <p className="font-medium">📋 Table Info:</p>
-                  <pre className="text-xs">{JSON.stringify(tableInfo, null, 2)}</pre>
-                </div>
-              )}
-              
-              {rlsStatus && (
-                <div className="mt-2 p-2 bg-blue-100 rounded">
-                  <p className="font-medium">🛡️ RLS Status:</p>
-                  <pre className="text-xs">{JSON.stringify(rlsStatus, null, 2)}</pre>
-                  {rlsStatus.some((table: any) => table.relrowsecurity) && (
-                    <div className="mt-1 p-2 bg-yellow-100 border border-yellow-300 rounded">
-                      <p className="text-yellow-800 font-medium">⚠️ RLS is ENABLED</p>
-                      <p className="text-xs text-yellow-700">This might be blocking your queries. You may need to:</p>
-                      <ul className="text-xs text-yellow-700 list-disc list-inside">
-                        <li>Disable RLS: ALTER TABLE "Shipments" DISABLE ROW LEVEL SECURITY;</li>
-                        <li>Or create policies to allow access</li>
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Search and Filters */}
       <div className="bg-white rounded-lg shadow-md p-4">
@@ -812,9 +623,6 @@ export const DatabaseToolbox: React.FC = () => {
           <div className="text-center py-8 text-gray-500">
             <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
             <p>No shipments found</p>
-            {debugInfo && (
-              <p className="text-xs mt-2">Check debug info above for details</p>
-            )}
           </div>
         )}
         
@@ -839,43 +647,6 @@ export const DatabaseToolbox: React.FC = () => {
           <span>Refresh</span>
         </button>
       </div>
-
-      {/* Enhanced Debug Info */}
-      {debugInfo && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-start space-x-2">
-            <Database className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-blue-800">
-              <p className="font-medium mb-1">🔍 Enhanced Debug Information:</p>
-              <pre className="whitespace-pre-wrap text-xs bg-blue-100 p-2 rounded">{debugInfo}</pre>
-              
-              {tableInfo && (
-                <div className="mt-2 p-2 bg-blue-100 rounded">
-                  <p className="font-medium">📋 Table Info:</p>
-                  <pre className="text-xs">{JSON.stringify(tableInfo, null, 2)}</pre>
-                </div>
-              )}
-              
-              {rlsStatus && (
-                <div className="mt-2 p-2 bg-blue-100 rounded">
-                  <p className="font-medium">🛡️ RLS Status:</p>
-                  <pre className="text-xs">{JSON.stringify(rlsStatus, null, 2)}</pre>
-                  {rlsStatus.some((table: any) => table.relrowsecurity) && (
-                    <div className="mt-1 p-2 bg-yellow-100 border border-yellow-300 rounded">
-                      <p className="text-yellow-800 font-medium">⚠️ RLS is ENABLED</p>
-                      <p className="text-xs text-yellow-700">This might be blocking your queries. You may need to:</p>
-                      <ul className="text-xs text-yellow-700 list-disc list-inside">
-                        <li>Disable RLS: ALTER TABLE "CustomerCarriers" DISABLE ROW LEVEL SECURITY;</li>
-                        <li>Or create policies to allow access</li>
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Search */}
       <div className="bg-white rounded-lg shadow-md p-4">
@@ -958,9 +729,6 @@ export const DatabaseToolbox: React.FC = () => {
           <div className="text-center py-8 text-gray-500">
             <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
             <p>No customer carriers found</p>
-            {debugInfo && (
-              <p className="text-xs mt-2">Check debug info above for details</p>
-            )}
           </div>
         )}
         
