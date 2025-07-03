@@ -470,10 +470,10 @@ export class Project44APIClient {
       deliveryWindow: this.buildDeliveryWindow(rfq),
       apiConfiguration: {
         accessorialServiceConfiguration: {
-          allowUnacceptedAccessorials: rfq.allowUnacceptedAccessorials ?? true,
-          fetchAllGuaranteed: rfq.fetchAllGuaranteed ?? true,
-          fetchAllInsideDelivery: rfq.fetchAllInsideDelivery ?? true,
-          fetchAllServiceLevels: rfq.fetchAllServiceLevels ?? true
+          allowUnacceptedAccessorials: false,
+          fetchAllGuaranteed: false,
+          fetchAllInsideDelivery: false,
+          fetchAllServiceLevels: false
         },
         enableUnitConversion: rfq.enableUnitConversion ?? true,
         fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
@@ -670,10 +670,10 @@ export class Project44APIClient {
       deliveryWindow: this.buildDeliveryWindow(rfq),
       apiConfiguration: {
         accessorialServiceConfiguration: {
-          allowUnacceptedAccessorials: rfq.allowUnacceptedAccessorials ?? true,
-          fetchAllGuaranteed: rfq.fetchAllGuaranteed ?? true,
-          fetchAllInsideDelivery: rfq.fetchAllInsideDelivery ?? true,
-          fetchAllServiceLevels: rfq.fetchAllServiceLevels ?? true
+          allowUnacceptedAccessorials: false,
+          fetchAllGuaranteed: false,
+          fetchAllInsideDelivery: false,
+          fetchAllServiceLevels: false
         },
         enableUnitConversion: rfq.enableUnitConversion ?? true,
         fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
