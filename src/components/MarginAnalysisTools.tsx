@@ -45,7 +45,7 @@ interface MarginAnalysisResult {
   averageCompetitorCostWithoutOutliers: number;
   targetPrice: number;
   recommendedMargin: number;
-  targetCarrierMargin: number; // Add this to track what margin was used
+  targetCarrierMargin: number;
   shipmentCount: number;
 }
 
@@ -159,21 +159,48 @@ export const MarginAnalysisTools: React.FC = () => {
     try {
       console.log('📋 Loading ALL customers from database...');
       
-      // Load ALL customers without limit
-      const { data, error } = await supabase
-        .from('Shipments')
-        .select('"Customer"')
-        .not('"Customer"', 'is', null)
-        .order('"Customer"');
+      // FIXED: Load ALL customers without any limit using pagination
+      let allCustomers: string[] = [];
+      let from = 0;
+      const batchSize = 1000;
+      let hasMore = true;
       
-      if (error) {
-        console.error('Error loading customers:', error);
-        return;
+      while (hasMore) {
+        console.log(`📋 Loading customers batch ${from} to ${from + batchSize}...`);
+        
+        const { data, error } = await supabase
+          .from('Shipments')
+          .select('"Customer"')
+          .not('"Customer"', 'is', null)
+          .range(from, from + batchSize - 1)
+          .order('"Customer"');
+        
+        if (error) {
+          console.error('Error loading customers batch:', error);
+          break;
+        }
+        
+        if (!data || data.length === 0) {
+          hasMore = false;
+          break;
+        }
+        
+        // Add unique customers from this batch
+        const batchCustomers = [...new Set(data.map(s => s.Customer).filter(Boolean))];
+        allCustomers = [...new Set([...allCustomers, ...batchCustomers])];
+        
+        console.log(`📋 Batch loaded: ${data.length} records, ${batchCustomers.length} unique customers in batch, ${allCustomers.length} total unique customers`);
+        
+        // If we got less than the batch size, we're done
+        if (data.length < batchSize) {
+          hasMore = false;
+        } else {
+          from += batchSize;
+        }
       }
       
-      const uniqueCustomers = [...new Set(data?.map(s => s.Customer).filter(Boolean))];
-      setAvailableCustomers(uniqueCustomers);
-      console.log(`✅ Loaded ${uniqueCustomers.length} customers from database`);
+      setAvailableCustomers(allCustomers.sort());
+      console.log(`✅ Loaded ${allCustomers.length} total unique customers from database`);
     } catch (err) {
       console.error('Failed to load customers:', err);
     }
@@ -181,20 +208,48 @@ export const MarginAnalysisTools: React.FC = () => {
 
   const loadCustomerCarrierMargins = async () => {
     try {
-      const { data, error } = await supabase
-        .from('CustomerCarriers')
-        .select('"InternalName", "P44CarrierCode", "Percentage"')
-        .not('"InternalName"', 'is', null)
-        .not('"P44CarrierCode"', 'is', null)
-        .not('"Percentage"', 'is', null);
+      console.log('📋 Loading ALL customer carrier margins from database...');
       
-      if (error) {
-        console.error('Error loading customer carrier margins:', error);
-        return;
+      // FIXED: Load ALL customer carrier margins without any limit using pagination
+      let allMargins: CustomerCarrierMargin[] = [];
+      let from = 0;
+      const batchSize = 1000;
+      let hasMore = true;
+      
+      while (hasMore) {
+        console.log(`📋 Loading margins batch ${from} to ${from + batchSize}...`);
+        
+        const { data, error } = await supabase
+          .from('CustomerCarriers')
+          .select('"InternalName", "P44CarrierCode", "Percentage"')
+          .not('"InternalName"', 'is', null)
+          .not('"P44CarrierCode"', 'is', null)
+          .not('"Percentage"', 'is', null)
+          .range(from, from + batchSize - 1);
+        
+        if (error) {
+          console.error('Error loading customer carrier margins batch:', error);
+          break;
+        }
+        
+        if (!data || data.length === 0) {
+          hasMore = false;
+          break;
+        }
+        
+        allMargins = [...allMargins, ...data];
+        console.log(`📋 Margins batch loaded: ${data.length} records, ${allMargins.length} total margins`);
+        
+        // If we got less than the batch size, we're done
+        if (data.length < batchSize) {
+          hasMore = false;
+        } else {
+          from += batchSize;
+        }
       }
       
-      setCustomerCarrierMargins(data || []);
-      console.log(`✅ Loaded ${data?.length || 0} customer carrier margin configurations`);
+      setCustomerCarrierMargins(allMargins);
+      console.log(`✅ Loaded ${allMargins.length} total customer carrier margin configurations`);
     } catch (err) {
       console.error('Failed to load customer carrier margins:', err);
     }
@@ -210,43 +265,70 @@ export const MarginAnalysisTools: React.FC = () => {
       setIsLoadingShipments(true);
       setProcessingStatus('Loading shipment data from database...');
       
-      let query = supabase
-        .from('Shipments')
-        .select(`
-          "Invoice #",
-          "Customer",
-          "Zip",
-          "Zip_1", 
-          "Tot Packages",
-          "Tot Weight",
-          "Scheduled Pickup Date",
-          "Service Level",
-          "Booked Carrier",
-          "Quoted Carrier",
-          "Revenue",
-          "Carrier Expense"
-        `)
-        .gte('"Scheduled Pickup Date"', startDate)
-        .lte('"Scheduled Pickup Date"', endDate)
-        .not('"Customer"', 'is', null)
-        .not('"Zip"', 'is', null)
-        .not('"Zip_1"', 'is', null)
-        .not('"Tot Packages"', 'is', null)
-        .not('"Tot Weight"', 'is', null);
-
-      if (selectedCustomer) {
-        query = query.eq('"Customer"', selectedCustomer);
-      }
-
-      const { data, error } = await query.order('"Scheduled Pickup Date"', { ascending: false });
+      // FIXED: Load ALL shipments without any limit using pagination
+      let allShipments: ShipmentData[] = [];
+      let from = 0;
+      const batchSize = 1000;
+      let hasMore = true;
       
-      if (error) {
-        throw error;
+      while (hasMore) {
+        console.log(`📦 Loading shipments batch ${from} to ${from + batchSize}...`);
+        
+        let query = supabase
+          .from('Shipments')
+          .select(`
+            "Invoice #",
+            "Customer",
+            "Zip",
+            "Zip_1", 
+            "Tot Packages",
+            "Tot Weight",
+            "Scheduled Pickup Date",
+            "Service Level",
+            "Booked Carrier",
+            "Quoted Carrier",
+            "Revenue",
+            "Carrier Expense"
+          `)
+          .gte('"Scheduled Pickup Date"', startDate)
+          .lte('"Scheduled Pickup Date"', endDate)
+          .not('"Customer"', 'is', null)
+          .not('"Zip"', 'is', null)
+          .not('"Zip_1"', 'is', null)
+          .not('"Tot Packages"', 'is', null)
+          .not('"Tot Weight"', 'is', null)
+          .range(from, from + batchSize - 1);
+
+        if (selectedCustomer) {
+          query = query.eq('"Customer"', selectedCustomer);
+        }
+
+        const { data, error } = await query.order('"Scheduled Pickup Date"', { ascending: false });
+        
+        if (error) {
+          console.error('Error loading shipments batch:', error);
+          break;
+        }
+        
+        if (!data || data.length === 0) {
+          hasMore = false;
+          break;
+        }
+        
+        allShipments = [...allShipments, ...data];
+        console.log(`📦 Shipments batch loaded: ${data.length} records, ${allShipments.length} total shipments`);
+        
+        // If we got less than the batch size, we're done
+        if (data.length < batchSize) {
+          hasMore = false;
+        } else {
+          from += batchSize;
+        }
       }
       
-      setShipmentData(data || []);
-      setProcessingStatus(`Loaded ${data?.length || 0} shipments from database`);
-      console.log(`✅ Loaded ${data?.length || 0} shipments for analysis`);
+      setShipmentData(allShipments);
+      setProcessingStatus(`Loaded ${allShipments.length} total shipments from database`);
+      console.log(`✅ Loaded ${allShipments.length} total shipments for analysis`);
       
     } catch (err) {
       console.error('Failed to load shipment data:', err);
@@ -485,7 +567,7 @@ export const MarginAnalysisTools: React.FC = () => {
               averageCompetitorCostWithoutOutliers: averageCompetitorCostWithoutOutliers,
               targetPrice: targetPrice,
               recommendedMargin: recommendedMargin,
-              targetCarrierMargin: targetCarrierMargin, // Store the actual margin used
+              targetCarrierMargin: targetCarrierMargin,
               shipmentCount: 1
             };
           } else {
@@ -630,7 +712,7 @@ export const MarginAnalysisTools: React.FC = () => {
             ) : (
               <Filter className="h-4 w-4" />
             )}
-            <span>Load Shipments</span>
+            <span>Load All Shipments</span>
           </button>
         </div>
         
@@ -879,7 +961,7 @@ export const MarginAnalysisTools: React.FC = () => {
           
           {shipmentData.length === 0 && (
             <p className="text-sm text-gray-500 mt-2">
-              Please load shipment data first using the "Load Shipments" button above.
+              Please load shipment data first using the "Load All Shipments" button above.
             </p>
           )}
         </div>
