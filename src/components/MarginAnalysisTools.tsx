@@ -111,14 +111,16 @@ export const MarginAnalysisTools: React.FC = () => {
     setStartDate(startDate.toISOString().split('T')[0]);
   }, []);
 
-  // Filter customers based on search term
+  // Filter customers based on search term - FIXED to handle all customers
   useEffect(() => {
     if (customerSearchTerm.trim() === '') {
-      setFilteredCustomers(availableCustomers.slice(0, 50)); // Show first 50 when no search
+      // Show first 100 customers when no search term
+      setFilteredCustomers(availableCustomers.slice(0, 100));
     } else {
+      // Show ALL matching customers, no limit
       const filtered = availableCustomers.filter(customer =>
         customer.toLowerCase().includes(customerSearchTerm.toLowerCase())
-      ).slice(0, 20); // Show top 20 matches
+      );
       setFilteredCustomers(filtered);
     }
   }, [customerSearchTerm, availableCustomers]);
@@ -155,6 +157,9 @@ export const MarginAnalysisTools: React.FC = () => {
 
   const loadCustomers = async () => {
     try {
+      console.log('📋 Loading ALL customers from database...');
+      
+      // Load ALL customers without limit
       const { data, error } = await supabase
         .from('Shipments')
         .select('"Customer"')
@@ -168,7 +173,7 @@ export const MarginAnalysisTools: React.FC = () => {
       
       const uniqueCustomers = [...new Set(data?.map(s => s.Customer).filter(Boolean))];
       setAvailableCustomers(uniqueCustomers);
-      console.log(`✅ Loaded ${uniqueCustomers.length} customers`);
+      console.log(`✅ Loaded ${uniqueCustomers.length} customers from database`);
     } catch (err) {
       console.error('Failed to load customers:', err);
     }
@@ -662,7 +667,7 @@ export const MarginAnalysisTools: React.FC = () => {
           <div className="relative">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <Users className="inline h-4 w-4 mr-1" />
-              Customer (Optional)
+              Customer (Optional) - {availableCustomers.length} total
             </label>
             <div className="relative">
               <div className="relative">
@@ -675,7 +680,7 @@ export const MarginAnalysisTools: React.FC = () => {
                     setShowCustomerDropdown(true);
                   }}
                   onFocus={() => setShowCustomerDropdown(true)}
-                  placeholder="Search customers..."
+                  placeholder={`Search ${availableCustomers.length} customers...`}
                   className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
                 />
                 {selectedCustomer && (
@@ -695,7 +700,7 @@ export const MarginAnalysisTools: React.FC = () => {
                     <button
                       key={index}
                       onClick={() => handleCustomerSelect(customer)}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
+                      className="w-full text-left px-3 py-2 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none text-sm"
                     >
                       {customer}
                     </button>
@@ -703,6 +708,11 @@ export const MarginAnalysisTools: React.FC = () => {
                   {customerSearchTerm && filteredCustomers.length === 0 && (
                     <div className="px-3 py-2 text-gray-500 text-sm">
                       No customers found matching "{customerSearchTerm}"
+                    </div>
+                  )}
+                  {customerSearchTerm === '' && availableCustomers.length > 100 && (
+                    <div className="px-3 py-2 text-gray-500 text-xs border-t">
+                      Showing first 100 customers. Type to search all {availableCustomers.length} customers.
                     </div>
                   )}
                 </div>
