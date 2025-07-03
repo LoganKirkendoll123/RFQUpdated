@@ -17,7 +17,8 @@ import {
   Calendar,
   Filter,
   Search,
-  X
+  X,
+  Check
 } from 'lucide-react';
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { loadProject44Config } from '../utils/credentialStorage';
@@ -77,6 +78,7 @@ export const MarginAnalysisTools: React.FC = () => {
   const [selectedTargetGroup, setSelectedTargetGroup] = useState('');
   const [selectedTargetCarrier, setSelectedTargetCarrier] = useState('');
   const [selectedCompetitorGroup, setSelectedCompetitorGroup] = useState('');
+  const [selectedCompetitorCarriers, setSelectedCompetitorCarriers] = useState<{[carrierId: string]: boolean}>({});
   const [results, setResults] = useState<MarginAnalysisResult[]>([]);
   const [error, setError] = useState<string>('');
   const [processingStatus, setProcessingStatus] = useState<string>('');
@@ -96,6 +98,9 @@ export const MarginAnalysisTools: React.FC = () => {
 
   // Customer carrier margins
   const [customerCarrierMargins, setCustomerCarrierMargins] = useState<CustomerCarrierMargin[]>([]);
+  
+  // UI state
+  const [showCompetitorCarrierSelector, setShowCompetitorCarrierSelector] = useState(false);
 
   useEffect(() => {
     initializeClient();
@@ -111,7 +116,7 @@ export const MarginAnalysisTools: React.FC = () => {
     setStartDate(startDate.toISOString().split('T')[0]);
   }, []);
 
-  // Filter customers based on search term - FIXED to handle all customers
+  // Filter customers based on search term
   useEffect(() => {
     if (customerSearchTerm.trim() === '') {
       // Show first 100 customers when no search term
@@ -124,6 +129,12 @@ export const MarginAnalysisTools: React.FC = () => {
       setFilteredCustomers(filtered);
     }
   }, [customerSearchTerm, availableCustomers]);
+
+  // Reset competitor carrier selection when group changes
+  useEffect(() => {
+    setSelectedCompetitorCarriers({});
+    setShowCompetitorCarrierSelector(false);
+  }, [selectedCompetitorGroup]);
 
   const initializeClient = async () => {
     const config = loadProject44Config();
@@ -159,7 +170,7 @@ export const MarginAnalysisTools: React.FC = () => {
     try {
       console.log('📋 Loading ALL customers from database...');
       
-      // FIXED: Load ALL customers without any limit using pagination
+      // Load ALL customers without any limit using pagination
       let allCustomers: string[] = [];
       let from = 0;
       const batchSize = 1000;
@@ -210,7 +221,7 @@ export const MarginAnalysisTools: React.FC = () => {
     try {
       console.log('📋 Loading ALL customer carrier margins from database...');
       
-      // FIXED: Load ALL customer carrier margins without any limit using pagination
+      // Load ALL customer carrier margins without any limit using pagination
       let allMargins: CustomerCarrierMargin[] = [];
       let from = 0;
       const batchSize = 1000;
@@ -265,7 +276,7 @@ export const MarginAnalysisTools: React.FC = () => {
       setIsLoadingShipments(true);
       setProcessingStatus('Loading shipment data from database...');
       
-      // FIXED: Load ALL shipments without any limit using pagination
+      // Load ALL shipments without any limit using pagination
       let allShipments: ShipmentData[] = [];
       let from = 0;
       const batchSize = 1000;
@@ -383,7 +394,7 @@ export const MarginAnalysisTools: React.FC = () => {
     return rates.filter(rate => rate >= lowerBound && rate <= upperBound);
   };
 
-  // FIXED: Function to get customer margin for a specific carrier - now case-insensitive
+  // Function to get customer margin for a specific carrier - now case-insensitive
   const getCustomerMarginForCarrier = (customerName: string, carrierCode: string): number => {
     // Normalize inputs - trim whitespace and convert to uppercase for case-insensitive comparison
     const normalizedCustomerName = customerName.trim().toUpperCase();
@@ -445,6 +456,27 @@ export const MarginAnalysisTools: React.FC = () => {
     return 15; // Default to 15% if not found
   };
 
+  const handleCompetitorCarrierToggle = (carrierId: string, selected: boolean) => {
+    setSelectedCompetitorCarriers(prev => ({
+      ...prev,
+      [carrierId]: selected
+    }));
+  };
+
+  const handleSelectAllCompetitors = (selected: boolean) => {
+    const newSelection: { [carrierId: string]: boolean } = {};
+    getCarriersInGroup(selectedCompetitorGroup).forEach(carrier => {
+      newSelection[carrier.id] = selected;
+    });
+    setSelectedCompetitorCarriers(newSelection);
+  };
+
+  const getSelectedCompetitorCarrierIds = (): string[] => {
+    return Object.entries(selectedCompetitorCarriers)
+      .filter(([_, selected]) => selected)
+      .map(([carrierId, _]) => carrierId);
+  };
+
   const runMarginAnalysis = async () => {
     if (!project44Client || !selectedTargetGroup || !selectedTargetCarrier || !selectedCompetitorGroup) {
       setError('Please select target carrier group, target carrier, and competitor group');
@@ -496,7 +528,15 @@ export const MarginAnalysisTools: React.FC = () => {
         try {
           // Get target carrier rate
           setProcessingStatus(`Getting target carrier rate for shipment ${i + 1}...`);
-          const targetRates = await project44Client.getQuotes(rfqData, [selectedTargetCarrier], false, false, false);
+          
+          // FIXED: Use getQuotes with single carrier ID in array
+          const targetRates = await project44Client.getQuotes(
+            rfqData, 
+            [selectedTargetCarrier], 
+            false, 
+            false, 
+            false
+          );
           
           if (targetRates.length === 0) {
             console.warn(`⚠️ No rate from target carrier ${selectedTargetCarrier} for shipment ${i + 1}`);
@@ -506,19 +546,36 @@ export const MarginAnalysisTools: React.FC = () => {
           const targetRate = targetRates[0].baseRate + targetRates[0].fuelSurcharge + targetRates[0].premiumsAndDiscounts;
           console.log(`🎯 Target carrier rate: ${formatCurrency(targetRate)}`);
 
-          // Get competitor rates using the new method for entire account group
+          // Get competitor rates
           setProcessingStatus(`Getting competitor rates for shipment ${i + 1}...`);
           
-          // Use the new method to get quotes for the entire account group
-          const competitorQuotes = await project44Client.getQuotesForAccountGroup(
-            rfqData, 
-            selectedCompetitorGroup, 
-            false, 
-            false, 
-            false
-          );
+          let competitorQuotes;
+          const selectedCompetitorIds = getSelectedCompetitorCarrierIds();
           
-          console.log(`📊 Got ${competitorQuotes.length} competitor quotes from group ${selectedCompetitorGroup}`);
+          // FIXED: Use different API methods based on selection
+          if (selectedCompetitorIds.length > 0) {
+            // If specific carriers are selected, use getQuotes with carrier IDs
+            console.log(`🚛 Getting quotes for ${selectedCompetitorIds.length} selected competitor carriers`);
+            competitorQuotes = await project44Client.getQuotes(
+              rfqData, 
+              selectedCompetitorIds, 
+              false, 
+              false, 
+              false
+            );
+          } else {
+            // If no specific carriers selected, use getQuotesForAccountGroup with group code
+            console.log(`🚛 Getting quotes for entire competitor group: ${selectedCompetitorGroup}`);
+            competitorQuotes = await project44Client.getQuotesForAccountGroup(
+              rfqData, 
+              selectedCompetitorGroup, 
+              false, 
+              false, 
+              false
+            );
+          }
+          
+          console.log(`📊 Got ${competitorQuotes.length} competitor quotes`);
           
           if (competitorQuotes.length === 0) {
             console.warn(`⚠️ No competitor quotes for shipment ${i + 1}`);
@@ -533,7 +590,7 @@ export const MarginAnalysisTools: React.FC = () => {
             // Get the specific customer margin for this carrier
             const margin = getCustomerMarginForCarrier(customerName, carrierCode);
             
-            // FIXED: Use correct formula cost / (1 - margin)
+            // Use correct formula cost / (1 - margin)
             const customerPrice = rate / (1 - margin / 100);
             
             return {
@@ -564,10 +621,10 @@ export const MarginAnalysisTools: React.FC = () => {
           // Calculate average competitor cost without outliers
           const averageCompetitorCostWithoutOutliers = costsWithoutOutliers.reduce((sum, cost) => sum + cost, 0) / costsWithoutOutliers.length;
           
-          // FIXED: Get the target carrier margin from database lookup
+          // Get the target carrier margin from database lookup
           const targetCarrierMargin = getCustomerMarginForCarrier(customerName, selectedTargetCarrier);
           
-          // FIXED: Mark up the average competitor cost using proper formula cost / (1 - margin)
+          // Mark up the average competitor cost using proper formula cost / (1 - margin)
           const targetPrice = averageCompetitorCostWithoutOutliers / (1 - targetCarrierMargin / 100);
           
           // Calculate recommended margin: (Target Price - Target Carrier Cost) / Target Price
@@ -706,6 +763,10 @@ export const MarginAnalysisTools: React.FC = () => {
     setCustomerSearchTerm('');
     setShowCustomerDropdown(false);
   };
+
+  // Count selected competitor carriers
+  const selectedCompetitorCount = Object.values(selectedCompetitorCarriers).filter(Boolean).length;
+  const totalCompetitorCount = getCarriersInGroup(selectedCompetitorGroup).length;
 
   return (
     <div className="space-y-6">
@@ -928,23 +989,108 @@ export const MarginAnalysisTools: React.FC = () => {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Competitor Group
             </label>
-            <select
-              value={selectedCompetitorGroup}
-              onChange={(e) => setSelectedCompetitorGroup(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
-              disabled={isCarriersLoading}
-            >
-              <option value="">Select competitor group...</option>
-              {carrierGroups
-                .filter(group => group.groupCode !== selectedTargetGroup)
-                .map(group => (
-                  <option key={group.groupCode} value={group.groupCode}>
-                    {group.groupName} ({group.carriers.length} carriers)
-                  </option>
-                ))}
-            </select>
+            <div className="flex flex-col space-y-2">
+              <select
+                value={selectedCompetitorGroup}
+                onChange={(e) => setSelectedCompetitorGroup(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+                disabled={isCarriersLoading}
+              >
+                <option value="">Select competitor group...</option>
+                {carrierGroups
+                  .filter(group => group.groupCode !== selectedTargetGroup)
+                  .map(group => (
+                    <option key={group.groupCode} value={group.groupCode}>
+                      {group.groupName} ({group.carriers.length} carriers)
+                    </option>
+                  ))}
+              </select>
+              
+              {selectedCompetitorGroup && (
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setShowCompetitorCarrierSelector(!showCompetitorCarrierSelector)}
+                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center space-x-1"
+                  >
+                    <Truck className="h-3 w-3" />
+                    <span>
+                      {showCompetitorCarrierSelector ? 'Hide' : 'Select'} specific competitors
+                    </span>
+                  </button>
+                  
+                  {selectedCompetitorCount > 0 && (
+                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                      {selectedCompetitorCount} selected
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Competitor Carrier Selection */}
+        {showCompetitorCarrierSelector && selectedCompetitorGroup && (
+          <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-medium text-gray-700">
+                Select Specific Competitor Carriers
+              </h3>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => handleSelectAllCompetitors(true)}
+                  className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Select All
+                </button>
+                <button
+                  onClick={() => handleSelectAllCompetitors(false)}
+                  className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-60 overflow-y-auto">
+              {getCarriersInGroup(selectedCompetitorGroup).map(carrier => (
+                <div 
+                  key={carrier.id}
+                  className="flex items-center space-x-2"
+                >
+                  <input
+                    type="checkbox"
+                    id={`carrier-${carrier.id}`}
+                    checked={selectedCompetitorCarriers[carrier.id] || false}
+                    onChange={(e) => handleCompetitorCarrierToggle(carrier.id, e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label 
+                    htmlFor={`carrier-${carrier.id}`}
+                    className="text-sm text-gray-700 truncate"
+                    title={carrier.name}
+                  >
+                    {carrier.name}
+                  </label>
+                </div>
+              ))}
+            </div>
+            
+            <div className="mt-3 text-xs text-gray-500">
+              {selectedCompetitorCount === 0 ? (
+                <div className="flex items-center space-x-1 text-blue-600">
+                  <Info className="h-3 w-3" />
+                  <span>No carriers selected - will use entire group</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-1 text-green-600">
+                  <Check className="h-3 w-3" />
+                  <span>Using {selectedCompetitorCount} selected carriers for comparison</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Analysis Info */}
         {selectedTargetGroup && selectedCompetitorGroup && shipmentData.length > 0 && (
@@ -955,7 +1101,11 @@ export const MarginAnalysisTools: React.FC = () => {
                 <p className="font-medium mb-2">Database-Driven Margin Calculation Method:</p>
                 <ul className="list-disc list-inside space-y-1">
                   <li>Get rates from target carrier: <strong>{getCarriersInGroup(selectedTargetGroup).find(c => c.id === selectedTargetCarrier)?.name || 'Not selected'}</strong></li>
-                  <li>Get rates from <strong>ALL carriers</strong> in competitor group: {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
+                  {selectedCompetitorCount > 0 ? (
+                    <li>Get rates from <strong>{selectedCompetitorCount} selected carriers</strong> in competitor group: {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
+                  ) : (
+                    <li>Get rates from <strong>ALL carriers</strong> in competitor group: {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
+                  )}
                   <li><strong>Remove outliers</strong> from competitor costs using IQR method</li>
                   <li><strong>Look up customer-carrier margins</strong> from CustomerCarriers database table (case-insensitive)</li>
                   <li>Mark up remaining competitor costs using <strong>database margins and CORRECT formula: cost / (1 - margin)</strong></li>

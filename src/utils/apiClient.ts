@@ -493,7 +493,7 @@ export class Project44APIClient {
       console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
     }
 
-    // CRITICAL FIX: Add capacity provider account group to filter by selected carriers
+    // FIXED: Add capacity provider account group to filter by selected carriers
     if (selectedCarrierIds.length > 0) {
       // Check if the first carrier ID looks like a group code (contains underscore)
       const isGroupCode = selectedCarrierIds[0].includes('_');
@@ -628,7 +628,7 @@ export class Project44APIClient {
     return quotes;
   }
 
-  // New method to get quotes for an entire account group
+  // FIXED: Method to get quotes for an entire account group
   async getQuotesForAccountGroup(
     rfq: RFQRow,
     accountGroupCode: string,
@@ -685,7 +685,7 @@ export class Project44APIClient {
       preferredCurrency: rfq.preferredCurrency || 'USD',
       preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
       weightUnit: rfq.weightUnit || 'LB',
-      // CRITICAL: Use the account group code directly
+      // FIXED: Use the account group code directly without accounts array
       capacityProviderAccountGroup: {
         code: accountGroupCode
       }
