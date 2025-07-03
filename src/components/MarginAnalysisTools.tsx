@@ -426,11 +426,14 @@ export const MarginAnalysisTools: React.FC = () => {
           }
         }
         
+        // Only include valid competitor rates (filter out errors)
+        const validCompetitorRates = competitorRates.filter(cr => cr.rate > 0 && !isNaN(cr.rate));
+        
         // Calculate recommended margin
         let recommendedMargin = 0;
-        if (newCarrierRate > 0 && competitorRates.length > 0) {
+        if (newCarrierRate > 0 && validCompetitorRates.length > 0) {
           // Find average competitor price
-          const avgCompetitorPrice = competitorRates.reduce((sum, cr) => sum + cr.customerPrice, 0) / competitorRates.length;
+          const avgCompetitorPrice = validCompetitorRates.reduce((sum, cr) => sum + cr.customerPrice, 0) / validCompetitorRates.length;
           
           // Calculate margin needed to match average competitor price
           if (avgCompetitorPrice > newCarrierRate) {
@@ -438,12 +441,15 @@ export const MarginAnalysisTools: React.FC = () => {
           }
         }
         
-        processedResults.push({
-          originalShipment: shipment,
-          newCarrierRate,
-          competitorRates,
-          recommendedMargin
-        });
+        // Only add to processed results if we have a valid new carrier rate
+        if (newCarrierRate > 0) {
+          processedResults.push({
+            originalShipment: shipment,
+            newCarrierRate,
+            competitorRates: validCompetitorRates,
+            recommendedMargin
+          });
+        }
         
         // Small delay to prevent rate limiting
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -457,6 +463,7 @@ export const MarginAnalysisTools: React.FC = () => {
         totalCompetitorPrice: number;
         totalNewCarrierCost: number;
         totalRecommendedMargin: number;
+        validShipmentCount: number;
         competitorMargins: Map<string, {total: number; count: number; name: string}>;
       }>();
       
@@ -469,6 +476,7 @@ export const MarginAnalysisTools: React.FC = () => {
             totalCompetitorPrice: 0,
             totalNewCarrierCost: 0,
             totalRecommendedMargin: 0,
+            validShipmentCount: 0,
             competitorMargins: new Map()
           });
         }
@@ -476,7 +484,7 @@ export const MarginAnalysisTools: React.FC = () => {
         const customerData = customerResults.get(customerName)!;
         customerData.shipmentCount++;
         
-        // Calculate average competitor price for this shipment
+        // Only include in averages if we have valid competitor rates
         if (result.competitorRates.length > 0) {
           const avgCompetitorPrice = result.competitorRates.reduce((sum, cr) => sum + cr.customerPrice, 0) / 
                                     result.competitorRates.length;
@@ -484,6 +492,7 @@ export const MarginAnalysisTools: React.FC = () => {
           customerData.totalCompetitorPrice += avgCompetitorPrice;
           customerData.totalNewCarrierCost += result.newCarrierRate;
           customerData.totalRecommendedMargin += result.recommendedMargin;
+          customerData.validShipmentCount++;
           
           // Track competitor margins
           for (const compRate of result.competitorRates) {
@@ -506,18 +515,31 @@ export const MarginAnalysisTools: React.FC = () => {
       const finalResults: MarginDiscoveryResult[] = [];
       
       for (const [customerName, data] of customerResults.entries()) {
-        if (data.shipmentCount === 0) continue;
+        if (data.validShipmentCount === 0) {
+          // Include customer with shipment count but no valid data
+          finalResults.push({
+            customerName,
+            shipmentCount: data.shipmentCount,
+            avgCompetitorPrice: 0,
+            avgNewCarrierCost: 0,
+            recommendedMargin: 0,
+            competitorMargins: []
+          });
+          continue;
+        }
         
-        const avgCompetitorPrice = data.totalCompetitorPrice / data.shipmentCount;
-        const avgNewCarrierCost = data.totalNewCarrierCost / data.shipmentCount;
-        const avgRecommendedMargin = data.totalRecommendedMargin / data.shipmentCount;
+        const avgCompetitorPrice = data.totalCompetitorPrice / data.validShipmentCount;
+        const avgNewCarrierCost = data.totalNewCarrierCost / data.validShipmentCount;
+        const avgRecommendedMargin = data.totalRecommendedMargin / data.validShipmentCount;
         
-        const competitorMarginsList = Array.from(data.competitorMargins.entries()).map(([carrierCode, marginData]) => ({
-          carrierCode,
-          carrierName: marginData.name,
-          avgMargin: marginData.total / marginData.count,
-          shipmentCount: marginData.count
-        }));
+        const competitorMarginsList = Array.from(data.competitorMargins.entries())
+          .filter(([_, marginData]) => marginData.count > 0) // Only include competitors with valid data
+          .map(([carrierCode, marginData]) => ({
+            carrierCode,
+            carrierName: marginData.name,
+            avgMargin: marginData.total / marginData.count,
+            shipmentCount: marginData.count
+          }));
         
         finalResults.push({
           customerName,
