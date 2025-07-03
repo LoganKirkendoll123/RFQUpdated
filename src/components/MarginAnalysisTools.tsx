@@ -3,771 +3,336 @@ import {
   Calculator, 
   TrendingUp, 
   Users, 
-  Truck, 
-  DollarSign,
-  Search,
-  RefreshCw,
-  BarChart3,
-  Target,
-  AlertTriangle,
-  CheckCircle,
-  ArrowRight,
-  Percent,
-  Plus,
-  Minus,
-  Equal,
-  Info,
-  Filter,
-  Calendar,
+  Truck,
+  Play,
+  Download,
   Loader,
-  MapPin,
-  Download
+  AlertCircle,
+  CheckCircle,
+  Info,
+  DollarSign,
+  Target,
+  BarChart3
 } from 'lucide-react';
-import { supabase } from '../utils/supabase';
-import { formatCurrency } from '../utils/pricingCalculator';
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { loadProject44Config } from '../utils/credentialStorage';
+import { formatCurrency } from '../utils/pricingCalculator';
 import { RFQRow } from '../types';
 
-interface CustomerCarrier {
-  MarkupId: number;
-  CarrierId?: number;
-  CustomerID?: number;
-  InternalName?: string;
-  P44CarrierCode?: string;
-  MinDollar?: number;
-  MaxDollar?: string;
-  Percentage?: string;
-}
-
-interface Shipment {
-  "Shipment ID": string;
-  "Customer"?: string;
-  "Carrier"?: string;
-  "SCAC"?: string;
-  "Price"?: number;
-  "Cost"?: number;
-  "Profit"?: number;
-  "Margin"?: number;
-  "Origin Postal Code"?: string;
-  "Destination Postal Code"?: string;
-  "Total Weight"?: string;
-  "Pickup Date"?: string;
-  "Origin City"?: string;
-  "Origin State"?: string;
-  "Destination City"?: string;
-  "Destination State"?: string;
-  "Status"?: string;
-}
-
-interface MarginCalculation {
-  currentCost: number;
-  targetPrice: number;
-  requiredMargin: number;
-  currentMargin: number;
-  marginDifference: number;
-  profitDifference: number;
-}
-
-interface CarrierComparison {
-  carrierCode: string;
-  carrierName: string;
-  avgMargin: number;
-  avgCost: number;
-  avgPrice: number;
-  shipmentCount: number;
-  totalVolume: number;
-  profitability: number;
-}
-
-interface MarginDiscoveryResult {
+interface MarginAnalysisResult {
   customerName: string;
-  shipmentCount: number;
-  avgCompetitorPrice: number;
-  avgNewCarrierCost: number;
-  recommendedMargin: number;
-  competitorMargins: {
-    carrierCode: string;
-    carrierName: string;
-    avgMargin: number;
-    shipmentCount: number;
-  }[];
-}
-
-interface ShipmentWithRates {
-  originalShipment: Shipment;
-  newCarrierRate: number;
-  competitorRates: {
-    carrierCode: string;
+  targetCarrierRate: number;
+  competitorRates: Array<{
+    carrierId: string;
     carrierName: string;
     rate: number;
-    customerPrice: number;
     margin: number;
-  }[];
+    customerPrice: number;
+  }>;
   recommendedMargin: number;
+  recommendedPrice: number;
+  shipmentCount: number;
+}
+
+interface CarrierRate {
+  carrierId: string;
+  carrierName: string;
+  rate: number | string;
+  error?: string;
 }
 
 export const MarginAnalysisTools: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'new-carrier-margin' | 'rate-negotiation' | 'carrier-comparison'>('new-carrier-margin');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>('');
-  
-  // Data state
-  const [customerCarriers, setCustomerCarriers] = useState<CustomerCarrier[]>([]);
-  const [shipments, setShipments] = useState<Shipment[]>([]);
-  const [customers, setCustomers] = useState<string[]>([]);
-  const [carriers, setCarriers] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
-  
-  // New Carrier Margin Discovery
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
-  const [selectedCustomerFilter, setSelectedCustomerFilter] = useState<string>('');
-  const [newCarrierCode, setNewCarrierCode] = useState<string>('');
-  const [competitorGroup, setCompetitorGroup] = useState<string>('');
-  const [marginDiscoveryResults, setMarginDiscoveryResults] = useState<MarginDiscoveryResult[]>([]);
-  const [processedShipments, setProcessedShipments] = useState<ShipmentWithRates[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [totalSteps, setTotalSteps] = useState(0);
-  const [currentProcessingItem, setCurrentProcessingItem] = useState('');
-  
-  // Rate Negotiation Calculator
-  const [selectedShipmentId, setSelectedShipmentId] = useState('');
-  const [newNegotiatedRate, setNewNegotiatedRate] = useState<number>(0);
-  const [marginCalculation, setMarginCalculation] = useState<MarginCalculation | null>(null);
-  
-  // Carrier Comparison
-  const [carrierComparisons, setCarrierComparisons] = useState<CarrierComparison[]>([]);
-  const [comparisonPeriod, setComparisonPeriod] = useState<'30' | '90' | '365'>('90');
+  const [selectedTargetGroup, setSelectedTargetGroup] = useState('');
+  const [selectedTargetCarrier, setSelectedTargetCarrier] = useState('');
+  const [selectedCompetitorGroup, setSelectedCompetitorGroup] = useState('');
+  const [results, setResults] = useState<MarginAnalysisResult[]>([]);
+  const [error, setError] = useState<string>('');
+  const [processingStatus, setProcessingStatus] = useState<string>('');
+  const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
+
+  // Sample shipment data for testing
+  const sampleShipments: RFQRow[] = [
+    {
+      fromDate: '2025-01-15',
+      fromZip: '60607',
+      toZip: '30033',
+      pallets: 3,
+      grossWeight: 2500,
+      isStackable: false,
+      accessorial: [],
+      isReefer: false,
+      freightClass: '70',
+      originCity: 'Chicago',
+      originState: 'IL',
+      destinationCity: 'Atlanta',
+      destinationState: 'GA'
+    },
+    {
+      fromDate: '2025-01-16',
+      fromZip: '90210',
+      toZip: '10001',
+      pallets: 5,
+      grossWeight: 4000,
+      isStackable: true,
+      accessorial: [],
+      isReefer: false,
+      freightClass: '85',
+      originCity: 'Los Angeles',
+      originState: 'CA',
+      destinationCity: 'New York',
+      destinationState: 'NY'
+    }
+  ];
 
   useEffect(() => {
-    // Add COEP header to prevent iframe blocking
-    const meta = document.createElement('meta');
-    meta.httpEquiv = 'Cross-Origin-Embedder-Policy';
-    meta.content = 'credentialless';
-    document.head.appendChild(meta);
-    
-    loadInitialData();
-    
-    return () => {
-      // Clean up the meta tag when component unmounts
-      document.head.removeChild(meta);
-    };
+    initializeClient();
   }, []);
 
-  const loadInitialData = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      // Load customer carriers
-      const { data: ccData, error: ccError } = await supabase
-        .from('CustomerCarriers')
-        .select('*');
-      
-      if (ccError) throw ccError;
-      setCustomerCarriers(ccData || []);
-      
-      // Load shipments
-      const { data: shipmentData, error: shipmentError } = await supabase
-        .from('Shipments')
-        .select('*')
-        .order('Pickup Date', { ascending: false })
-        .limit(500);
-      
-      if (shipmentError) throw shipmentError;
-      setShipments(shipmentData || []);
-      
-      // Extract unique customers
-      const uniqueCustomers = [...new Set((shipmentData || [])
-        .map(s => s.Customer)
-        .filter(Boolean)
-      )];
-      setCustomers(uniqueCustomers);
-      
-      // Set default dates for the last 30 days
-      const today = new Date();
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(today.getDate() - 30);
-      
-      setEndDate(today.toISOString().split('T')[0]);
-      setStartDate(thirtyDaysAgo.toISOString().split('T')[0]);
-      
-      // Load carrier groups from Project44
-      await loadCarrierGroups();
-      
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
-      console.error('Error loading initial data:', err);
-    } finally {
-      setLoading(false);
+  const initializeClient = async () => {
+    const config = loadProject44Config();
+    if (config) {
+      const client = new Project44APIClient(config);
+      setProject44Client(client);
+      await loadCarrierGroups(client);
+    } else {
+      setError('Project44 configuration not found. Please configure your API credentials first.');
     }
   };
 
-  const loadCarrierGroups = async () => {
+  const loadCarrierGroups = async (client: Project44APIClient) => {
     try {
-      setLoading(true);
-      console.log('Loading carrier groups from Project44...');
+      setIsLoading(true);
+      setProcessingStatus('Loading carrier groups...');
       
-      // Initialize Project44 client
-      const p44Config = loadProject44Config();
-      if (!p44Config) {
-        throw new Error('Project44 configuration not found');
-      }
-      
-      const p44Client = new Project44APIClient(p44Config);
-      
-      // Load carrier groups
-      const groups = await p44Client.getAvailableCarriersByGroup();
-      console.log(`Loaded ${groups.length} carrier groups from Project44`);
+      // Load all carrier groups (both standard and volume)
+      const groups = await client.getAvailableCarriersByGroup(false, false);
       setCarrierGroups(groups);
       
-      // Extract unique carriers
-      const allCarriers: string[] = [];
-      groups.forEach(group => {
-        group.carriers.forEach(carrier => {
-          if (carrier.id && !allCarriers.includes(carrier.id)) {
-            allCarriers.push(carrier.id);
-          }
-        });
-      });
-      
-      setCarriers(allCarriers);
-      
-    } catch (err) {
-      console.error('Error loading carrier groups:', err);
-      setError('Failed to load carrier groups from Project44. Please check your API configuration.');
+      console.log(`✅ Loaded ${groups.length} carrier groups for margin analysis`);
+      setProcessingStatus(`Loaded ${groups.length} carrier groups`);
+    } catch (error) {
+      console.error('❌ Failed to load carrier groups:', error);
+      setError(`Failed to load carrier groups: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  const runMarginDiscovery = async () => {
-    if (!newCarrierCode || !competitorGroup) {
-      setError('Please select a new carrier and competitor group');
+  const getCarriersInGroup = (groupCode: string): Array<{id: string, name: string}> => {
+    const group = carrierGroups.find(g => g.groupCode === groupCode);
+    return group ? group.carriers : [];
+  };
+
+  const runMarginAnalysis = async () => {
+    if (!project44Client || !selectedTargetGroup || !selectedTargetCarrier || !selectedCompetitorGroup) {
+      setError('Please select target carrier group, target carrier, and competitor group');
       return;
     }
-    
-    setIsProcessing(true);
+
+    setIsLoading(true);
     setError('');
-    setProcessedShipments([]);
-    setMarginDiscoveryResults([]);
-    setCurrentStep(0);
-    setTotalSteps(0);
+    setResults([]);
     
     try {
-      // 1. Get shipments within the date range
-      let query = supabase
-        .from('Shipments')
-        .select('*');
+      setProcessingStatus('Starting margin analysis...');
       
-      if (startDate) {
-        query = query.gte('Pickup Date', startDate);
-      }
-      
-      if (endDate) {
-        query = query.lte('Pickup Date', endDate);
-      }
-      
-      if (selectedCustomerFilter) {
-        query = query.eq('Customer', selectedCustomerFilter);
-      }
-      
-      const { data: filteredShipments, error: shipmentError } = await query;
-      
-      if (shipmentError) throw shipmentError;
-      
-      if (!filteredShipments || filteredShipments.length === 0) {
-        setError('No shipments found matching the criteria');
-        setIsProcessing(false);
-        return;
-      }
-      
-      console.log(`Found ${filteredShipments.length} shipments matching criteria`);
-      
-      // 2. Get competitor carriers in the selected group
-      const selectedGroup = carrierGroups.find(group => group.groupCode === competitorGroup);
-      if (!selectedGroup) {
-        setError('Selected competitor group not found');
-        setIsProcessing(false);
-        return;
-      }
-      
-      const competitorCarriers = selectedGroup.carriers
-        .filter(c => c.id !== newCarrierCode)
-        .map(c => ({
-          id: c.id,
-          name: c.name,
-          scac: c.scac
-        }));
+      // Get all carriers in the competitor group
+      const competitorCarriers = getCarriersInGroup(selectedCompetitorGroup);
+      console.log(`🎯 Analyzing against ${competitorCarriers.length} competitors in group ${selectedCompetitorGroup}`);
       
       if (competitorCarriers.length === 0) {
-        setError('No competitor carriers found in the selected group');
-        setIsProcessing(false);
-        return;
+        throw new Error(`No carriers found in competitor group: ${selectedCompetitorGroup}`);
       }
-      
-      console.log(`Using ${competitorCarriers.length} competitor carriers from group ${selectedGroup.groupName}`);
-      
-      // 3. Get customer-carrier margins
-      const { data: margins, error: marginsError } = await supabase
-        .from('CustomerCarriers')
-        .select('*');
-      
-      if (marginsError) throw marginsError;
-      
-      // 4. Process each shipment
-      const totalShipments = Math.min(filteredShipments.length, 20); // Limit to 20 shipments for performance
-      setTotalSteps(totalShipments);
-      
-      const processedResults: ShipmentWithRates[] = [];
-      
-      // Initialize Project44 client
-      const p44Config = loadProject44Config();
-      if (!p44Config) {
-        throw new Error('Project44 configuration not found');
-      }
-      
-      const p44Client = new Project44APIClient(p44Config);
-      
-      // Get new carrier details
-      const newCarrierDetails = selectedGroup.carriers.find(c => c.id === newCarrierCode) || 
-                               carrierGroups.flatMap(g => g.carriers).find(c => c.id === newCarrierCode);
-      
-      if (!newCarrierDetails) {
-        throw new Error(`Could not find details for carrier ${newCarrierCode}`);
-      }
-      
-      console.log(`New carrier: ${newCarrierDetails.name} (${newCarrierCode})`);
-      
-      // Process shipments
-      for (let i = 0; i < totalShipments; i++) {
-        setCurrentStep(i + 1);
-        const shipment = filteredShipments[i];
-        setCurrentProcessingItem(`${shipment["Origin Postal Code"] || ''} → ${shipment["Destination Postal Code"] || ''}`);
+
+      const analysisResults: MarginAnalysisResult[] = [];
+
+      // Process each sample shipment
+      for (let i = 0; i < sampleShipments.length; i++) {
+        const shipment = sampleShipments[i];
+        setProcessingStatus(`Processing shipment ${i + 1} of ${sampleShipments.length}...`);
         
-        // Create RFQ from shipment
-        const rfq: RFQRow = {
-          fromDate: shipment["Pickup Date"] || new Date().toISOString().split('T')[0],
-          fromZip: shipment["Origin Postal Code"] || '',
-          toZip: shipment["Destination Postal Code"] || '',
-          pallets: parseInt(shipment["Total Units"]?.toString() || '1'),
-          grossWeight: parseFloat(shipment["Total Weight"]?.toString() || '0'),
-          isStackable: false,
-          accessorial: [],
-          originCity: shipment["Origin City"] || '',
-          originState: shipment["Origin State"] || '',
-          destinationCity: shipment["Destination City"] || '',
-          destinationState: shipment["Destination State"] || '',
-          freightClass: shipment["Freight Class 1"] || '70'
-        };
+        console.log(`📦 Processing shipment: ${shipment.fromZip} → ${shipment.toZip}`);
+
+        // Get target carrier rate
+        setProcessingStatus(`Getting target carrier rate for shipment ${i + 1}...`);
+        const targetRates = await project44Client.getQuotes(shipment, [selectedTargetCarrier], false, false, false);
         
-        // Get rate from new carrier
-        let newCarrierRate = 0;
-        try {
-          console.log(`Getting quote for new carrier ${newCarrierCode} for shipment ${i+1}/${totalShipments}`);
-          const newCarrierQuotes = await p44Client.getQuotes(rfq, [newCarrierCode]);
-          if (newCarrierQuotes.length > 0) {
-            newCarrierRate = newCarrierQuotes[0].baseRate + newCarrierQuotes[0].fuelSurcharge + newCarrierQuotes[0].premiumsAndDiscounts;
-            console.log(`Got rate for new carrier: ${formatCurrency(newCarrierRate)}`);
-          } else {
-            console.log(`No quotes returned for new carrier ${newCarrierCode}`);
-          }
-        } catch (err) {
-          console.error('Error getting new carrier rate:', err);
-        }
-        
-        // Get rates from competitor carriers
-        const competitorRates: {
-          carrierCode: string;
-          carrierName: string;
-          rate: number;
-          customerPrice: number;
-          margin: number;
-        }[] = [];
-        
-        // Only process up to 5 competitor carriers for performance
-        const competitorsToProcess = competitorCarriers.slice(0, 5);
-        
-        for (const competitor of competitorsToProcess) {
-          try {
-            console.log(`Getting quote for competitor ${competitor.id} for shipment ${i+1}/${totalShipments}`);
-            setCurrentProcessingItem(`${shipment["Origin Postal Code"] || ''} → ${shipment["Destination Postal Code"] || ''} (${competitor.name})`);
-            
-            const competitorQuotes = await p44Client.getQuotes(rfq, [competitor.id]);
-            if (competitorQuotes.length > 0) {
-              const rate = competitorQuotes[0].baseRate + competitorQuotes[0].fuelSurcharge + competitorQuotes[0].premiumsAndDiscounts;
-              
-              // Find margin for this customer-carrier combination
-              const customerName = shipment.Customer;
-              const margin = (margins || []).find(m => 
-                m.InternalName === customerName && m.P44CarrierCode === competitor.id
-              );
-              
-              const marginPercentage = margin ? parseFloat(margin.Percentage || '0') : 0;
-              const customerPrice = marginPercentage > 0 ? 
-                rate / (1 - (marginPercentage / 100)) : 
-                rate;
-              
-              competitorRates.push({
-                carrierCode: competitor.id,
-                carrierName: competitor.name,
-                rate,
-                customerPrice,
-                margin: marginPercentage
-              });
-              
-              console.log(`Got rate for competitor ${competitor.name}: ${formatCurrency(rate)}, customer price: ${formatCurrency(customerPrice)}`);
-            } else {
-              console.log(`No quotes returned for competitor ${competitor.id}`);
-            }
-          } catch (err) {
-            console.error(`Error getting competitor rate for ${competitor.id}:`, err);
-          }
-        }
-        
-        // Only include valid competitor rates (filter out errors)
-        const validCompetitorRates = competitorRates.filter(cr => cr.rate > 0 && !isNaN(cr.rate));
-        
-        // Calculate recommended margin
-        let recommendedMargin = 0;
-        if (newCarrierRate > 0 && validCompetitorRates.length > 0) {
-          // Find average competitor price
-          const avgCompetitorPrice = validCompetitorRates.reduce((sum, cr) => sum + cr.customerPrice, 0) / validCompetitorRates.length;
-          
-          // Calculate margin needed to match average competitor price
-          if (avgCompetitorPrice > newCarrierRate) {
-            recommendedMargin = ((avgCompetitorPrice - newCarrierRate) / avgCompetitorPrice) * 100;
-          }
-        }
-        
-        // Only add to processed results if we have a valid new carrier rate
-        if (newCarrierRate > 0) {
-          processedResults.push({
-            originalShipment: shipment,
-            newCarrierRate,
-            competitorRates: validCompetitorRates,
-            recommendedMargin
-          });
-        }
-        
-        // Small delay to prevent rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      
-      setProcessedShipments(processedResults);
-      
-      // 5. Aggregate results by customer
-      const customerResults = new Map<string, {
-        shipmentCount: number;
-        totalCompetitorPrice: number;
-        totalNewCarrierCost: number;
-        totalRecommendedMargin: number;
-        validShipmentCount: number;
-        competitorMargins: Map<string, {total: number; count: number; name: string}>;
-      }>();
-      
-      for (const result of processedResults) {
-        const customerName = result.originalShipment.Customer || 'Unknown';
-        
-        if (!customerResults.has(customerName)) {
-          customerResults.set(customerName, {
-            shipmentCount: 0,
-            totalCompetitorPrice: 0,
-            totalNewCarrierCost: 0,
-            totalRecommendedMargin: 0,
-            validShipmentCount: 0,
-            competitorMargins: new Map()
-          });
-        }
-        
-        const customerData = customerResults.get(customerName)!;
-        customerData.shipmentCount++;
-        
-        // Only include in averages if we have valid competitor rates
-        if (result.competitorRates.length > 0) {
-          const avgCompetitorPrice = result.competitorRates.reduce((sum, cr) => sum + cr.customerPrice, 0) / 
-                                    result.competitorRates.length;
-          
-          customerData.totalCompetitorPrice += avgCompetitorPrice;
-          customerData.totalNewCarrierCost += result.newCarrierRate;
-          customerData.totalRecommendedMargin += result.recommendedMargin;
-          customerData.validShipmentCount++;
-          
-          // Track competitor margins
-          for (const compRate of result.competitorRates) {
-            if (!customerData.competitorMargins.has(compRate.carrierCode)) {
-              customerData.competitorMargins.set(compRate.carrierCode, {
-                total: 0, 
-                count: 0,
-                name: compRate.carrierName
-              });
-            }
-            
-            const marginData = customerData.competitorMargins.get(compRate.carrierCode)!;
-            marginData.total += compRate.margin;
-            marginData.count++;
-          }
-        }
-      }
-      
-      // Convert to final results format
-      const finalResults: MarginDiscoveryResult[] = [];
-      
-      for (const [customerName, data] of customerResults.entries()) {
-        if (data.validShipmentCount === 0) {
-          // Include customer with shipment count but no valid data
-          finalResults.push({
-            customerName,
-            shipmentCount: data.shipmentCount,
-            avgCompetitorPrice: 0,
-            avgNewCarrierCost: 0,
-            recommendedMargin: 0,
-            competitorMargins: []
-          });
+        if (targetRates.length === 0) {
+          console.warn(`⚠️ No rate from target carrier ${selectedTargetCarrier} for shipment ${i + 1}`);
           continue;
         }
+
+        const targetRate = targetRates[0].baseRate + targetRates[0].fuelSurcharge + targetRates[0].premiumsAndDiscounts;
+        console.log(`🎯 Target carrier rate: ${formatCurrency(targetRate)}`);
+
+        // Get competitor rates
+        setProcessingStatus(`Getting competitor rates for shipment ${i + 1}...`);
+        const competitorRates: CarrierRate[] = [];
         
-        const avgCompetitorPrice = data.totalCompetitorPrice / data.validShipmentCount;
-        const avgNewCarrierCost = data.totalNewCarrierCost / data.validShipmentCount;
-        const avgRecommendedMargin = data.totalRecommendedMargin / data.validShipmentCount;
+        // Process competitors in batches to avoid overwhelming the API
+        const batchSize = 3;
+        for (let j = 0; j < competitorCarriers.length; j += batchSize) {
+          const batch = competitorCarriers.slice(j, j + batchSize);
+          const batchCarrierIds = batch.map(c => c.id);
+          
+          setProcessingStatus(`Getting rates from competitors ${j + 1}-${Math.min(j + batchSize, competitorCarriers.length)} for shipment ${i + 1}...`);
+          
+          try {
+            const batchQuotes = await project44Client.getQuotes(shipment, batchCarrierIds, false, false, false);
+            
+            // Process each quote in the batch
+            for (const quote of batchQuotes) {
+              const carrierInfo = batch.find(c => c.id === quote.carrierCode || c.name === quote.carrier.name);
+              if (carrierInfo) {
+                const rate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
+                competitorRates.push({
+                  carrierId: carrierInfo.id,
+                  carrierName: carrierInfo.name,
+                  rate: rate
+                });
+                console.log(`💰 ${carrierInfo.name}: ${formatCurrency(rate)}`);
+              }
+            }
+          } catch (error) {
+            console.warn(`⚠️ Failed to get rates for batch ${j + 1}-${Math.min(j + batchSize, competitorCarriers.length)}:`, error);
+            // Continue with other batches
+          }
+          
+          // Small delay between batches
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        console.log(`📊 Got ${competitorRates.length} competitor rates out of ${competitorCarriers.length} possible`);
+
+        // Filter out invalid rates and calculate margins
+        const validCompetitorRates = competitorRates
+          .filter(cr => typeof cr.rate === 'number' && cr.rate > 0)
+          .map(cr => {
+            const rate = cr.rate as number;
+            // Assume 15% margin for competitors (this could be configurable)
+            const margin = 15;
+            const customerPrice = rate / (1 - margin / 100);
+            
+            return {
+              carrierId: cr.carrierId,
+              carrierName: cr.carrierName,
+              rate: rate,
+              margin: margin,
+              customerPrice: customerPrice
+            };
+          });
+
+        if (validCompetitorRates.length === 0) {
+          console.warn(`⚠️ No valid competitor rates for shipment ${i + 1}`);
+          continue;
+        }
+
+        // Find the lowest competitor customer price
+        const lowestCompetitorPrice = Math.min(...validCompetitorRates.map(cr => cr.customerPrice));
         
-        const competitorMarginsList = Array.from(data.competitorMargins.entries())
-          .filter(([_, marginData]) => marginData.count > 0) // Only include competitors with valid data
-          .map(([carrierCode, marginData]) => ({
-            carrierCode,
-            carrierName: marginData.name,
-            avgMargin: marginData.total / marginData.count,
-            shipmentCount: marginData.count
-          }));
-        
-        finalResults.push({
-          customerName,
-          shipmentCount: data.shipmentCount,
-          avgCompetitorPrice,
-          avgNewCarrierCost,
-          recommendedMargin: avgRecommendedMargin,
-          competitorMargins: competitorMarginsList
+        // Calculate recommended margin to match the lowest competitor
+        const recommendedMargin = lowestCompetitorPrice > targetRate ? 
+          ((lowestCompetitorPrice - targetRate) / lowestCompetitorPrice) * 100 : 0;
+
+        analysisResults.push({
+          customerName: `Customer-${i + 1}`, // In real implementation, this would come from shipment data
+          targetCarrierRate: targetRate,
+          competitorRates: validCompetitorRates,
+          recommendedMargin: recommendedMargin,
+          recommendedPrice: lowestCompetitorPrice,
+          shipmentCount: 1
         });
       }
+
+      setResults(analysisResults);
+      setProcessingStatus(`Analysis complete! Processed ${analysisResults.length} shipments with competitor data.`);
       
-      setMarginDiscoveryResults(finalResults);
-      console.log('Margin discovery completed successfully');
+      console.log(`✅ Margin analysis complete: ${analysisResults.length} results`);
       
-    } catch (err) {
-      console.error('Error running margin discovery:', err);
-      setError(err instanceof Error ? err.message : 'Failed to run margin discovery');
+    } catch (error) {
+      console.error('❌ Margin analysis failed:', error);
+      setError(`Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setProcessingStatus('Analysis failed');
     } finally {
-      setIsProcessing(false);
-      setCurrentProcessingItem('');
+      setIsLoading(false);
     }
   };
 
-  const calculateRateNegotiationImpact = async () => {
-    if (!selectedShipmentId || !newNegotiatedRate) return;
-    
-    const shipment = shipments.find(s => s["Shipment ID"] === selectedShipmentId);
-    if (!shipment) return;
-    
-    const currentCost = shipment.Cost || 0;
-    const targetPrice = shipment.Price || 0;
-    const requiredMargin = ((targetPrice - newNegotiatedRate) / targetPrice) * 100;
-    const currentMargin = shipment.Margin || 0;
-    const marginDifference = requiredMargin - currentMargin;
-    const profitDifference = (targetPrice - newNegotiatedRate) - (targetPrice - currentCost);
-    
-    setMarginCalculation({
-      currentCost,
-      targetPrice,
-      requiredMargin,
-      currentMargin,
-      marginDifference,
-      profitDifference
-    });
-  };
-
-  const loadCarrierComparison = async () => {
-    setLoading(true);
-    try {
-      const daysAgo = new Date();
-      daysAgo.setDate(daysAgo.getDate() - parseInt(comparisonPeriod));
-      
-      const { data: recentShipments, error } = await supabase
-        .from('Shipments')
-        .select('*')
-        .gte('Pickup Date', daysAgo.toISOString().split('T')[0])
-        .not('Price', 'is', null)
-        .not('Cost', 'is', null);
-      
-      if (error) throw error;
-      
-      // Group by carrier and calculate metrics
-      const carrierMetrics = new Map<string, {
-        costs: number[];
-        prices: number[];
-        margins: number[];
-        weights: number[];
-        shipmentCount: number;
-      }>();
-      
-      recentShipments?.forEach(shipment => {
-        const carrierCode = shipment.SCAC || shipment.Carrier;
-        if (!carrierCode) return;
-        
-        if (!carrierMetrics.has(carrierCode)) {
-          carrierMetrics.set(carrierCode, {
-            costs: [],
-            prices: [],
-            margins: [],
-            weights: [],
-            shipmentCount: 0
-          });
-        }
-        
-        const metrics = carrierMetrics.get(carrierCode)!;
-        metrics.costs.push(shipment.Cost);
-        metrics.prices.push(shipment.Price);
-        metrics.margins.push(shipment.Margin || 0);
-        metrics.weights.push(parseFloat(shipment["Total Weight"] || '0'));
-        metrics.shipmentCount++;
-      });
-      
-      // Calculate comparison data
-      const comparisons: CarrierComparison[] = Array.from(carrierMetrics.entries()).map(([carrierCode, metrics]) => {
-        const avgCost = metrics.costs.reduce((sum, cost) => sum + cost, 0) / metrics.costs.length;
-        const avgPrice = metrics.prices.reduce((sum, price) => sum + price, 0) / metrics.prices.length;
-        const avgMargin = metrics.margins.reduce((sum, margin) => sum + margin, 0) / metrics.margins.length;
-        const totalVolume = metrics.weights.reduce((sum, weight) => sum + weight, 0);
-        const profitability = avgPrice - avgCost;
-        
-        return {
-          carrierCode,
-          carrierName: carrierCode, // Could be enhanced with carrier name lookup
-          avgMargin,
-          avgCost,
-          avgPrice,
-          shipmentCount: metrics.shipmentCount,
-          totalVolume,
-          profitability
-        };
-      });
-      
-      // Sort by profitability
-      comparisons.sort((a, b) => b.profitability - a.profitability);
-      setCarrierComparisons(comparisons);
-      
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load carrier comparison');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const exportMarginDiscoveryResults = () => {
-    if (marginDiscoveryResults.length === 0) return;
+  const exportResults = () => {
+    if (results.length === 0) return;
     
     // Create CSV content
     const headers = [
       'Customer Name',
-      'Shipment Count',
-      'Avg Competitor Price',
-      'New Carrier Cost',
-      'Recommended Margin',
-      'Competitor Avg Margin'
+      'Target Carrier Rate',
+      'Lowest Competitor Price',
+      'Recommended Margin %',
+      'Recommended Price',
+      'Competitor Count',
+      'Shipment Count'
     ];
-    
-    const rows = marginDiscoveryResults.map(result => [
-      result.customerName,
-      result.shipmentCount.toString(),
-      result.avgCompetitorPrice.toFixed(2),
-      result.avgNewCarrierCost.toFixed(2),
-      result.recommendedMargin.toFixed(2) + '%',
-      (result.competitorMargins.reduce((sum, cm) => sum + cm.avgMargin, 0) / 
-        (result.competitorMargins.length || 1)).toFixed(2) + '%'
-    ]);
     
     const csvContent = [
       headers.join(','),
-      ...rows.map(row => row.join(','))
+      ...results.map(result => [
+        result.customerName,
+        result.targetCarrierRate.toFixed(2),
+        result.recommendedPrice.toFixed(2),
+        result.recommendedMargin.toFixed(2),
+        result.recommendedPrice.toFixed(2),
+        result.competitorRates.length,
+        result.shipmentCount
+      ].join(','))
     ].join('\n');
     
-    // Create download link
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    // Download CSV
+    const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `margin_discovery_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `margin-analysis-${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
-    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
-  const renderNewCarrierMarginTab = () => (
+  return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">New Carrier Margin Discovery</h3>
+        <div className="flex items-center space-x-3">
+          <div className="bg-purple-600 p-2 rounded-lg">
+            <Calculator className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">New Carrier Margin Discovery</h1>
+            <p className="text-sm text-gray-600">
+              Analyze competitor pricing to determine optimal margins for new carrier relationships
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Configuration */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Analysis Configuration</h2>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Target Carrier Group */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
-            <div className="flex space-x-2">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-              />
-              <span className="flex items-center">to</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Customer Filter (Optional)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Target Carrier Group
+            </label>
             <select
-              value={selectedCustomerFilter}
-              onChange={(e) => setSelectedCustomerFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              value={selectedTargetGroup}
+              onChange={(e) => {
+                setSelectedTargetGroup(e.target.value);
+                setSelectedTargetCarrier(''); // Reset carrier selection
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
             >
-              <option value="">All Customers</option>
-              {customers.map(customer => (
-                <option key={customer} value={customer}>{customer}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">New Carrier</label>
-            <select
-              value={newCarrierCode}
-              onChange={(e) => setNewCarrierCode(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Select New Carrier</option>
-              {carrierGroups.flatMap(group => 
-                group.carriers.map(carrier => (
-                  <option key={`${group.groupCode}-${carrier.id}`} value={carrier.id}>
-                    {carrier.name} ({carrier.scac || carrier.id})
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Competitor Group</label>
-            <select
-              value={competitorGroup}
-              onChange={(e) => setCompetitorGroup(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Select Competitor Group</option>
+              <option value="">Select target group...</option>
               {carrierGroups.map(group => (
                 <option key={group.groupCode} value={group.groupCode}>
                   {group.groupName} ({group.carriers.length} carriers)
@@ -775,447 +340,224 @@ export const MarginAnalysisTools: React.FC = () => {
               ))}
             </select>
           </div>
-        </div>
-        
-        <div className="flex justify-between">
-          <button
-            onClick={runMarginDiscovery}
-            disabled={!newCarrierCode || !competitorGroup || isProcessing}
-            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
-          >
-            {isProcessing ? (
-              <>
-                <Loader className="h-4 w-4 animate-spin" />
-                <span>Processing {currentStep} of {totalSteps}...</span>
-              </>
-            ) : (
-              <>
-                <Calculator className="h-4 w-4" />
-                <span>Run Margin Discovery</span>
-              </>
-            )}
-          </button>
-          
-          {marginDiscoveryResults.length > 0 && (
-            <button
-              onClick={exportMarginDiscoveryResults}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export Results</span>
-            </button>
-          )}
-        </div>
-      </div>
-      
-      {isProcessing && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-lg font-semibold text-blue-900">Processing Shipments</h4>
-            <div className="text-sm text-blue-700">
-              {currentStep} of {totalSteps} shipments
-            </div>
-          </div>
-          
-          <div className="w-full bg-blue-200 rounded-full h-2.5 mb-4">
-            <div 
-              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
-              style={{ width: `${(currentStep / totalSteps) * 100}%` }}
-            ></div>
-          </div>
-          
-          <p className="text-sm text-blue-700">
-            {currentProcessingItem ? `Processing: ${currentProcessingItem}` : 'Requoting shipments across all carriers to determine optimal margins...'}
-          </p>
-        </div>
-      )}
-      
-      {marginDiscoveryResults.length > 0 && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h4 className="text-lg font-semibold text-gray-900 mb-4">Margin Discovery Results</h4>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shipments</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Competitor Price</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">New Carrier Cost</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Margin</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Competitor Avg Margin</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {marginDiscoveryResults.map((result) => (
-                  <tr key={result.customerName} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      <div className="flex items-center space-x-2">
-                        <Users className="h-4 w-4 text-gray-400" />
-                        <span>{result.customerName}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{result.shipmentCount}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(result.avgCompetitorPrice)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(result.avgNewCarrierCost)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      <span className={`font-medium ${result.recommendedMargin > 15 ? 'text-green-600' : result.recommendedMargin > 10 ? 'text-yellow-600' : 'text-red-600'}`}>
-                        {result.recommendedMargin.toFixed(2)}%
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {result.competitorMargins.length > 0 ? (
-                        <span className="text-gray-700">
-                          {(result.competitorMargins.reduce((sum, cm) => sum + cm.avgMargin, 0) / result.competitorMargins.length).toFixed(2)}%
-                        </span>
-                      ) : (
-                        <span className="text-gray-500">No data</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          
-          <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-            <div className="flex items-start space-x-3">
-              <Info className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <h5 className="font-medium text-green-800 mb-1">How to Use These Results</h5>
-                <p className="text-sm text-green-700">
-                  The recommended margin for each customer is calculated by comparing the new carrier's cost with the average price 
-                  customers are currently paying to competitors. This ensures your pricing remains competitive while maximizing profitability.
-                </p>
-                <p className="text-sm text-green-700 mt-2">
-                  To implement these margins, update the "Percentage" field in the CustomerCarriers table for each customer-carrier combination.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {processedShipments.length > 0 && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h4 className="text-lg font-semibold text-gray-900 mb-4">Detailed Shipment Analysis</h4>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shipment ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Route</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">New Carrier Rate</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Competitor Price</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Margin</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {processedShipments.map((shipment) => {
-                  const avgCompetitorPrice = shipment.competitorRates.length > 0 
-                    ? shipment.competitorRates.reduce((sum, cr) => sum + cr.customerPrice, 0) / shipment.competitorRates.length
-                    : 0;
-                    
-                  return (
-                    <tr key={shipment.originalShipment["Shipment ID"]} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                        {shipment.originalShipment["Shipment ID"]}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{shipment.originalShipment.Customer}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        <div className="flex items-center space-x-2">
-                          <MapPin className="h-4 w-4 text-gray-400" />
-                          <span>
-                            {shipment.originalShipment["Origin Postal Code"]} → {shipment.originalShipment["Destination Postal Code"]}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(shipment.newCarrierRate)}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(avgCompetitorPrice)}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        <span className={`font-medium ${shipment.recommendedMargin > 15 ? 'text-green-600' : shipment.recommendedMargin > 10 ? 'text-yellow-600' : 'text-red-600'}`}>
-                          {shipment.recommendedMargin.toFixed(2)}%
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
 
-  const renderRateNegotiationTab = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Rate Negotiation Impact Calculator</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          {/* Target Carrier */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Select Shipment</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Target Carrier
+            </label>
             <select
-              value={selectedShipmentId}
-              onChange={(e) => setSelectedShipmentId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              value={selectedTargetCarrier}
+              onChange={(e) => setSelectedTargetCarrier(e.target.value)}
+              disabled={!selectedTargetGroup}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100"
             >
-              <option value="">Select Shipment</option>
-              {shipments.filter(s => s.Price && s.Cost).slice(0, 100).map(shipment => (
-                <option key={shipment["Shipment ID"]} value={shipment["Shipment ID"]}>
-                  {shipment["Shipment ID"]} - {shipment.Customer} - {formatCurrency(shipment.Price || 0)}
+              <option value="">Select target carrier...</option>
+              {getCarriersInGroup(selectedTargetGroup).map(carrier => (
+                <option key={carrier.id} value={carrier.id}>
+                  {carrier.name}
                 </option>
               ))}
             </select>
           </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">New Negotiated Rate</label>
-            <input
-              type="number"
-              value={newNegotiatedRate}
-              onChange={(e) => setNewNegotiatedRate(parseFloat(e.target.value) || 0)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter new carrier rate"
-              step="0.01"
-            />
-          </div>
-        </div>
-        
-        <button
-          onClick={calculateRateNegotiationImpact}
-          disabled={!selectedShipmentId || !newNegotiatedRate || loading}
-          className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
-        >
-          <Calculator className="h-4 w-4" />
-          <span>Calculate Impact</span>
-        </button>
-      </div>
-      
-      {marginCalculation && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h4 className="text-lg font-semibold text-gray-900 mb-4">Margin Impact Analysis</h4>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <h5 className="font-medium text-gray-900">Current Situation</h5>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Current Cost:</span>
-                  <span className="font-medium">{formatCurrency(marginCalculation.currentCost)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Target Price:</span>
-                  <span className="font-medium">{formatCurrency(marginCalculation.targetPrice)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Current Margin:</span>
-                  <span className="font-medium">{marginCalculation.currentMargin.toFixed(2)}%</span>
-                </div>
-              </div>
-            </div>
-            
-            <div className="space-y-4">
-              <h5 className="font-medium text-gray-900">After Negotiation</h5>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">New Cost:</span>
-                  <span className="font-medium">{formatCurrency(newNegotiatedRate)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Required Margin:</span>
-                  <span className={`font-medium ${marginCalculation.requiredMargin > marginCalculation.currentMargin ? 'text-green-600' : 'text-red-600'}`}>
-                    {marginCalculation.requiredMargin.toFixed(2)}%
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Margin Change:</span>
-                  <span className={`font-medium ${marginCalculation.marginDifference > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {marginCalculation.marginDifference > 0 ? '+' : ''}{marginCalculation.marginDifference.toFixed(2)}%
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Profit Impact:</span>
-                  <span className={`font-medium ${marginCalculation.profitDifference > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {marginCalculation.profitDifference > 0 ? '+' : ''}{formatCurrency(marginCalculation.profitDifference)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div className={`mt-6 p-4 rounded-lg ${marginCalculation.marginDifference > 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-            <div className="flex items-center space-x-2">
-              {marginCalculation.marginDifference > 0 ? (
-                <CheckCircle className="h-5 w-5 text-green-600" />
-              ) : (
-                <AlertTriangle className="h-5 w-5 text-red-600" />
-              )}
-              <span className={`font-medium ${marginCalculation.marginDifference > 0 ? 'text-green-800' : 'text-red-800'}`}>
-                {marginCalculation.marginDifference > 0 
-                  ? `Margin improvement of ${marginCalculation.marginDifference.toFixed(2)}% - Favorable negotiation!`
-                  : `Margin reduction of ${Math.abs(marginCalculation.marginDifference).toFixed(2)}% - Consider price adjustment.`
-                }
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
 
-  const renderCarrierComparisonTab = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Carrier Performance Comparison</h3>
-          <div className="flex items-center space-x-4">
+          {/* Competitor Group */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Competitor Group
+            </label>
             <select
-              value={comparisonPeriod}
-              onChange={(e) => setComparisonPeriod(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              value={selectedCompetitorGroup}
+              onChange={(e) => setSelectedCompetitorGroup(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
             >
-              <option value="30">Last 30 Days</option>
-              <option value="90">Last 90 Days</option>
-              <option value="365">Last Year</option>
+              <option value="">Select competitor group...</option>
+              {carrierGroups
+                .filter(group => group.groupCode !== selectedTargetGroup)
+                .map(group => (
+                  <option key={group.groupCode} value={group.groupCode}>
+                    {group.groupName} ({group.carriers.length} carriers)
+                  </option>
+                ))}
             </select>
-            <button
-              onClick={loadCarrierComparison}
-              disabled={loading}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
-            >
-              <RefreshCw className="h-4 w-4" />
-              <span>Analyze</span>
-            </button>
           </div>
         </div>
+
+        {/* Analysis Info */}
+        {selectedTargetGroup && selectedCompetitorGroup && (
+          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-start space-x-2">
+              <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-blue-800">
+                <p className="font-medium mb-1">Analysis Plan:</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Get rates from target carrier: <strong>{getCarriersInGroup(selectedTargetGroup).find(c => c.id === selectedTargetCarrier)?.name || 'Not selected'}</strong></li>
+                  <li>Get rates from <strong>{getCarriersInGroup(selectedCompetitorGroup).length} competitors</strong> in {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</li>
+                  <li>Calculate recommended margins to match competitor pricing</li>
+                  <li>Process <strong>{sampleShipments.length} sample shipments</strong></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Run Analysis Button */}
+        <div className="mt-6">
+          <button
+            onClick={runMarginAnalysis}
+            disabled={isLoading || !selectedTargetGroup || !selectedTargetCarrier || !selectedCompetitorGroup}
+            className="flex items-center space-x-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+          >
+            {isLoading ? (
+              <Loader className="h-5 w-5 animate-spin" />
+            ) : (
+              <Play className="h-5 w-5" />
+            )}
+            <span>{isLoading ? 'Analyzing...' : 'Run Margin Analysis'}</span>
+          </button>
+        </div>
       </div>
-      
-      {carrierComparisons.length > 0 && (
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Carrier</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shipments</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Margin</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Cost</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Price</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Profitability</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Volume</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {carrierComparisons.map((carrier, index) => (
-                  <tr key={carrier.carrierCode} className={index === 0 ? 'bg-green-50' : 'hover:bg-gray-50'}>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      <div className="flex items-center space-x-2">
-                        <Truck className="h-4 w-4 text-gray-400" />
-                        <span>{carrier.carrierCode}</span>
-                        {index === 0 && <Target className="h-4 w-4 text-green-600" />}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{carrier.shipmentCount}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      <span className={`font-medium ${carrier.avgMargin > 15 ? 'text-green-600' : carrier.avgMargin > 10 ? 'text-yellow-600' : 'text-red-600'}`}>
-                        {carrier.avgMargin.toFixed(1)}%
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(carrier.avgCost)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(carrier.avgPrice)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      <span className={`font-medium ${carrier.profitability > 200 ? 'text-green-600' : carrier.profitability > 100 ? 'text-yellow-600' : 'text-red-600'}`}>
-                        {formatCurrency(carrier.profitability)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {(carrier.totalVolume / 1000).toFixed(1)}k lbs
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+      {/* Processing Status */}
+      {(isLoading || processingStatus) && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center space-x-3">
+            {isLoading && <Loader className="h-5 w-5 animate-spin text-blue-500" />}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Processing Status</h3>
+              <p className="text-sm text-gray-600">{processingStatus}</p>
+            </div>
           </div>
         </div>
       )}
-    </div>
-  );
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center space-x-3">
-          <div className="bg-green-600 p-2 rounded-lg">
-            <Calculator className="h-6 w-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">Margin Analysis Tools</h1>
-            <p className="text-sm text-gray-600">
-              Calculate optimal margins for new carriers, analyze rate negotiations, and compare carrier performance
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="flex space-x-8">
-          {[
-            { id: 'new-carrier-margin', label: 'New Carrier Margin Discovery', icon: Target },
-            { id: 'rate-negotiation', label: 'Rate Negotiation', icon: TrendingUp },
-            { id: 'carrier-comparison', label: 'Carrier Comparison', icon: BarChart3 }
-          ].map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-green-500 text-green-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-      </div>
 
       {/* Error Display */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <div className="flex items-center space-x-2">
-            <AlertTriangle className="h-5 w-5 text-red-600" />
+            <AlertCircle className="h-5 w-5 text-red-600" />
             <span className="text-red-800">{error}</span>
           </div>
         </div>
       )}
 
-      {/* Loading State */}
-      {loading && !isProcessing && (
-        <div className="flex justify-center py-8">
-          <div className="flex flex-col items-center">
-            <Loader className="h-8 w-8 text-blue-500 animate-spin mb-4" />
-            <p className="text-gray-600">Loading data...</p>
+      {/* Results */}
+      {results.length > 0 && (
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800">Margin Analysis Results</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {results.length} shipment{results.length !== 1 ? 's' : ''} analyzed
+              </p>
+            </div>
+            <button
+              onClick={exportResults}
+              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export Results</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Rate</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Competitor Count</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lowest Competitor Price</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Margin</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Price</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {results.map((result, index) => (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                      {result.customerName}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {formatCurrency(result.targetCarrierRate)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {result.competitorRates.length} carriers
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {formatCurrency(result.recommendedPrice)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        result.recommendedMargin > 15 ? 'bg-green-100 text-green-800' :
+                        result.recommendedMargin > 10 ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
+                        {result.recommendedMargin.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {formatCurrency(result.recommendedPrice)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {/* Tab Content */}
-      {!loading && (
-        <>
-          {activeTab === 'new-carrier-margin' && renderNewCarrierMarginTab()}
-          {activeTab === 'rate-negotiation' && renderRateNegotiationTab()}
-          {activeTab === 'carrier-comparison' && renderCarrierComparisonTab()}
-        </>
+      {/* Summary Statistics */}
+      {results.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Avg Target Rate</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {formatCurrency(results.reduce((sum, r) => sum + r.targetCarrierRate, 0) / results.length)}
+                </p>
+              </div>
+              <Target className="h-8 w-8 text-blue-500" />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Avg Recommended Margin</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {(results.reduce((sum, r) => sum + r.recommendedMargin, 0) / results.length).toFixed(1)}%
+                </p>
+              </div>
+              <TrendingUp className="h-8 w-8 text-green-500" />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Total Competitors</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {getCarriersInGroup(selectedCompetitorGroup).length}
+                </p>
+              </div>
+              <Users className="h-8 w-8 text-purple-500" />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Shipments Analyzed</p>
+                <p className="text-2xl font-bold text-gray-900">{results.length}</p>
+              </div>
+              <BarChart3 className="h-8 w-8 text-orange-500" />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
