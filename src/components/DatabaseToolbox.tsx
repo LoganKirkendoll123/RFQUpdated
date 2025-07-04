@@ -33,6 +33,7 @@ import { formatCurrency } from '../utils/pricingCalculator';
 import { MarginAnalysisTools } from './MarginAnalysisTools';
 import { CustomerManagement } from './CustomerManagement';
 import { CarrierManagement } from './CarrierManagement';
+import { CustomerCarrierManagement } from './CustomerCarrierManagement';
 import { populateCustomersAndCarriersFromExistingData } from '../utils/database';
 
 // Updated interfaces matching your exact database schema
@@ -89,7 +90,7 @@ interface CustomerCarrier {
 }
 
 export const DatabaseToolbox: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers' | 'customers' | 'carriers' | 'margin-tools'>('shipments');
+  const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers' | 'customers' | 'carriers' | 'margin-tools' | 'customer-margins'>('shipments');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   
@@ -874,6 +875,7 @@ export const DatabaseToolbox: React.FC = () => {
             { id: 'customercarriers', label: 'Customer Carriers', icon: Users, count: activeTab === 'customercarriers' ? totalCount : null },
             { id: 'customers', label: 'Customers', icon: Building2, count: null },
             { id: 'carriers', label: 'Carriers', icon: Truck, count: null },
+            { id: 'customer-margins', label: 'Customer Margins', icon: Percent, count: null },
             { id: 'margin-tools', label: 'Margin Analysis', icon: Calculator, count: null }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -937,6 +939,7 @@ export const DatabaseToolbox: React.FC = () => {
           {activeTab === 'customercarriers' && renderCustomerCarriersTab()}
           {activeTab === 'customers' && <CustomerManagement />}
           {activeTab === 'carriers' && <CarrierManagement />}
+          {activeTab === 'customer-margins' && <CustomerCarrierManagement />}
           {activeTab === 'margin-tools' && <MarginAnalysisTools />}
         </>
       )}
