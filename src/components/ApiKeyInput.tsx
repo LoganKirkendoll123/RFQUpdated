@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Eye, EyeOff, CheckCircle, XCircle, Loader, Shield, RefreshCw, AlertTriangle, Globe, HelpCircle, CheckSquare } from 'lucide-react';
 import { Project44OAuthConfig } from '../types';
+import { saveProject44Config, saveFreshXApiKey } from '../utils/credentialStorage';
 
 interface ApiKeyInputProps {
   value: string;
@@ -12,8 +13,8 @@ interface ApiKeyInputProps {
 }
 
 export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ 
-  value, 
-  onChange, 
+  value = '', 
+  onChange = () => {}, 
   placeholder = "Enter your FreshX API key",
   onValidation,
   isProject44 = false,
@@ -28,7 +29,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
     oauthUrl: '/api/v4/oauth2/token',
     basicUser: '',
     basicPassword: '',
-    clientId: '',
+    clientId: value || '',
     clientSecret: '',
     ratingApiUrl: '/api/v4/ltl/quotes/rates/query'
   });
@@ -54,6 +55,11 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
 
   const validateOAuthConfig = () => {
     const { clientId, clientSecret } = oauthConfig;
+    
+    // Save the config regardless of validation status
+    if (clientId.trim()) {
+      saveProject44Config(oauthConfig);
+    }
     
     // Check if all required fields are filled
     if (!clientId.trim() || !clientSecret.trim()) {
@@ -198,6 +204,11 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
   };
 
   const validateApiKey = async (apiKey: string) => {
+    // Save the API key regardless of validation status
+    if (apiKey && apiKey.length > 5) {
+      saveFreshXApiKey(apiKey);
+    }
+    
     if (!isProject44 && (!apiKey || apiKey.length < 10)) {
       setValidationStatus('idle');
       setValidationMessage('');
@@ -278,6 +289,11 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
   const handleChange = (newValue: string) => {
     onChange(newValue);
     
+    // Save FreshX API key
+    if (!isProject44 && newValue && newValue.length > 5) {
+      saveFreshXApiKey(newValue);
+    }
+    
     if (!isProject44) {
       // Debounce validation for FreshX
       const timeoutId = setTimeout(() => {
@@ -291,6 +307,12 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
   const handleOAuthConfigChange = (field: keyof Project44OAuthConfig, value: string) => {
     const newConfig = { ...oauthConfig, [field]: value };
     setOauthConfig(newConfig);
+    
+    // Save Project44 config when client ID or secret changes
+    if ((field === 'clientId' || field === 'clientSecret') && value.trim()) {
+      saveProject44Config(newConfig);
+    }
+    
     // Reset validation status when config changes
     if (validationStatus === 'valid' || validationStatus === 'deployment-ready') {
       setValidationStatus('idle');
@@ -348,7 +370,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
 
   if (isProject44) {
     return (
-      <div className="w-full">
+      <div className="w-full space-y-6">
         <div className="flex items-center justify-between mb-4">
           <label className="block text-sm font-medium text-gray-700">
             <Shield className="inline h-4 w-4 mr-1" />
@@ -360,7 +382,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
         </div>
         
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 space-y-4">
-          {/* OAuth Client Credentials */}
+          {/* Project44 OAuth Client Credentials */}
           <div>
             <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
               <Key className="h-4 w-4 mr-1" />
@@ -371,16 +393,25 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
                 <label className="block text-sm font-medium text-gray-600 mb-2">
                   Client ID <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={oauthConfig.clientId}
-                  onChange={(e) => {
-                    handleOAuthConfigChange('clientId', e.target.value);
-                    onChange(e.target.value); // Update parent component state
-                  }}
-                  placeholder="Enter your Project44 Client ID"
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${getInputBorderColor()}`}
-                />
+                <div className="relative">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    value={oauthConfig.clientId}
+                    onChange={(e) => {
+                      handleOAuthConfigChange('clientId', e.target.value);
+                      onChange(e.target.value); // Update parent component state
+                    }}
+                    placeholder="Enter your Project44 Client ID"
+                    className={`w-full px-3 py-2 pr-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${getInputBorderColor()}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-2">
@@ -407,27 +438,25 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
           </div>
 
           {/* Test OAuth Button */}
-          {oauthConfig.clientId.trim() && oauthConfig.clientSecret.trim() && (
-            <div className="pt-4 border-t border-gray-200">
-              <button
-                onClick={testOAuthConnection}
-                disabled={isValidating}
-                className="w-full py-3 px-4 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
-              >
-                {isValidating ? (
-                  <>
-                    <Loader className="h-5 w-5 animate-spin" />
-                    <span>Testing OAuth...</span>
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="h-5 w-5" />
-                    <span>Test OAuth Connection</span>
-                  </>
-                )}
-              </button>
-            </div>
-          )}
+          <div className="pt-4 border-t border-gray-200">
+            <button
+              onClick={testOAuthConnection}
+              disabled={isValidating || !oauthConfig.clientId.trim() || !oauthConfig.clientSecret.trim()}
+              className="w-full py-3 px-4 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+            >
+              {isValidating ? (
+                <>
+                  <Loader className="h-5 w-5 animate-spin" />
+                  <span>Testing OAuth...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-5 w-5" />
+                  <span>Test OAuth Connection</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {validationMessage && (
@@ -500,7 +529,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
   }
 
   return (
-    <div className="w-full">
+    <div className="w-full space-y-6">
       <div className="flex items-center justify-between mb-2">
         <label className="block text-sm font-medium text-gray-700">
           <Key className="inline h-4 w-4 mr-1" />
@@ -527,6 +556,26 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
             {showKey ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
           </button>
         </div>
+      </div>
+
+      <div className="pt-4 border-t border-gray-200">
+        <button
+          onClick={() => validateApiKey(value)}
+          disabled={isValidating || !value || value.length < 10}
+          className="w-full py-3 px-4 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+        >
+          {isValidating ? (
+            <>
+              <Loader className="h-5 w-5 animate-spin" />
+              <span>Testing API Key...</span>
+            </>
+          ) : (
+            <>
+              <RefreshCw className="h-5 w-5" />
+              <span>Test FreshX API Key</span>
+            </>
+          )}
+        </button>
       </div>
 
       {validationMessage && (

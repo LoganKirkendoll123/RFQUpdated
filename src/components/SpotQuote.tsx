@@ -55,10 +55,16 @@ interface SpotQuoteFormData {
 
 export const SpotQuote: React.FC<SpotQuoteProps> = ({
   project44Client,
-  freshxClient,
-  selectedCarriers,
-  pricingSettings,
-  selectedCustomer
+  freshxClient = null,
+  selectedCarriers = {},
+  pricingSettings = {
+    markupPercentage: 15,
+    minimumProfit: 100,
+    markupType: 'percentage',
+    usesCustomerMargins: false,
+    fallbackMarkupPercentage: 23
+  },
+  selectedCustomer = ''
 }) => {
   const [formData, setFormData] = useState<SpotQuoteFormData>({
     fromDate: new Date().toISOString().split('T')[0],
@@ -773,9 +779,9 @@ export const SpotQuote: React.FC<SpotQuoteProps> = ({
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
             <PricingSettingsComponent
               settings={localPricingSettings}
-              onSettingsChange={setLocalPricingSettings}
+              onSettingsChange={(settings) => setLocalPricingSettings(settings)}
               selectedCustomer={localSelectedCustomer}
-              onCustomerChange={setLocalSelectedCustomer}
+              onCustomerChange={(customer) => setLocalSelectedCustomer(customer)}
               showAsCard={false}
             />
           </div>
