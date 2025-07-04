@@ -277,7 +277,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       // Item 5 empty
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['INPU', 'INDEL', 'RESPU', 'RESDEL'].includes(acc.code) ? true : false
+        ['LGPU', 'LGDEL', 'NOTIFY'].includes(acc.code) ? true : false
       )
     ],
     // TEST CASE 1C: Standard LTL - Automotive parts
@@ -798,6 +798,18 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['• packageLength, packageWidth, packageHeight (removed)'],
     ['• These caused confusion with itemized approach'],
     [''],
+    ['📦 VLTL SPECIFIC REQUIREMENTS:'],
+    [''],
+    ['For Volume LTL (VLTL) shipments:'],
+    ['• Uses lineItems array structure (not enhancedHandlingUnits)'],
+    ['• Each lineItem represents packages of same type/dimensions'],
+    ['• Required fields per lineItem: totalWeight, freightClass, packageDimensions'],
+    ['• Optional fields: description, packageType, totalPackages, stackable'],
+    ['• VLTL accessorials limited to: LGPU, LGDEL, NOTIFY only'],
+    ['• All other accessorials automatically set to FALSE for VLTL'],
+    ['• totalLinearFeet calculated from all item dimensions'],
+    ['• Uses entire Default carrier group (no carrier filtering)'],
+    [''],
     ['🏗️ ITEM FIELD STRUCTURE (Required for each item):'],
     [''],
     ['For each item (1-5), use these field patterns:'],
@@ -882,6 +894,8 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['• Ensure total weight equals sum of all item weights'],
     ['• Use consistent units (inches for dimensions, pounds for weight)'],
     ['• Leave unused item fields completely blank'],
+    ['• For VLTL: Only use LGPU, LGDEL, NOTIFY accessorials'],
+    ['• For VLTL: System uses entire Default group automatically'],
     [''],
     ['⚠️ IMPORTANT NOTES:'],
     ['• NO legacy packageLength/Width/Height fields - use ONLY itemized approach'],
@@ -892,6 +906,8 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['• Linear feet calculation considers all item dimensions'],
     ['• Stackability is evaluated per item, not per shipment'],
     ['• Mixed freight classes may affect overall pricing'],
+    ['• VLTL mode: Limited accessorials (LGPU, LGDEL, NOTIFY only)'],
+    ['• VLTL mode: Uses lineItems structure for optimal carrier matching'],
     [''],
     ['🎯 EXPECTED RESULTS:'],
     ['TEST CASES 1A-1D (Standard LTL): All isReefer=FALSE, <10 pallets, <15K lbs'],
@@ -901,7 +917,9 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['TEST CASES 2A-2D (Volume LTL Pallets): All isReefer=FALSE, 10+ pallets'],
     ['→ All route to Project44 Volume LTL network'],
     ['→ Reason: High pallet count triggers VLTL regardless of weight'],
-    [''],
+    ['• Consistent field structure across all shipment types'],
+    ['• VLTL: Comprehensive carrier coverage via Default group'],
+    ['• VLTL: Optimized lineItems payload for best carrier matching']
     ['TEST CASES 3A-3D (FreshX Reefer): All isReefer=TRUE'],
     ['→ All route to FreshX Reefer network'],
     ['→ Reason: isReefer=TRUE overrides all size/weight considerations'],
