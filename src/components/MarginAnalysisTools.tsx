@@ -299,8 +299,9 @@ export const MarginAnalysisTools: React.FC = () => {
     };
   };
 
-  // FIXED: High-end outlier removal with 50% threshold
-  const removeHighEndOutliers = (rates: number[]): number[] => {
+  // UPDATED: New outlier removal logic that only removes high-end outliers if they're 50% above average
+  // AND only if they're less than the target carrier's cost
+  const removeHighEndOutliers = (rates: number[], targetRate: number): number[] => {
     if (rates.length < 4) {
       console.log(`⚠️ Not enough data points (${rates.length}) for outlier removal, keeping all rates`);
       return rates;
@@ -313,6 +314,7 @@ export const MarginAnalysisTools: React.FC = () => {
     let removedCount = 0;
     
     // Keep removing the most expensive rate if it's more than 50% above the average of the remaining rates
+    // AND only if it's less than the target carrier's cost
     while (sortedRates.length >= 4) { // Need at least 4 rates to continue
       const mostExpensive = sortedRates[sortedRates.length - 1];
       const remainingRates = sortedRates.slice(0, -1); // All rates except the most expensive
@@ -322,15 +324,21 @@ export const MarginAnalysisTools: React.FC = () => {
       const threshold = averageWithoutMostExpensive * 1.5; // 50% above average
       
       console.log(`🔍 Checking most expensive: ${formatCurrency(mostExpensive)} vs threshold: ${formatCurrency(threshold)} (avg: ${formatCurrency(averageWithoutMostExpensive)})`);
+      console.log(`🔍 Target carrier rate: ${formatCurrency(targetRate)}`);
       
-      if (mostExpensive > threshold) {
+      // UPDATED: Only remove if it's an outlier AND less than the target carrier's cost
+      if (mostExpensive > threshold && mostExpensive < targetRate) {
         // Remove the outlier
         sortedRates = remainingRates;
         removedCount++;
-        console.log(`❌ Removed outlier: ${formatCurrency(mostExpensive)} (${((mostExpensive / averageWithoutMostExpensive - 1) * 100).toFixed(1)}% above average)`);
+        console.log(`❌ Removed outlier: ${formatCurrency(mostExpensive)} (${((mostExpensive / averageWithoutMostExpensive - 1) * 100).toFixed(1)}% above average, less than target rate)`);
       } else {
-        // No more outliers to remove
-        console.log(`✅ No more outliers: ${formatCurrency(mostExpensive)} is within 50% of average`);
+        // No more outliers to remove or outlier is higher than target rate
+        if (mostExpensive > threshold) {
+          console.log(`⚠️ Potential outlier ${formatCurrency(mostExpensive)} not removed because it's higher than target rate ${formatCurrency(targetRate)}`);
+        } else {
+          console.log(`✅ No more outliers: ${formatCurrency(mostExpensive)} is within 50% of average`);
+        }
         break;
       }
     }
@@ -341,7 +349,7 @@ export const MarginAnalysisTools: React.FC = () => {
     return sortedRates;
   };
 
-  // FIXED: Function to get customer margin for a specific carrier with case-insensitive matching
+  // Function to get customer margin for a specific carrier with case-insensitive matching
   const getCustomerMarginForCarrier = (customerName: string, carrierCode: string): number => {
     // Normalize both customer name and carrier code for comparison
     const normalizedCustomer = customerName.trim().toUpperCase();
@@ -416,7 +424,7 @@ export const MarginAnalysisTools: React.FC = () => {
           const targetRate = targetRates[0].baseRate + targetRates[0].fuelSurcharge + targetRates[0].premiumsAndDiscounts;
           console.log(`🎯 Target carrier rate: ${formatCurrency(targetRate)}`);
 
-          // FIXED: Get competitor rates using the correct API structure
+          // Get competitor rates using the correct API structure
           setProcessingStatus(`Getting competitor rates for shipment ${i + 1}...`);
           
           let competitorQuotes;
@@ -456,10 +464,10 @@ export const MarginAnalysisTools: React.FC = () => {
             const rate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
             const carrierCode = quote.carrierCode || quote.carrier.name;
             
-            // FIXED: Get the specific customer margin for this carrier with case-insensitive matching
+            // Get the specific customer margin for this carrier with case-insensitive matching
             const margin = getCustomerMarginForCarrier(customerName, carrierCode);
             
-            // FIXED: Use correct formula cost / (1 - margin)
+            // Use correct formula cost / (1 - margin)
             const customerPrice = rate / (1 - margin / 100);
             
             return {
@@ -471,9 +479,9 @@ export const MarginAnalysisTools: React.FC = () => {
             };
           });
           
-          // FIXED: Remove high-end outliers only using the new 50% threshold method
+          // UPDATED: Remove high-end outliers only using the new method that checks against target rate
           const competitorCosts = competitorRates.map(cr => cr.rate);
-          const costsWithoutOutliers = removeHighEndOutliers(competitorCosts);
+          const costsWithoutOutliers = removeHighEndOutliers(competitorCosts, targetRate);
           
           // Filter competitor rates to only include those without outliers
           const competitorRatesWithoutOutliers = competitorRates.filter(cr => 
@@ -490,7 +498,7 @@ export const MarginAnalysisTools: React.FC = () => {
           // Calculate average competitor cost without outliers
           const averageCompetitorCostWithoutOutliers = costsWithoutOutliers.reduce((sum, cost) => sum + cost, 0) / costsWithoutOutliers.length;
           
-          // FIXED: Mark up the average competitor cost using proper formula cost / (1 - margin)
+          // Mark up the average competitor cost using proper formula cost / (1 - margin)
           const targetCarrierMargin = getCustomerMarginForCarrier(customerName, selectedTargetCarrier);
           const targetPrice = averageCompetitorCostWithoutOutliers / (1 - targetCarrierMargin / 100);
           
@@ -915,7 +923,7 @@ export const MarginAnalysisTools: React.FC = () => {
             <div className="flex items-start space-x-2">
               <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-blue-800">
-                <p className="font-medium mb-1">Fixed High-End Outlier Removal Method:</p>
+                <p className="font-medium mb-1">Updated Outlier Removal Method:</p>
                 <ul className="list-disc list-inside space-y-1">
                   <li>Target carrier: <strong>{getCarriersInGroup(selectedTargetGroup).find(c => c.id === selectedTargetCarrier)?.name || 'Not selected'}</strong></li>
                   <li>Competitor selection: {selectedCompetitorCarriers.length === 0 ? (
@@ -929,9 +937,9 @@ export const MarginAnalysisTools: React.FC = () => {
                     'capacityProviderAccountGroup: { accounts: [{code: "carrier"}], code: "group" }'
                   )}</li>
                   <li><strong>Customer matching:</strong> Case-insensitive with whitespace trimming</li>
-                  <li><strong>Outlier removal:</strong> Remove high-end outliers only if &gt;50% above average</li>
-                  <li>Mark up remaining competitor costs using <strong>CORRECT formula: cost / (1 - margin)</strong></li>
-                  <li>Calculate average of marked-up competitor prices as <strong>target price</strong></li>
+                  <li><strong>Outlier removal:</strong> Remove high-end outliers only if >50% above average AND less than target carrier rate</li>
+                  <li>Calculate average of competitor costs after outlier removal</li>
+                  <li>Mark up this average using <strong>CORRECT formula: cost / (1 - margin)</strong></li>
                   <li>Process <strong>{shipmentData.length} historical shipments</strong> with actual service levels</li>
                   <li>Date range: <strong>{startDate} to {endDate}</strong></li>
                   {selectedCustomer && <li>Customer filter: <strong>{selectedCustomer}</strong></li>}
