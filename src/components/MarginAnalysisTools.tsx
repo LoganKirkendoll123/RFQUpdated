@@ -122,11 +122,6 @@ export const MarginAnalysisTools: React.FC = () => {
     loadInitialData();
   }, []);
 
-  // Load customer list from shipment history when date range changes
-  useEffect(() => {
-    loadCustomerListFromShipments();
-  }, [startDate, endDate]);
-
   const loadInitialData = async () => {
     setLoading(true);
     setError('');
@@ -148,6 +143,9 @@ export const MarginAnalysisTools: React.FC = () => {
       
       setCustomerCarrierMargins(marginData || []);
       console.log(`✅ Loaded ${marginData?.length || 0} customer-carrier margin configurations`);
+      
+      // Load customer list from shipment history
+      await loadCustomerListFromShipments();
       
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to load initial data';
@@ -508,16 +506,6 @@ export const MarginAnalysisTools: React.FC = () => {
                 Using {customerCarrierMargins.length} customer-carrier margin configurations with case-insensitive matching
               </span>
             </div>
-          </div>
-        </div>
-        
-        {/* Customer List Status */}
-        <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <div className="flex items-center space-x-2">
-            <Users className="h-5 w-5 text-yellow-600" />
-            <span className="text-yellow-800 font-medium">
-              Found {customerList.length} unique customers in shipment history for the selected date range
-            </span>
           </div>
         </div>
       </div>
