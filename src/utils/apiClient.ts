@@ -507,7 +507,8 @@ export class Project44APIClient {
       } else {
         // Otherwise use the traditional approach with individual carrier accounts
         requestPayload.capacityProviderAccountGroup = {
-          accounts: selectedCarrierIds.map(carrierId => ({ code: carrierId }))
+          accounts: selectedCarrierIds.map(carrierId => ({ code: carrierId })),
+          code: selectedCompetitorGroup
         };
         console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
       }
@@ -685,9 +686,10 @@ export class Project44APIClient {
       preferredCurrency: rfq.preferredCurrency || 'USD',
       preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
       weightUnit: rfq.weightUnit || 'LB',
-      // FIXED: Use the account group code directly without accounts array
+      // FIXED: Include both code and empty accounts array for the account group
       capacityProviderAccountGroup: {
-        code: accountGroupCode
+        code: accountGroupCode,
+        accounts: []
       }
     };
 
