@@ -21,6 +21,11 @@ function App() {
   const [rfqData, setRfqData] = useState<RFQRow[]>([]);
   const [results, setResults] = useState<QuoteResult[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingTotal, setProcessingTotal] = useState(0);
+  const [processingCompleted, setProcessingCompleted] = useState(0);
+  const [processingSuccess, setProcessingSuccess] = useState(0);
+  const [processingErrors, setProcessingErrors] = useState(0);
+  const [currentProcessingStatus, setCurrentProcessingStatus] = useState('');
   const [fileError, setFileError] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   const [selectedCarriers, setSelectedCarriers] = useState<string[]>([]);
@@ -140,15 +145,49 @@ function App() {
     }
 
     setIsProcessing(true);
+    setProcessingTotal(rfqData.length);
+    setProcessingCompleted(0);
+    setProcessingSuccess(0);
+    setProcessingErrors(0);
+    setCurrentProcessingStatus('Starting batch processing...');
+    
+    const processedQuotes: QuoteResult[] = [];
+    
     try {
-      const quoteResults = await processRFQBatch(rfqData, credentials.project44ApiKey);
-      setResults(quoteResults);
+      const onProgress = (status: string) => {
+        setCurrentProcessingStatus(status);
+      };
+      
+      const onQuoteReceived = (rfqIndex: number, quotes: any[]) => {
+        setProcessingCompleted(prev => prev + 1);
+        
+        if (quotes && quotes.length > 0) {
+          setProcessingSuccess(prev => prev + 1);
+          // Convert quotes to QuoteResult format
+          const quoteResults = quotes.map(quote => ({
+            rfqId: rfqData[rfqIndex].id || `rfq-${rfqIndex}`,
+            carrierId: quote.carrierId || 'unknown',
+            carrierName: quote.carrierName || 'Unknown Carrier',
+            serviceType: quote.serviceType || 'Standard',
+            totalCost: quote.totalCost || 0,
+            transitTime: quote.transitTime || 'Unknown',
+            quote: quote
+          }));
+          processedQuotes.push(...quoteResults);
+        } else {
+          setProcessingErrors(prev => prev + 1);
+        }
+      };
+      
+      await processRFQBatch(rfqData, onProgress, onQuoteReceived);
+      setResults(processedQuotes);
       setActiveTab('results');
     } catch (error) {
       console.error('Failed to process RFQ:', error);
       alert('Failed to process RFQ. Please check your API key and try again.');
     } finally {
       setIsProcessing(false);
+      setCurrentProcessingStatus('');
     }
   };
 
