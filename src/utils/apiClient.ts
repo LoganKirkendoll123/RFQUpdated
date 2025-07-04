@@ -458,10 +458,12 @@ export class Project44APIClient {
                            isVolumeMode ? 'Volume LTL (VLTL)' : 
                            isFTLMode ? 'Full Truckload' : 'Standard LTL';
     
-    // Find the group code from the first selected carrier
-    const accountGroupCode = selectedCarrierIds.length > 0 
-      ? this.findGroupCodeForCarrier(selectedCarrierIds[0])
-      : 'Default';
+    // For VLTL, always use Default group without carrier filters
+    // For other modes, find the group code from the first selected carrier
+    const accountGroupCode = isVolumeMode ? 'Default' : 
+      (selectedCarrierIds.length > 0 
+        ? this.findGroupCodeForCarrier(selectedCarrierIds[0])
+        : 'Default');
     
     console.log(`💰 Getting ${modeDescription} quotes for:`, {
       route: `${rfq.fromZip} → ${rfq.toZip}`,
@@ -471,7 +473,7 @@ export class Project44APIClient {
       isReeferMode,
       isVolumeMode,
       totalLinearFeet: rfq.totalLinearFeet,
-      selectedCarriers: selectedCarrierIds.length,
+      selectedCarriers: isVolumeMode ? 'ALL (Default group)' : selectedCarrierIds.length,
       accountGroupCode
     });
 
@@ -522,15 +524,25 @@ export class Project44APIClient {
       console.log('📦 Using standard lineItems for VLTL (no enhanced handling units)');
     }
 
-    // Add capacity provider account group to filter by selected carriers
-    if (selectedCarrierIds.length > 0) {
+    // Add capacity provider account group
+    if (isVolumeMode) {
+      // For VLTL, always use entire Default group without carrier filtering
+      requestPayload.capacityProviderAccountGroup = {
+        code: 'Default'
+      };
+      console.log(`🎯 VLTL: Using entire Default group (no carrier filtering)`);
+    } else if (selectedCarrierIds.length > 0) {
+      // For LTL/FTL, filter by selected carriers
       requestPayload.capacityProviderAccountGroup = {
         accounts: selectedCarrierIds.map(carrierId => ({ code: carrierId })),
         code: accountGroupCode
       };
       console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers in group ${accountGroupCode}:`, selectedCarrierIds);
     } else {
-      console.log('⚠️ No carriers selected - will get quotes from all available carriers');
+      console.log('⚠️ No carriers selected - will get quotes from Default group');
+      requestPayload.capacityProviderAccountGroup = {
+        code: 'Default'
+      };
     }
 
     console.log('📤 Sending comprehensive request payload:', JSON.stringify(requestPayload, null, 2));

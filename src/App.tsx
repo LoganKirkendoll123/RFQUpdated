@@ -350,7 +350,8 @@ function App() {
           quotes = await freshxClient.getQuotes(rfq);
         } else if (classification.quoting === 'project44-volume') {
           console.log(`📦 Getting Volume LTL quotes for RFQ ${i + 1}`);
-          quotes = await project44Client.getQuotes(rfq, selectedCarrierIds, true, false, false);
+          // For VLTL, pass empty array to bypass carrier filtering
+          quotes = await project44Client.getQuotes(rfq, [], true, false, false);
         } else {
           console.log(`🚛 Getting Standard LTL quotes for RFQ ${i + 1}`);
           quotes = await project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false);
