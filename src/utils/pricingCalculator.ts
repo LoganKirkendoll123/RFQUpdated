@@ -22,7 +22,6 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
   const PAGE_SIZE = 200;
   const [loadedCount, setLoadedCount] = useState(0); 
   const [loadingHistory, setLoadingHistory] = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(false);
 
   useEffect(() => {
     loadCustomers();
