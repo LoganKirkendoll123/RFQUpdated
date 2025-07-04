@@ -41,7 +41,16 @@ export const saveFreshXApiKey = (apiKey: string): void => {
     localStorage.setItem(STORAGE_KEYS.FRESHX_API_KEY, apiKey);
     console.log('✅ FreshX API key saved to local storage');
   } catch (error) {
-    }
+    console.error('❌ Failed to save FreshX API key:', error);
+  }
+};
+
+// Load FreshX API key from local storage
+export const loadFreshXApiKey = (): string | null => {
+  try {
+    const apiKey = localStorage.getItem(STORAGE_KEYS.FRESHX_API_KEY);
+    if (!apiKey) return null;
+    console.log('✅ FreshX API key loaded from local storage');
     return apiKey;
   } catch (error) {
     console.error('❌ Failed to load FreshX API key:', error);
