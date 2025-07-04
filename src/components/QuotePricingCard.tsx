@@ -163,7 +163,7 @@ export const QuotePricingCard: React.FC<QuotePricingCardProps> = ({
                 {quote.appliedMarginType && (
                   <div className={`flex items-center space-x-1 text-xs ${getMarginTypeColor()}`}>
                     {React.createElement(getMarginTypeIcon(), { className: 'h-3 w-3' })}
-                    <span>{getMarginTypeLabel()}</span>
+                    <span>Margin %</span>
                   </div>
                 )}
                 <button
@@ -214,17 +214,11 @@ export const QuotePricingCard: React.FC<QuotePricingCardProps> = ({
                   <span className="font-bold text-green-600">{formatProfit(quote.profit)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Margin:</span>
-                  <span className="font-medium text-green-600">{profitMargin.toFixed(1)}%</span>
-                </div>
-                {quote.appliedMarginPercentage && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Applied Rate:</span>
+                  <span className="text-gray-600">Margin %:</span>
                     <span className={`font-medium ${getMarginTypeColor()}`}>
                       {quote.appliedMarginPercentage.toFixed(1)}%
                     </span>
                   </div>
-                )}
               </div>
             )}
           </div>
