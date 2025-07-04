@@ -72,47 +72,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
     }
   };
 
-  const loadCustomersFromHistory = async () => {
-    setLoadingHistory(true);
-    setError('');
-    try {
-      // Get unique customers from Shipments table
-      console.log('🔍 Loading customers from shipment history...');
-      
-      const { data: shipmentCustomers, error: shipmentError } = await supabase
-        .from('Shipments')
-        .select('"Customer"')
-        .not('"Customer"', 'is', null);
-      
-      if (shipmentError) throw shipmentError;
-      
-      // Get unique customers from CustomerCarriers table
-      const { data: carrierCustomers, error: carrierError } = await supabase
-        .from('CustomerCarriers')
-        .select('InternalName')
-        .not('InternalName', 'is', null);
-      
-      if (carrierError) throw carrierError;
-      
-      // Combine and deduplicate
-      const shipmentNames = shipmentCustomers?.map(s => s.Customer).filter(Boolean) || [];
-      const carrierNames = carrierCustomers?.map(c => c.InternalName).filter(Boolean) || [];
-      const allHistoryNames = [...shipmentNames, ...carrierNames];
-      const uniqueHistoryNames = Array.from(new Set(allHistoryNames)).sort();
-      
-      console.log(`✅ Loaded ${uniqueHistoryNames.length} customers from history (${shipmentNames.length} from shipments, ${carrierNames.length} from carrier relationships)`);
-      
-      // Add to existing customers without duplicates
-      const combinedCustomers = Array.from(new Set([...customers, ...uniqueHistoryNames]));
-      setCustomers(combinedCustomers);
-      setFilteredCustomers(combinedCustomers);
-      setLoadedCount(combinedCustomers.length);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load customers from history');
-    } finally {
-      setLoadingHistory(false);
-    }
-  };
+  
 
   const loadCustomersFromHistory = async () => {
     setLoadingHistory(true);
