@@ -26,7 +26,7 @@ export interface Carrier {
   scac?: string;
   mc_number?: string;
   dot_number?: string;
-  account_code?: string;
+  account_code: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -194,6 +194,11 @@ export const getCarriers = async (): Promise<Carrier[]> => {
 
 export const saveCarrier = async (carrier: Omit<Carrier, 'id' | 'created_at' | 'updated_at'>): Promise<Carrier> => {
   try {
+    // Ensure account_code is provided
+    if (!carrier.account_code) {
+      throw new Error('Account code is required for carriers');
+    }
+    
     const { data, error } = await supabase
       .from('carriers')
       .insert([carrier])
@@ -379,6 +384,36 @@ export const saveCustomerCarrier = async (customerCarrier: Omit<CustomerCarrier,
 
 export const updateCustomerCarrier = async (id: number, updates: Partial<CustomerCarrier>): Promise<CustomerCarrier> => {
   try {
+    // If P44CarrierCode is being updated, we need to update the carrier_id reference
+    if (updates.P44CarrierCode) {
+      // Find the carrier with this account code
+      const { data: carrierData, error: carrierError } = await supabase
+        .from('carriers')
+        .select('id')
+        .eq('account_code', updates.P44CarrierCode)
+        .single();
+      
+      if (!carrierError && carrierData) {
+        updates.carrier_id = carrierData.id;
+      } else {
+        // If carrier doesn't exist, create it
+        const { data: newCarrier, error: createError } = await supabase
+          .from('carriers')
+          .insert([{
+            name: updates.P44CarrierCode,
+            scac: updates.P44CarrierCode.length === 4 ? updates.P44CarrierCode : undefined,
+            account_code: updates.P44CarrierCode,
+            is_active: true
+          }])
+          .select()
+          .single();
+        
+        if (!createError && newCarrier) {
+          updates.carrier_id = newCarrier.id;
+        }
+      }
+    }
+    
     const { data, error } = await supabase
       .from('CustomerCarrier')
       .update({

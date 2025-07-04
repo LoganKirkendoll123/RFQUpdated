@@ -72,6 +72,11 @@ export const CarrierManagement: React.FC = () => {
       return;
     }
 
+    if (!formData.account_code?.trim()) {
+      setError('Account code is required');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -216,14 +221,15 @@ export const CarrierManagement: React.FC = () => {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Account Code
+              Account Code *
             </label>
             <input
               type="text"
               value={formData.account_code || ''}
               onChange={(e) => setFormData({ ...formData, account_code: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-              placeholder="Internal account code"
+              placeholder="P44 carrier code"
+              required
             />
           </div>
 
@@ -259,7 +265,7 @@ export const CarrierManagement: React.FC = () => {
           </button>
           <button
             onClick={handleSave}
-            disabled={loading || !formData.name?.trim()}
+            disabled={loading || !formData.name?.trim() || !formData.account_code?.trim()}
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 flex items-center"
           >
             {loading ? (

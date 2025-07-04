@@ -151,7 +151,7 @@ export const CustomerCarrierManagement: React.FC = () => {
     try {
       // Find customer and carrier IDs
       const customer = customers.find(c => c.name === formData.InternalName);
-      const carrier = carriers.find(c => c.name === formData.P44CarrierCode || c.scac === formData.P44CarrierCode);
+      const carrier = carriers.find(c => c.account_code === formData.P44CarrierCode);
 
       if (!customer) {
         throw new Error(`Customer "${formData.InternalName}" not found`);
@@ -471,11 +471,12 @@ export const CustomerCarrierManagement: React.FC = () => {
                           </div>
                           <div>
                             <div className="font-medium text-gray-900">
-                              {margin.carrier?.name || margin.P44CarrierCode}
+                              {margin.carrier?.name || margin.P44CarrierCode || 'Unknown Carrier'}
                             </div>
                             {margin.carrier?.scac && (
                               <div className="text-xs text-gray-500">SCAC: {margin.carrier.scac}</div>
                             )}
+                            <div className="text-xs text-gray-500">Code: {margin.P44CarrierCode}</div>
                           </div>
                         </div>
                       </td>
