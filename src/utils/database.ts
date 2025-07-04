@@ -1,6 +1,37 @@
 import { supabase } from './supabase';
 import { RFQRow, ProcessingResult, QuoteWithPricing } from '../types';
 
+// Customer interface
+export interface Customer {
+  id: string;
+  name: string;
+  company_name?: string;
+  email?: string;
+  phone?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  country?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Carrier interface
+export interface Carrier {
+  id: string;
+  name: string;
+  scac?: string;
+  mc_number?: string;
+  dot_number?: string;
+  account_code?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // Updated database interfaces matching your new Supabase schema
 export interface CustomerCarrier {
   id?: number;
@@ -59,6 +90,245 @@ export interface Shipment {
   "Revenue w/o Accessorials"?: string;
   "Expense w/o Accessorials"?: string;
 }
+
+// Customer Management Functions
+export const getCustomers = async (): Promise<Customer[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .order('name', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching customers:', error);
+      throw error;
+    }
+    
+    return data || [];
+  } catch (error) {
+    console.error('Failed to fetch customers:', error);
+    throw error;
+  }
+};
+
+export const saveCustomer = async (customer: Omit<Customer, 'id' | 'created_at' | 'updated_at'>): Promise<Customer> => {
+  try {
+    const { data, error } = await supabase
+      .from('customers')
+      .insert([customer])
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error saving customer:', error);
+      throw error;
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('Failed to save customer:', error);
+    throw error;
+  }
+};
+
+export const updateCustomer = async (id: string, updates: Partial<Customer>): Promise<Customer> => {
+  try {
+    const { data, error } = await supabase
+      .from('customers')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error updating customer:', error);
+      throw error;
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('Failed to update customer:', error);
+    throw error;
+  }
+};
+
+export const deleteCustomer = async (id: string): Promise<void> => {
+  try {
+    const { error } = await supabase
+      .from('customers')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error deleting customer:', error);
+      throw error;
+    }
+  } catch (error) {
+    console.error('Failed to delete customer:', error);
+    throw error;
+  }
+};
+
+// Carrier Management Functions
+export const getCarriers = async (): Promise<Carrier[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('carriers')
+      .select('*')
+      .order('name', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching carriers:', error);
+      throw error;
+    }
+    
+    return data || [];
+  } catch (error) {
+    console.error('Failed to fetch carriers:', error);
+    throw error;
+  }
+};
+
+export const saveCarrier = async (carrier: Omit<Carrier, 'id' | 'created_at' | 'updated_at'>): Promise<Carrier> => {
+  try {
+    const { data, error } = await supabase
+      .from('carriers')
+      .insert([carrier])
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error saving carrier:', error);
+      throw error;
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('Failed to save carrier:', error);
+    throw error;
+  }
+};
+
+export const updateCarrier = async (id: string, updates: Partial<Carrier>): Promise<Carrier> => {
+  try {
+    const { data, error } = await supabase
+      .from('carriers')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error updating carrier:', error);
+      throw error;
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('Failed to update carrier:', error);
+    throw error;
+  }
+};
+
+export const deleteCarrier = async (id: string): Promise<void> => {
+  try {
+    const { error } = await supabase
+      .from('carriers')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error deleting carrier:', error);
+      throw error;
+    }
+  } catch (error) {
+    console.error('Failed to delete carrier:', error);
+    throw error;
+  }
+};
+
+// Function to populate customers and carriers from existing CustomerCarriers data
+export const populateCustomersAndCarriersFromExistingData = async (): Promise<{
+  customersCreated: number;
+  carriersCreated: number;
+}> => {
+  try {
+    console.log('🔄 Populating customers and carriers from existing CustomerCarriers data...');
+    
+    // Get all unique customers and carriers from CustomerCarriers
+    const { data: customerCarriers, error } = await supabase
+      .from('CustomerCarriers')
+      .select('InternalName, P44CarrierCode')
+      .not('InternalName', 'is', null)
+      .not('P44CarrierCode', 'is', null);
+    
+    if (error) throw error;
+    
+    // Extract unique customers
+    const uniqueCustomers = [...new Set(customerCarriers?.map(cc => cc.InternalName).filter(Boolean))];
+    const uniqueCarriers = [...new Set(customerCarriers?.map(cc => cc.P44CarrierCode).filter(Boolean))];
+    
+    console.log(`📋 Found ${uniqueCustomers.length} unique customers and ${uniqueCarriers.length} unique carriers`);
+    
+    let customersCreated = 0;
+    let carriersCreated = 0;
+    
+    // Create customers
+    for (const customerName of uniqueCustomers) {
+      try {
+        const { error: insertError } = await supabase
+          .from('customers')
+          .insert([{
+            name: customerName,
+            is_active: true
+          }]);
+        
+        if (insertError && !insertError.message.includes('duplicate key')) {
+          console.error(`Error creating customer ${customerName}:`, insertError);
+        } else if (!insertError) {
+          customersCreated++;
+        }
+      } catch (err) {
+        console.error(`Failed to create customer ${customerName}:`, err);
+      }
+    }
+    
+    // Create carriers
+    for (const carrierCode of uniqueCarriers) {
+      try {
+        const { error: insertError } = await supabase
+          .from('carriers')
+          .insert([{
+            name: carrierCode,
+            scac: carrierCode.length === 4 ? carrierCode : undefined,
+            account_code: carrierCode,
+            is_active: true
+          }]);
+        
+        if (insertError && !insertError.message.includes('duplicate key')) {
+          console.error(`Error creating carrier ${carrierCode}:`, insertError);
+        } else if (!insertError) {
+          carriersCreated++;
+        }
+      } catch (err) {
+        console.error(`Failed to create carrier ${carrierCode}:`, err);
+      }
+    }
+    
+    console.log(`✅ Created ${customersCreated} customers and ${carriersCreated} carriers`);
+    
+    return { customersCreated, carriersCreated };
+  } catch (error) {
+    console.error('Failed to populate customers and carriers:', error);
+    throw error;
+  }
+};
 
 // Customer Carrier Management Functions (unchanged)
 export const getCustomerCarriers = async (customerName?: string): Promise<CustomerCarrier[]> => {
