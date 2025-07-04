@@ -822,8 +822,6 @@ export class Project44APIClient {
     console.log(`📏 Calculated linear feet: ${rfq.pallets} pallets × ${palletLength}" = ${totalLinearInches}" = ${totalLinearFeet} linear feet`);
     return totalLinearFeet;
   }
-
-
           handlingUnitQuantity: item.totalPackages || 1,
           // REMOVED: handlingUnitType to avoid package type validation errors
           weightPerHandlingUnit: item.totalWeight / (item.totalPackages || 1),
