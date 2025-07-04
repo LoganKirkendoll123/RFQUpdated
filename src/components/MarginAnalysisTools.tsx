@@ -27,7 +27,7 @@ import {
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { Project44APIClient } from '../utils/project44Client';
-import { calculatePricingWithCustomerMargins } from './utils/pricingCalculator';
+import { calculatePricingWithCustomerMargins } from '../utils/pricingCalculator';
 import * as XLSX from 'xlsx';
 
 // Types for historical shipment data
