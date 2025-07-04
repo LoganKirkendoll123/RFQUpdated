@@ -88,18 +88,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadUserProfile = async (userId: string) => {
     try {
       console.log('Loading user profile for userId:', userId);
-      const { data, error } = await supabase
+      const { data, error, status } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('user_id', userId)
         .single();
 
-      if (error || !data) {
-        console.error('Error loading user profile:', error || 'No profile found');
+      console.log('Profile query status:', status, 'Error:', error?.message);
+      
+      if (error) {
+        console.error('Error loading user profile:', error);
         // Try to create a profile if it doesn't exist
         if (error?.code === 'PGRST116') { // No rows returned
-          await createUserProfile(userId);
+          console.log('No profile found, creating one...');
+          return await createUserProfile(userId);
         }
+        return;
+      }
+      
+      if (!data) {
+        console.error('No profile found');
+        return await createUserProfile(userId);
       } else {
         setProfile(data);
         console.log('User profile loaded successfully:', data);
@@ -114,17 +123,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Create a user profile if it doesn't exist
   const createUserProfile = async (userId: string) => {
     try {
-      console.log('Creating user profile for userId:', userId);
+      console.log('Creating new user profile for userId:', userId);
       // Get user email from auth.users
       const { data: userData } = await supabase.auth.getUser();
       
       if (!userData?.user?.email) {
         console.error('Cannot create profile: user email not found');
-        return;
+        setLoading(false);
+        return false;
       }
       
       // Create a basic profile
-      const { data, error } = await supabase
+      const { data, error, status } = await supabase
         .from('user_profiles')
         .insert({
           user_id: userId,
@@ -134,17 +144,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .select()
         .single();
+
+      console.log('Profile creation status:', status, 'Error:', error?.message);
         
       if (error) {
         console.error('Error creating user profile:', error);
+        setLoading(false);
+        return false;
       } else {
         console.log('User profile created successfully:', data);
         setProfile(data);
+        return true;
       }
     } catch (error) {
       console.error('Error creating user profile:', error);
-    } finally {
       setLoading(false);
+      return false;
     }
   };
 

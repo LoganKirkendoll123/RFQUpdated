@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, LogOut, Settings, Shield, ChevronDown, Clock } from 'lucide-react';
 import { useAuth } from './AuthProvider';
-import { supabase } from '../../utils/supabase';
-
-export const UserMenu: React.FC = () => {
   const { user, profile, signOut } = useAuth();
+import { supabase } from '../../utils/supabase';
   const [isOpen, setIsOpen] = useState(false);
   const [sessionCount, setSessionCount] = useState(0);
   
