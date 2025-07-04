@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Database, 
   Users, 
-  Package, 
   Truck,
+  Package, 
   Search, 
   Filter,
   ChevronLeft,
@@ -31,6 +31,7 @@ import {
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { MarginAnalysisTools } from './MarginAnalysisTools';
+import { CarrierManager } from './CarrierManager';
 
 // Updated interfaces matching your exact database schema
 interface Shipment {
@@ -86,7 +87,7 @@ interface CustomerCarrier {
 }
 
 export const DatabaseToolbox: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers' | 'margin-tools'>('shipments');
+  const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers' | 'margin-tools' | 'carriers'>('shipments');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   
@@ -828,7 +829,8 @@ export const DatabaseToolbox: React.FC = () => {
           {[
             { id: 'shipments', label: 'Shipments', icon: Package, count: activeTab === 'shipments' ? totalCount : null },
             { id: 'customercarriers', label: 'Customer Carriers', icon: Users, count: activeTab === 'customercarriers' ? totalCount : null },
-            { id: 'margin-tools', label: 'Margin Analysis', icon: Calculator, count: null }
+            { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+            { id: 'carriers', label: 'Carriers', icon: Truck }
           ].map((tab) => {
             const Icon = tab.icon;
             return (
@@ -889,6 +891,7 @@ export const DatabaseToolbox: React.FC = () => {
         <>
           {activeTab === 'shipments' && renderShipmentsTab()}
           {activeTab === 'customercarriers' && renderCustomerCarriersTab()}
+          {activeTab === 'carriers' && <CarrierManager />}
           {activeTab === 'margin-tools' && <MarginAnalysisTools />}
         </>
       )}

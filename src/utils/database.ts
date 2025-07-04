@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { RFQRow, ProcessingResult, QuoteWithPricing } from '../types';
+import { Carrier } from '../types/carrier';
 
 // Updated database interfaces matching your new Supabase schema
 export interface CustomerCarrier {
@@ -325,6 +326,94 @@ export const saveRFQResultsToDatabase = async (
     }
   } catch (error) {
     console.error('Failed to save RFQ results to database:', error);
+    throw error;
+  }
+};
+
+// Carrier Management Functions
+export const getCarriers = async (searchTerm?: string): Promise<Carrier[]> => {
+  try {
+    let query = supabase.from('carriers').select('*');
+    
+    if (searchTerm) {
+      query = query.ilike('name', `%${searchTerm}%`);
+    }
+    
+    const { data, error } = await query.order('name', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching carriers:', error);
+      throw error;
+    }
+    
+    return data || [];
+  } catch (error) {
+    console.error('Failed to fetch carriers:', error);
+    throw error;
+  }
+};
+
+export const saveCarrier = async (carrier: Omit<Carrier, 'id' | 'created_at' | 'updated_at'>): Promise<Carrier> => {
+  try {
+    const { data, error } = await supabase
+      .from('carriers')
+      .insert([{
+        ...carrier,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }])
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error saving carrier:', error);
+      throw error;
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('Failed to save carrier:', error);
+    throw error;
+  }
+};
+
+export const updateCarrier = async (id: string, updates: Partial<Carrier>): Promise<Carrier> => {
+  try {
+    const { data, error } = await supabase
+      .from('carriers')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error updating carrier:', error);
+      throw error;
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('Failed to update carrier:', error);
+    throw error;
+  }
+};
+
+export const deleteCarrier = async (id: string): Promise<void> => {
+  try {
+    const { error } = await supabase
+      .from('carriers')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error deleting carrier:', error);
+      throw error;
+    }
+  } catch (error) {
+    console.error('Failed to delete carrier:', error);
     throw error;
   }
 };
