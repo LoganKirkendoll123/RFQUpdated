@@ -448,12 +448,12 @@ export class Project44APIClient {
 
   // NEW: Package type mapping for VLTL API compatibility
   private mapPackageTypeForVLTL(packageType?: string): string {
-    if (!packageType) return 'PALLET';
+    if (!packageType) return 'PLT';
     
     // Map common package types to VLTL-compatible values
     const packageTypeMapping: { [key: string]: string } = {
-      'PLT': 'PALLET',
-      'PALLET': 'PALLET',
+      'PLT': 'PLT',
+      'PALLET': 'PLT', // Fix: Map PALLET to PLT
       'BOX': 'BOX',
       'CRATE': 'CRATE',
       'CARTON': 'CARTON',
@@ -477,8 +477,8 @@ export class Project44APIClient {
     
     const mapped = packageTypeMapping[packageType.toUpperCase()];
     if (!mapped) {
-      console.warn(`⚠️ Unknown package type '${packageType}', defaulting to 'PALLET'`);
-      return 'PALLET';
+      console.warn(`⚠️ Unknown package type '${packageType}', defaulting to 'PLT'`);
+      return 'PLT';
     }
     
     console.log(`📦 Mapped package type '${packageType}' to '${mapped}' for VLTL`);
