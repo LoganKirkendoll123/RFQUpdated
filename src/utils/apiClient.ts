@@ -430,7 +430,8 @@ export class Project44APIClient {
     selectedCarrierIds: string[] = [], 
     isVolumeMode: boolean = false,
     isFTLMode: boolean = false,
-    isReeferMode: boolean = false
+    isReeferMode: boolean = false,
+    accountGroupCode: string = 'Default'
   ): Promise<Quote[]> {
     const token = await this.getAccessToken();
     
@@ -446,7 +447,8 @@ export class Project44APIClient {
       isReeferMode,
       isVolumeMode,
       totalLinearFeet: rfq.totalLinearFeet,
-      selectedCarriers: selectedCarrierIds.length
+      selectedCarriers: selectedCarrierIds.length,
+      accountGroupCode
     });
 
     const isDev = import.meta.env.DEV;
