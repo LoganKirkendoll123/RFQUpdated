@@ -20,7 +20,10 @@ import {
   Calendar,
   Filter,
   Search,
-  X
+  X,
+  Save,
+  FileText,
+  AlertTriangle
 } from 'lucide-react';
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { loadProject44Config } from '../utils/credentialStorage';
@@ -110,6 +113,9 @@ export const MarginAnalysisTools: React.FC = () => {
 
   // Customer carrier margins
   const [customerCarrierMargins, setCustomerCarrierMargins] = useState<CustomerCarrierMargin[]>([]);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [savedScenarios, setSavedScenarios] = useState<any[]>([]);
+  const [currentScenario, setCurrentScenario] = useState<string>('');
 
   useEffect(() => {
     initializeClient();
@@ -679,6 +685,74 @@ export const MarginAnalysisTools: React.FC = () => {
     setCustomerSearchTerm('');
   };
 
+  // Save current margin scenario
+  const saveCurrentScenario = () => {
+    const scenarioName = prompt('Enter a name for this margin scenario:');
+    if (!scenarioName) return;
+    
+    const newScenario = {
+      id: Date.now().toString(),
+      name: scenarioName,
+      selectedTargetGroup,
+      selectedTargetCarrier,
+      selectedCompetitorGroup,
+      selectedCompetitorCarriers,
+      startDate,
+      endDate,
+      selectedCustomer
+    };
+    
+    const updatedScenarios = [...savedScenarios, newScenario];
+    setSavedScenarios(updatedScenarios);
+    setCurrentScenario(newScenario.id);
+    
+    // Save to localStorage
+    localStorage.setItem('margin_scenarios', JSON.stringify(updatedScenarios));
+  };
+  
+  // Load saved scenarios
+  useEffect(() => {
+    const savedData = localStorage.getItem('margin_scenarios');
+    if (savedData) {
+      try {
+        const scenarios = JSON.parse(savedData);
+        setSavedScenarios(scenarios);
+      } catch (error) {
+        console.error('Failed to parse saved scenarios:', error);
+      }
+    }
+  }, []);
+  
+  // Load a saved scenario
+  const loadScenario = (scenarioId: string) => {
+    const scenario = savedScenarios.find(s => s.id === scenarioId);
+    if (!scenario) return;
+    
+    setSelectedTargetGroup(scenario.selectedTargetGroup);
+    setSelectedTargetCarrier(scenario.selectedTargetCarrier);
+    setSelectedCompetitorGroup(scenario.selectedCompetitorGroup);
+    setSelectedCompetitorCarriers(scenario.selectedCompetitorCarriers);
+    setStartDate(scenario.startDate);
+    setEndDate(scenario.endDate);
+    setSelectedCustomer(scenario.selectedCustomer);
+    setCurrentScenario(scenarioId);
+  };
+  
+  // Delete a saved scenario
+  const deleteScenario = (scenarioId: string) => {
+    if (!confirm('Are you sure you want to delete this scenario?')) return;
+    
+    const updatedScenarios = savedScenarios.filter(s => s.id !== scenarioId);
+    setSavedScenarios(updatedScenarios);
+    
+    if (currentScenario === scenarioId) {
+      setCurrentScenario('');
+    }
+    
+    // Update localStorage
+    localStorage.setItem('margin_scenarios', JSON.stringify(updatedScenarios));
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -848,6 +922,59 @@ export const MarginAnalysisTools: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Saved Scenarios */}
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-sm font-medium text-gray-700">Saved Scenarios</h4>
+            <button
+              onClick={saveCurrentScenario}
+              className="flex items-center space-x-2 px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            >
+              <Save className="h-3 w-3" />
+              <span>Save Current</span>
+            </button>
+          </div>
+          
+          {savedScenarios.length === 0 ? (
+            <div className="text-sm text-gray-500 text-center py-4">
+              No saved scenarios. Save your current settings to compare later.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {savedScenarios.map(scenario => (
+                <div 
+                  key={scenario.id} 
+                  className={`border rounded-lg p-3 cursor-pointer transition-all ${
+                    currentScenario === scenario.id 
+                      ? 'border-blue-500 bg-blue-50' 
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                  onClick={() => loadScenario(scenario.id)}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-gray-900">{scenario.name}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteScenario(scenario.id);
+                      }}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                    <div>Target: {scenario.selectedTargetCarrier}</div>
+                    <div>Competitor: {scenario.selectedCompetitorGroup}</div>
+                    <div>Date: {scenario.startDate} to {scenario.endDate}</div>
+                    <div>Customer: {scenario.selectedCustomer || 'All'}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Configuration */}
@@ -1194,6 +1321,98 @@ export const MarginAnalysisTools: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Margin Optimization Recommendations */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center space-x-3 mb-4">
+          <Target className="h-5 w-5 text-blue-600" />
+          <h3 className="text-lg font-semibold text-gray-900">Margin Optimization Recommendations</h3>
+        </div>
+        
+        <div className="space-y-4">
+          {results.length > 0 ? (
+            <>
+              {/* Low Margin Customers */}
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-start space-x-3">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-amber-800 mb-2">Low Margin Customers</h4>
+                    <div className="space-y-2">
+                      {results
+                        .filter(r => r.recommendedMargin < 15)
+                        .slice(0, 3)
+                        .map((result, index) => (
+                          <div key={index} className="flex items-center justify-between text-sm">
+                            <span className="text-amber-700">
+                              {result.customerName}: {result.recommendedMargin.toFixed(1)}%
+                            </span>
+                            <span className="font-medium text-amber-800">
+                              Recommend: {Math.max(15, result.recommendedMargin + 5).toFixed(1)}%
+                            </span>
+                          </div>
+                        ))}
+                      {results.filter(r => r.recommendedMargin < 15).length === 0 && (
+                        <p className="text-sm text-amber-700">No low margin customers found.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* High Performing Customers */}
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-start space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-green-800 mb-2">High Performing Customers</h4>
+                    <div className="space-y-2">
+                      {results
+                        .filter(r => r.recommendedMargin >= 20)
+                        .slice(0, 3)
+                        .map((result, index) => (
+                          <div key={index} className="flex items-center justify-between text-sm">
+                            <span className="text-green-700">
+                              {result.customerName}: {result.recommendedMargin.toFixed(1)}%
+                            </span>
+                            <span className="font-medium text-green-800">
+                              Strong margin - maintain relationship
+                            </span>
+                          </div>
+                        ))}
+                      {results.filter(r => r.recommendedMargin >= 20).length === 0 && (
+                        <p className="text-sm text-green-700">No high margin customers found.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Strategic Recommendations */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start space-x-3">
+                  <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-blue-800 mb-2">Strategic Recommendations</h4>
+                    <ul className="space-y-1 text-sm text-blue-700 list-disc list-inside">
+                      <li>Consider implementing minimum profit thresholds for all customers</li>
+                      <li>Review customer-specific margins quarterly for optimization</li>
+                      <li>Implement tiered pricing based on shipment volume</li>
+                      <li>Analyze carrier performance against margin to identify optimal partners</li>
+                      <li>Develop strategic customer relationships for high-volume lanes</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <p>Run margin analysis to see optimization recommendations.</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

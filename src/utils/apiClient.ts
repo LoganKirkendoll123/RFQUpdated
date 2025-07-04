@@ -20,6 +20,7 @@ import {
   Contact,
   HazmatDetail
 } from '../types';
+import { memoize, batchRequests } from './performance';
 
 // Carrier group interface for organizing carriers
 export interface CarrierGroup {
@@ -40,9 +41,16 @@ export class Project44APIClient {
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
   private carrierGroups: CarrierGroup[] = []; // Store carrier groups for lookup
+  private requestCache = new Map<string, any>();
 
   constructor(config: Project44OAuthConfig) {
     this.config = config;
+  }
+
+  // Clear the request cache
+  public clearCache(): void {
+    this.requestCache.clear();
+    console.log('🧹 Cleared API request cache');
   }
 
   private async getAccessToken(): Promise<string> {
@@ -646,6 +654,53 @@ export class Project44APIClient {
     return quotes;
   }
 
+  // Optimized batch quoting for multiple RFQs
+  async batchGetQuotes(
+    rfqs: RFQRow[],
+    selectedCarrierIds: string[] = [],
+    isVolumeMode: boolean = false,
+    isFTLMode: boolean = false,
+    isReeferMode: boolean = false,
+    batchSize: number = 5
+  ): Promise<{ [index: number]: Quote[] }> {
+    const results: { [index: number]: Quote[] } = {};
+    
+    // Process in batches to avoid overwhelming the API
+    const processBatch = async (batch: RFQRow[]) => {
+      const batchResults = await Promise.allSettled(
+        batch.map(rfq => this.getQuotes(
+          rfq,
+          selectedCarrierIds,
+          isVolumeMode,
+          isFTLMode,
+          isReeferMode
+        ))
+      );
+      
+      // Process results
+      batchResults.forEach((result, index) => {
+        const batchIndex = batch[index].rowIndex;
+        if (result.status === 'fulfilled') {
+          results[batchIndex] = result.value;
+        } else {
+          console.error(`❌ Failed to get quotes for RFQ ${batchIndex}:`, result.reason);
+          results[batchIndex] = [];
+        }
+      });
+      
+      // Small delay between batches
+      await new Promise(resolve => setTimeout(resolve, 200));
+    };
+    
+    // Process RFQs in batches
+    for (let i = 0; i < rfqs.length; i += batchSize) {
+      const batch = rfqs.slice(i, i + batchSize);
+      await processBatch(batch);
+    }
+    
+    return results;
+  }
+
   // Method to get quotes for an entire account group
   async getQuotesForAccountGroup(
     rfq: RFQRow,
@@ -815,7 +870,8 @@ export class Project44APIClient {
     return quotes;
   }
 
-  private calculateLinearFeet(rfq: RFQRow): number {
+  // Memoized linear feet calculation for better performance
+  private calculateLinearFeet = memoize((rfq: RFQRow): number => {
     // Calculate linear feet based on pallets and dimensions
     // Standard pallet is 48" x 40", so length is typically 48"
     const palletLength = 48; // inches - use standard pallet length
@@ -824,9 +880,10 @@ export class Project44APIClient {
     
     console.log(`📏 Calculated linear feet: ${rfq.pallets} pallets × ${palletLength}" = ${totalLinearInches}" = ${totalLinearFeet} linear feet`);
     return totalLinearFeet;
-  }
+  });
 
-  private getCarrierNameFromCode(carrierCode?: string): string {
+  // Memoized carrier name lookup for better performance
+  private getCarrierNameFromCode = memoize((carrierCode?: string): string => {
     if (!carrierCode) return 'Unknown Carrier';
     
     // Map common carrier codes to proper names
@@ -854,7 +911,7 @@ export class Project44APIClient {
     };
 
     return codeToName[carrierCode] || carrierCode;
-  }
+  });
 
   private buildAddress(rfq: RFQRow): Address {
     return {
@@ -1013,12 +1070,28 @@ export class Project44APIClient {
 
 export class FreshXAPIClient {
   private apiKey: string;
+  private requestCache = new Map<string, any>();
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
   }
 
+  // Clear the request cache
+  public clearCache(): void {
+    this.requestCache.clear();
+    console.log('🧹 Cleared FreshX API request cache');
+  }
+
   async getQuotes(rfq: RFQRow): Promise<Quote[]> {
+    // Generate cache key based on request parameters
+    const cacheKey = `${rfq.fromZip}-${rfq.toZip}-${rfq.pallets}-${rfq.grossWeight}-${rfq.temperature || 'AMBIENT'}`;
+    
+    // Check cache first
+    if (this.requestCache.has(cacheKey)) {
+      console.log(`🔍 Using cached FreshX quotes for ${cacheKey}`);
+      return this.requestCache.get(cacheKey);
+    }
+    
     console.log('🌡️ Getting FreshX reefer quotes for:', {
       route: `${rfq.fromZip} → ${rfq.toZip}`,
       pallets: rfq.pallets,
@@ -1113,11 +1186,49 @@ export class FreshXAPIClient {
       }));
 
       console.log(`✅ Transformed ${transformedQuotes.length} FreshX quotes`);
+      
+      // Cache the results
+      this.requestCache.set(cacheKey, transformedQuotes);
+      
       return transformedQuotes;
 
     } catch (error) {
       console.error('❌ FreshX API call failed:', error);
       throw error;
     }
+  }
+  
+  // Batch quoting for multiple RFQs
+  async batchGetQuotes(rfqs: RFQRow[]): Promise<{ [index: number]: Quote[] }> {
+    const results: { [index: number]: Quote[] } = {};
+    
+    // Process in smaller batches to avoid rate limits
+    const batchSize = 5;
+    for (let i = 0; i < rfqs.length; i += batchSize) {
+      const batch = rfqs.slice(i, i + batchSize);
+      
+      // Process batch in parallel
+      const batchResults = await Promise.allSettled(
+        batch.map(rfq => this.getQuotes(rfq))
+      );
+      
+      // Store results
+      batchResults.forEach((result, index) => {
+        const rfqIndex = batch[index].rowIndex;
+        if (result.status === 'fulfilled') {
+          results[rfqIndex] = result.value;
+        } else {
+          console.error(`❌ Failed to get FreshX quotes for RFQ ${rfqIndex}:`, result.reason);
+          results[rfqIndex] = [];
+        }
+      });
+      
+      // Add delay between batches
+      if (i + batchSize < rfqs.length) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    }
+    
+    return results;
   }
 }

@@ -3,7 +3,7 @@ import { FileUpload } from './components/FileUpload';
 import { CarrierSelection } from './components/CarrierSelection';
 import { PricingSettingsComponent } from './components/PricingSettings';
 import { ProcessingStatus } from './components/ProcessingStatus';
-import { ResultsTable } from './components/ResultsTable';
+import { OptimizedResultsTable } from './components/OptimizedResultsTable';
 import { Analytics } from './components/Analytics';
 import { ApiKeyInput } from './components/ApiKeyInput';
 import { TemplateDownload } from './components/TemplateDownload';
@@ -11,6 +11,8 @@ import { SupabaseStatus } from './components/SupabaseStatus';
 import { SupabaseSetup } from './components/SupabaseSetup';
 import { DatabaseToolbox } from './components/DatabaseToolbox';
 import { SpotQuote } from './components/SpotQuote';
+import { useLocalStorage } from './hooks/useLocalStorage';
+import { useAsync } from './hooks/useAsync';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { calculatePricing } from './utils/pricingCalculator';
 import { Project44APIClient, FreshXAPIClient, CarrierGroup } from './utils/apiClient';
@@ -109,58 +111,48 @@ function App() {
   const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database' | 'spot-quote'>('upload');
   const [fileError, setFileError] = useState<string>('');
   
-  // API clients - store as instance variables to maintain token state
-  const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
-  const [freshxClient, setFreshxClient] = useState<FreshXAPIClient | null>(null);
+  // Optimized state management with custom hooks
+  const [project44Config, setProject44Config] = useLocalStorage<Project44OAuthConfig>('project44_config', {
+    oauthUrl: '/api/v4/oauth2/token',
+    basicUser: '',
+    basicPassword: '',
+    clientId: '',
+    clientSecret: '',
+    ratingApiUrl: '/api/v4/ltl/quotes/rates/query'
+  });
+  
+  const [freshxApiKey, setFreshxApiKey] = useLocalStorage<string>('freshx_api_key', '');
+  const [selectedCarriers, setSelectedCarriers] = useLocalStorage<{ [carrierId: string]: boolean }>('selected_carriers', {});
+  const [pricingSettings, setPricingSettings] = useLocalStorage<PricingSettings>('pricing_settings', {
+    markupPercentage: 15,
+    minimumProfit: 100,
+    markupType: 'percentage',
+    usesCustomerMargins: false,
+    fallbackMarkupPercentage: 23
+  });
+  const [selectedCustomer, setSelectedCustomer] = useLocalStorage<string>('selected_customer', '');
 
-  // Load saved data on component mount
+  // API clients - memoized for performance
+  const project44Client = useMemo(() => {
+    return project44Config.clientId ? new Project44APIClient(project44Config) : null;
+  }, [project44Config]);
+  
+  const freshxClient = useMemo(() => {
+    return freshxApiKey ? new FreshXAPIClient(freshxApiKey) : null;
+  }, [freshxApiKey]);
+
+  // Validation state
   useEffect(() => {
-    console.log('🔄 Loading saved configuration from local storage...');
-    
-    // Load Project44 config
-    const savedProject44Config = loadProject44Config();
-    if (savedProject44Config) {
-      console.log('✅ Loaded saved Project44 config');
-      setProject44Config(savedProject44Config);
-      // Create client instance with saved config
-      const client = new Project44APIClient(savedProject44Config);
-      setProject44Client(client);
-      setIsProject44Valid(true);
-    }
-    
-    // Load FreshX API key
-    const savedFreshXKey = loadFreshXApiKey();
-    if (savedFreshXKey) {
-      console.log('✅ Loaded saved FreshX API key');
-      setFreshxApiKey(savedFreshXKey);
-      const client = new FreshXAPIClient(savedFreshXKey);
-      setFreshxClient(client);
-      setIsFreshXValid(true);
-    }
-    
-    // Load selected carriers
-    const savedCarriers = loadSelectedCarriers();
-    if (savedCarriers) {
-      console.log('✅ Loaded saved carrier selection');
-      setSelectedCarriers(savedCarriers);
-    }
-    
-    // Load pricing settings
-    const savedPricing = loadPricingSettings();
-    if (savedPricing) {
-      console.log('✅ Loaded saved pricing settings');
-      setPricingSettings(savedPricing);
-    }
-  }, []);
+    setIsProject44Valid(!!project44Config.clientId && !!project44Config.clientSecret);
+  }, [project44Config]);
+
+  useEffect(() => {
+    setIsFreshXValid(!!freshxApiKey);
+  }, [freshxApiKey]);
 
   const handleProject44ConfigChange = (config: Project44OAuthConfig) => {
     console.log('🔧 Project44 config updated, creating new client...');
     setProject44Config(config);
-    saveProject44Config(config);
-    
-    // Create new client instance with updated config
-    const client = new Project44APIClient(config);
-    setProject44Client(client);
     
     // Reset carrier state when config changes
     setCarrierGroups([]);
@@ -237,17 +229,11 @@ function App() {
       // Reset results when new file is loaded
       setResults([]);
       setActiveTab('upload');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to parse file';
-      setFileError(errorMessage);
-      console.error('❌ File parsing error:', error);
-    }
   };
 
   const handleCarrierToggle = (carrierId: string, selected: boolean) => {
     const newSelection = { ...selectedCarriers, [carrierId]: selected };
     setSelectedCarriers(newSelection);
-    saveSelectedCarriers(newSelection);
   };
 
   const handleSelectAll = (selected: boolean) => {
@@ -258,7 +244,6 @@ function App() {
       });
     });
     setSelectedCarriers(newSelection);
-    saveSelectedCarriers(newSelection);
   };
 
   const handleSelectAllInGroup = (groupCode: string, selected: boolean) => {
@@ -270,12 +255,10 @@ function App() {
       newSelection[carrier.id] = selected;
     });
     setSelectedCarriers(newSelection);
-    saveSelectedCarriers(newSelection);
   };
 
   const handlePricingSettingsChange = (settings: PricingSettings) => {
     setPricingSettings(settings);
-    savePricingSettings(settings);
   };
 
   const handleCustomerChange = (customer: string) => {
@@ -1045,7 +1028,7 @@ function App() {
                 </div>
               </div>
               <div className="p-6">
-                <ResultsTable
+                <OptimizedResultsTable
                   results={results}
                   onExport={exportResults}
                   onPriceUpdate={handlePriceUpdate}

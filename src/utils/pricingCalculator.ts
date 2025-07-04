@@ -1,5 +1,6 @@
 import { Quote, QuoteWithPricing, PricingSettings, RateCharge } from '../types';
 import { supabase } from './supabase';
+import { memoize } from './performance';
 
 // Customer-carrier margin lookup cache
 const marginCache = new Map<string, number>();
@@ -64,12 +65,13 @@ export const getCustomerCarrierMargin = async (
 };
 
 // Clear the margin cache (useful when customer changes)
-export const clearMarginCache = () => {
+export const clearMarginCache = (): void => {
   marginCache.clear();
   console.log('🧹 Cleared customer-carrier margin cache');
 };
 
-export const calculatePricing = (
+// Memoized version of the pricing calculator for better performance
+export const calculatePricing = memoize((
   quote: Quote, 
   settings: PricingSettings,
   customPrice?: number,
@@ -266,7 +268,10 @@ export const calculatePricing = (
     appliedMarginType,
     appliedMarginPercentage
   };
-};
+}, (quote, settings, customPrice, selectedCustomer) => {
+  // Create a cache key based on the inputs
+  return `${quote.quoteId}-${settings.markupPercentage}-${settings.minimumProfit}-${settings.markupType}-${customPrice}-${selectedCustomer}`;
+});
 
 // Async version of calculatePricing that can lookup customer margins
 export const calculatePricingWithCustomerMargins = async (
@@ -325,33 +330,38 @@ export const calculatePricingWithCustomerMargins = async (
   return result;
 };
 
-export const calculateBestQuote = (quotes: QuoteWithPricing[]): QuoteWithPricing | null => {
+// Optimized best quote calculation
+export const calculateBestQuote = memoize((quotes: QuoteWithPricing[]): QuoteWithPricing | null => {
   if (quotes.length === 0) return null;
   
   return quotes.reduce((best, current) => 
     current.customerPrice < best.customerPrice ? current : best
   );
-};
+}, (quotes) => {
+  // Create a cache key based on quote IDs and prices
+  return quotes.map(q => `${q.quoteId}-${q.customerPrice}`).join('|');
+});
 
-export const formatCurrency = (amount: number): string => {
+// Optimized currency formatter
+export const formatCurrency = memoize((amount: number): string => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(amount);
-};
+});
 
-export const formatProfit = (profit: number): string => {
+export const formatProfit = memoize((profit: number): string => {
   const formatted = formatCurrency(profit);
   return profit >= 0 ? `+${formatted}` : formatted;
-};
+});
 
-export const getTotalChargesByCategory = (charges: RateCharge[]): number => {
+export const getTotalChargesByCategory = memoize((charges: RateCharge[]): number => {
   return charges.reduce((sum, charge) => sum + charge.amount, 0);
-};
+});
 
-export const formatChargeDescription = (charge: RateCharge): string => {
+export const formatChargeDescription = memoize((charge: RateCharge): string => {
   if (charge.description) {
     return charge.description;
   }
@@ -373,4 +383,66 @@ export const formatChargeDescription = (charge: RateCharge): string => {
   };
   
   return codeDescriptions[charge.code] || charge.code || 'Additional Charge';
+});
+
+// New utility functions for margin analysis
+export const calculateEffectiveMargin = (
+  percentageStr: string | null | undefined,
+  minDollarStr: string | number | null | undefined,
+  baseRate: number
+): number => {
+  const percentage = parseFloat(percentageStr || '0');
+  const minDollar = parseFloat(minDollarStr?.toString() || '0');
+  
+  if (baseRate <= 0) return 0;
+  
+  // Calculate standard margin price
+  const standardPrice = baseRate / (1 - (percentage / 100));
+  
+  // Calculate minimum profit price
+  const minProfitPrice = baseRate + minDollar;
+  
+  // Use the higher of the two
+  const finalPrice = Math.max(standardPrice, minProfitPrice);
+  
+  // Calculate effective margin percentage
+  const profit = finalPrice - baseRate;
+  return (profit / baseRate) * 100;
+};
+
+export const predictOptimalMargin = (
+  baseRates: number[],
+  targetMargin: number,
+  minimumProfit: number
+): number => {
+  // This function predicts the optimal markup percentage to achieve the target margin
+  // across a range of base rates, while respecting the minimum profit
+  
+  if (baseRates.length === 0) return targetMargin;
+  
+  // Try different markup percentages
+  let bestMarkup = targetMargin;
+  let closestAvgMargin = 0;
+  let smallestDiff = Number.MAX_VALUE;
+  
+  for (let markup = targetMargin - 5; markup <= targetMargin + 10; markup += 0.5) {
+    const margins = baseRates.map(baseRate => {
+      const standardPrice = baseRate / (1 - (markup / 100));
+      const minProfitPrice = baseRate + minimumProfit;
+      const finalPrice = Math.max(standardPrice, minProfitPrice);
+      const profit = finalPrice - baseRate;
+      return (profit / baseRate) * 100;
+    });
+    
+    const avgMargin = margins.reduce((sum, m) => sum + m, 0) / margins.length;
+    const diff = Math.abs(avgMargin - targetMargin);
+    
+    if (diff < smallestDiff) {
+      smallestDiff = diff;
+      closestAvgMargin = avgMargin;
+      bestMarkup = markup;
+    }
+  }
+  
+  return bestMarkup;
 };

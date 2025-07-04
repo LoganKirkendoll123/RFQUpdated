@@ -1,6 +1,7 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import { RFQRow, LineItemData } from '../types';
+import { memoize } from './performance';
 
 // Project44 LTL/VLTL accessorial codes
 const PROJECT44_ACCESSORIAL_CODES = [
@@ -21,11 +22,14 @@ const FRESHX_ACCESSORIAL_CODES = [
   'NIGHTTIME_DELIVERY_PICKUP', 'NIGHTTIME_DELIVERY_DROPOFF'
 ];
 
+// Optimized CSV parser with worker support for large files
 export const parseCSV = (file: File, isProject44: boolean = false): Promise<RFQRow[]> => {
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
+      worker: file.size > 1024 * 1024, // Use worker for files larger than 1MB
+      fastMode: file.size < 1024 * 1024, // Use fast mode for smaller files
       transformHeader: (header) => header.trim().toLowerCase().replace(/\s+/g, ''),
       transform: (value) => value.trim(),
       complete: (results) => {
@@ -41,13 +45,19 @@ export const parseCSV = (file: File, isProject44: boolean = false): Promise<RFQR
   });
 };
 
+// Optimized XLSX parser with chunking for large files
 export const parseXLSX = (file: File, isProject44: boolean = false): Promise<RFQRow[]> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { 
+          type: 'array',
+          cellDates: true, // Properly handle dates
+          cellNF: false, // Don't parse number formats
+          cellStyles: false // Don't parse styles for better performance
+        });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
@@ -60,13 +70,21 @@ export const parseXLSX = (file: File, isProject44: boolean = false): Promise<RFQ
           h.toString().trim().toLowerCase().replace(/\s+/g, '')
         );
         
-        const rows = jsonData.slice(1).map((row, index) => {
-          const rowObject: any = {};
-          headers.forEach((header, i) => {
-            rowObject[header] = (row as any[])[i]?.toString().trim() || '';
+        // Process rows in chunks for better performance with large files
+        const chunkSize = 1000;
+        const rows: RFQRow[] = [];
+        
+        for (let i = 1; i < jsonData.length; i += chunkSize) {
+          const chunk = jsonData.slice(i, i + chunkSize);
+          const chunkRows = chunk.map((row, chunkIndex) => {
+            const rowObject: any = {};
+            headers.forEach((header, i) => {
+              rowObject[header] = (row as any[])[i]?.toString().trim() || '';
+            });
+            return parseRow(rowObject, i - 1 + chunkIndex, isProject44);
           });
-          return parseRow(rowObject, index, isProject44);
-        });
+          rows.push(...chunkRows);
+        }
         
         resolve(rows);
       } catch (error) {
@@ -78,7 +96,8 @@ export const parseXLSX = (file: File, isProject44: boolean = false): Promise<RFQ
   });
 };
 
-const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow => {
+// Memoized row parser for better performance with duplicate rows
+const parseRow = memoize((row: any, index: number, isProject44: boolean = false): RFQRow => {
   const errors: string[] = [];
   
   // Core required fields
@@ -307,9 +326,13 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
   if (lineItems.length > 0) result.lineItems = lineItems;
 
   return result;
-};
+}, (row, index, isProject44) => {
+  // Create a cache key based on core fields
+  return `${row.fromdate || row.pickupdate || row.date || ''}-${row.fromzip || row.pickupzip || row.originzip || ''}-${row.tozip || row.deliveryzip || row.destinationzip || ''}-${row.pallets || row.palletcount || '0'}-${index}-${isProject44}`;
+});
 
-const parseLineItems = (row: any, rowIndex: number): LineItemData[] => {
+// Optimized line item parser
+const parseLineItems = memoize((row: any, rowIndex: number): LineItemData[] => {
   const lineItems: LineItemData[] = [];
   
   // Look for line item columns with pattern: item1_field, item2_field, etc.
@@ -394,32 +417,36 @@ const parseLineItems = (row: any, rowIndex: number): LineItemData[] => {
   
   console.log(`📦 Parsed ${lineItems.length} line items for row ${rowIndex + 1}`);
   return lineItems;
-};
+}, (row, rowIndex) => {
+  // Create a cache key based on row properties that might contain line items
+  const itemKeys = Object.keys(row).filter(key => key.match(/^item\d+_/));
+  return `${rowIndex}-${itemKeys.join('-')}`;
+});
 
-const parseBoolean = (value: string): boolean => {
+const parseBoolean = memoize((value: string): boolean => {
   if (!value) return false;
   return ['true', '1', 'yes', 'y'].includes(value.toLowerCase());
-};
+});
 
-const parseAccessorial = (value: string): string[] => {
+const parseAccessorial = memoize((value: string): string[] => {
   if (!value) return [];
   // Handle both comma and semicolon separators
   return value.split(/[,;]/).map(s => s.trim().toUpperCase()).filter(Boolean);
-};
+});
 
-const parseAddressLines = (value: string): string[] => {
+const parseAddressLines = memoize((value: string): string[] => {
   if (!value) return [];
   // Split by semicolon or pipe for multiple address lines
   return value.split(/[;|]/).map(s => s.trim()).filter(Boolean);
-};
+});
 
-const isValidDate = (date: string): boolean => {
+const isValidDate = memoize((date: string): boolean => {
   const regex = /^\d{4}-\d{2}-\d{2}$/;
   if (!regex.test(date)) return false;
   const d = new Date(date);
   return d instanceof Date && !isNaN(d.getTime());
-};
+});
 
-const isValidZip = (zip: string): boolean => {
+const isValidZip = memoize((zip: string): boolean => {
   return /^\d{5}$/.test(zip) || /^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/.test(zip.toUpperCase());
-};
+});

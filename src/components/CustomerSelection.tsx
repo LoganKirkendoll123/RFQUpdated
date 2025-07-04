@@ -33,56 +33,6 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
     }
   }, [searchTerm, customers]);
 
-  const loadCustomers = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      // Get unique customers from CustomerCarriers table
-      console.log('🔍 Loading all customers from CustomerCarriers...');
-      
-      // Load all customers without any limits
-      let allCustomers: any[] = [];
-      let from = 0;
-      const batchSize = 1000;
-      let hasMore = true;
-      
-      while (hasMore) {
-        const { data, error } = await import('../utils/supabase').then(({ supabase }) =>
-          supabase
-            .from('CustomerCarriers')
-            .select('InternalName')
-            .not('InternalName', 'is', null)
-            .range(from, from + batchSize - 1)
-        );
-        
-        if (error) {
-          throw error;
-        }
-        
-        if (data && data.length > 0) {
-          allCustomers = [...allCustomers, ...data];
-          from += batchSize;
-          hasMore = data.length === batchSize; // Continue if we got a full batch
-          console.log(`📋 Loaded batch: ${data.length} customers (total: ${allCustomers.length})`);
-        } else {
-          hasMore = false;
-        }
-      }
-
-      // Get unique customer names
-      const uniqueCustomers = [...new Set(allCustomers?.map(d => d.InternalName).filter(Boolean))].sort();
-      setCustomers(uniqueCustomers);
-      setFilteredCustomers(uniqueCustomers);
-      console.log(`✅ Loaded ${uniqueCustomers.length} unique customers from ${allCustomers.length} total records`);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load customers';
-      setError(errorMsg);
-      console.error('❌ Failed to load customers:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleCustomerSelect = (customer: string) => {
     onCustomerChange(customer);
     setIsOpen(false);
