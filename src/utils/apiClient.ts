@@ -19,8 +19,7 @@ import {
   RateCharge,
   Contact,
   HazmatDetail,
-  EnhancedHandlingUnit,
-  PackageDimensions
+  EnhancedHandlingUnit
 } from '../types';
 
 // Carrier group interface for organizing carriers
@@ -35,62 +34,6 @@ export interface CarrierGroup {
     dotNumber?: string;
     accountCode?: string;
   }>;
-}
-
-// FreshX API response interface
-interface FreshXQuoteResponse {
-  quoteId: number;
-  baseRate: number;
-  fuelSurcharge: number;
-  accessorial: any[];
-  premiumsAndDiscounts: number;
-  readyByDate: string;
-  estimatedDeliveryDate: string;
-  temperature: string;
-  weight: number;
-  pallets: number;
-  commodity: string;
-  stackable: boolean;
-  foodGrade: boolean;
-  pickupFacility: string;
-  dropoffFacility: string;
-  submittedBy: string;
-  submissionDatetime: string;
-  pickup: {
-    city: string;
-    state: string;
-    zip: string;
-  };
-  dropoff: {
-    city: string;
-    state: string;
-    zip: string;
-  };
-  carrier: {
-    name: string;
-    mcNumber: string;
-    logo: string;
-  };
-}
-
-// FreshX API request interface
-interface FreshXQuoteRequest {
-  fromDate: string;
-  fromZip: string;
-  toZip: string;
-  pallets: number;
-  grossWeight: string;
-  temperature: 'AMBIENT' | 'CHILLED' | 'FROZEN';
-  commodity: 'ALCOHOL' | 'FOODSTUFFS' | 'FRESH_SEAFOOD' | 'FROZEN_SEAFOOD' | 'ICE_CREAM' | 'PRODUCE';
-  isFoodGrade: boolean;
-  isStackable: boolean;
-  accessorial: string[];
-}
-
-// Enhanced VLTL-specific request interface
-interface VLTLRateQuoteRequest extends Project44RateQuoteRequest {
-  totalLinearFeet: number; // Required for VLTL
-  enhancedHandlingUnits?: EnhancedHandlingUnit[]; // VLTL supports enhanced handling units
 }
 
 export class Project44APIClient {
@@ -503,6 +446,45 @@ export class Project44APIClient {
     return serviceLevels;
   }
 
+  // NEW: Package type mapping for VLTL API compatibility
+  private mapPackageTypeForVLTL(packageType?: string): string {
+    if (!packageType) return 'PALLET';
+    
+    // Map common package types to VLTL-compatible values
+    const packageTypeMapping: { [key: string]: string } = {
+      'PLT': 'PALLET',
+      'PALLET': 'PALLET',
+      'BOX': 'BOX',
+      'CRATE': 'CRATE',
+      'CARTON': 'CARTON',
+      'CASE': 'CASE',
+      'DRUM': 'DRUM',
+      'PAIL': 'PAIL',
+      'TOTE': 'TOTE',
+      'TUBE': 'TUBE',
+      'ROLL': 'ROLL',
+      'REEL': 'REEL',
+      'PIECES': 'PIECES',
+      'SKID': 'SKID',
+      'BUNDLE': 'BUNDLE',
+      'BALE': 'BALE',
+      'BAG': 'BAG',
+      'BUCKET': 'BUCKET',
+      'CAN': 'CAN',
+      'COIL': 'COIL',
+      'CYLINDER': 'CYLINDER'
+    };
+    
+    const mapped = packageTypeMapping[packageType.toUpperCase()];
+    if (!mapped) {
+      console.warn(`⚠️ Unknown package type '${packageType}', defaulting to 'PALLET'`);
+      return 'PALLET';
+    }
+    
+    console.log(`📦 Mapped package type '${packageType}' to '${mapped}' for VLTL`);
+    return mapped;
+  }
+
   async getQuotes(
     rfq: RFQRow, 
     selectedCarrierIds: string[] = [], 
@@ -544,67 +526,40 @@ export class Project44APIClient {
       endpoint = '/api/v4/truckload/quotes/rates/query';
     }
 
-    // Build the request payload - use VLTL-specific structure for Volume LTL
-    let requestPayload: Project44RateQuoteRequest | VLTLRateQuoteRequest;
+    // Build the request payload with comprehensive data
+    const requestPayload: Project44RateQuoteRequest = {
+      originAddress: this.buildAddress(rfq),
+      destinationAddress: this.buildDestinationAddress(rfq),
+      lineItems: this.buildLineItems(rfq, isVolumeMode), // Pass isVolumeMode for package type mapping
+      accessorialServices: this.buildAccessorialServices(rfq, isReeferMode),
+      pickupWindow: this.buildPickupWindow(rfq),
+      deliveryWindow: this.buildDeliveryWindow(rfq),
+      apiConfiguration: {
+        accessorialServiceConfiguration: {
+          allowUnacceptedAccessorials: false,
+          fetchAllGuaranteed: false,
+          fetchAllInsideDelivery: false,
+          fetchAllServiceLevels: false
+        },
+        enableUnitConversion: rfq.enableUnitConversion ?? true,
+        fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
+        timeout: rfq.apiTimeout ?? 30000
+      },
+      directionOverride: rfq.direction,
+      lengthUnit: rfq.lengthUnit || 'IN',
+      paymentTermsOverride: rfq.paymentTerms,
+      preferredCurrency: rfq.preferredCurrency || 'USD',
+      preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
+      weightUnit: rfq.weightUnit || 'LB'
+    };
 
+    // Add totalLinearFeet for VLTL requests (required field)
     if (isVolumeMode) {
-      // VLTL-specific payload with enhanced handling units
-      const vltlPayload: VLTLRateQuoteRequest = {
-        originAddress: this.buildAddress(rfq),
-        destinationAddress: this.buildDestinationAddress(rfq),
-        lineItems: this.buildLineItems(rfq),
-        accessorialServices: this.buildAccessorialServices(rfq, isReeferMode),
-        pickupWindow: this.buildPickupWindow(rfq),
-        deliveryWindow: this.buildDeliveryWindow(rfq),
-        apiConfiguration: {
-          accessorialServiceConfiguration: {
-            allowUnacceptedAccessorials: false,
-            fetchAllGuaranteed: false,
-            fetchAllInsideDelivery: false,
-            fetchAllServiceLevels: false
-          },
-          enableUnitConversion: rfq.enableUnitConversion ?? true,
-          fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
-          timeout: rfq.apiTimeout ?? 30000
-        },
-        directionOverride: rfq.direction,
-        lengthUnit: rfq.lengthUnit || 'IN',
-        paymentTermsOverride: rfq.paymentTerms,
-        preferredCurrency: rfq.preferredCurrency || 'USD',
-        preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
-        weightUnit: rfq.weightUnit || 'LB',
-        totalLinearFeet: rfq.totalLinearFeet || this.calculateLinearFeet(rfq), // Required for VLTL
-        enhancedHandlingUnits: this.buildEnhancedHandlingUnits(rfq) // VLTL-specific
-      };
-
-      requestPayload = vltlPayload;
-    } else {
-      // Standard LTL payload
-      requestPayload = {
-        originAddress: this.buildAddress(rfq),
-        destinationAddress: this.buildDestinationAddress(rfq),
-        lineItems: this.buildLineItems(rfq),
-        accessorialServices: this.buildAccessorialServices(rfq, isReeferMode),
-        pickupWindow: this.buildPickupWindow(rfq),
-        deliveryWindow: this.buildDeliveryWindow(rfq),
-        apiConfiguration: {
-          accessorialServiceConfiguration: {
-            allowUnacceptedAccessorials: false,
-            fetchAllGuaranteed: false,
-            fetchAllInsideDelivery: false,
-            fetchAllServiceLevels: false
-          },
-          enableUnitConversion: rfq.enableUnitConversion ?? true,
-          fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
-          timeout: rfq.apiTimeout ?? 30000
-        },
-        directionOverride: rfq.direction,
-        lengthUnit: rfq.lengthUnit || 'IN',
-        paymentTermsOverride: rfq.paymentTerms,
-        preferredCurrency: rfq.preferredCurrency || 'USD',
-        preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
-        weightUnit: rfq.weightUnit || 'LB'
-      };
+      requestPayload.totalLinearFeet = rfq.totalLinearFeet || this.calculateLinearFeet(rfq);
+      console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
+      
+      // Add enhanced handling units for VLTL
+      requestPayload.enhancedHandlingUnits = this.buildEnhancedHandlingUnits(rfq);
     }
 
     // Add capacity provider account group to filter by selected carriers
@@ -767,7 +722,7 @@ export class Project44APIClient {
     const requestPayload: Project44RateQuoteRequest = {
       originAddress: this.buildAddress(rfq),
       destinationAddress: this.buildDestinationAddress(rfq),
-      lineItems: this.buildLineItems(rfq),
+      lineItems: this.buildLineItems(rfq, isVolumeMode), // Pass isVolumeMode for package type mapping
       accessorialServices: this.buildAccessorialServices(rfq, isReeferMode),
       pickupWindow: this.buildPickupWindow(rfq),
       deliveryWindow: this.buildDeliveryWindow(rfq),
@@ -796,8 +751,11 @@ export class Project44APIClient {
 
     // Add totalLinearFeet for VLTL requests (required field)
     if (isVolumeMode) {
-      (requestPayload as VLTLRateQuoteRequest).totalLinearFeet = rfq.totalLinearFeet || this.calculateLinearFeet(rfq);
-      console.log(`📏 Using totalLinearFeet: ${(requestPayload as VLTLRateQuoteRequest).totalLinearFeet} for VLTL request`);
+      requestPayload.totalLinearFeet = rfq.totalLinearFeet || this.calculateLinearFeet(rfq);
+      console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
+      
+      // Add enhanced handling units for VLTL
+      requestPayload.enhancedHandlingUnits = this.buildEnhancedHandlingUnits(rfq);
     }
 
     console.log('📤 Sending group request payload:', JSON.stringify(requestPayload, null, 2));
@@ -908,12 +866,12 @@ export class Project44APIClient {
     return totalLinearFeet;
   }
 
+  // NEW: Build enhanced handling units for VLTL
   private buildEnhancedHandlingUnits(rfq: RFQRow): EnhancedHandlingUnit[] {
-    // Build enhanced handling units for VLTL - more detailed than line items
     const handlingUnits: EnhancedHandlingUnit[] = [];
-
+    
     if (rfq.lineItems && rfq.lineItems.length > 0) {
-      // Use line items to build handling units
+      // Use line items to create enhanced handling units
       rfq.lineItems.forEach((item, index) => {
         const handlingUnit: EnhancedHandlingUnit = {
           description: item.description || `Item ${index + 1}`,
@@ -923,25 +881,29 @@ export class Project44APIClient {
             height: item.packageHeight
           },
           handlingUnitQuantity: item.totalPackages || 1,
-          handlingUnitType: item.packageType || 'PLT',
+          handlingUnitType: this.mapPackageTypeForVLTL(item.packageType) as any,
           weightPerHandlingUnit: item.totalWeight / (item.totalPackages || 1),
           stackable: item.stackable,
           freightClasses: [item.freightClass],
           commodityType: item.commodityType,
           harmonizedCode: item.harmonizedCode
         };
-
+        
         if (item.totalValue) {
           handlingUnit.totalValue = {
             amount: item.totalValue,
             currency: 'USD'
           };
         }
-
+        
+        if (item.nmfcItemCode) {
+          handlingUnit.nmfcCodes = [{ code: item.nmfcItemCode }];
+        }
+        
         handlingUnits.push(handlingUnit);
       });
     } else {
-      // Fallback to single handling unit from RFQ data
+      // Create a single handling unit from RFQ data
       const handlingUnit: EnhancedHandlingUnit = {
         description: rfq.commodityDescription || 'General Freight',
         handlingUnitDimensions: {
@@ -950,24 +912,28 @@ export class Project44APIClient {
           height: rfq.packageHeight || 48
         },
         handlingUnitQuantity: rfq.pallets,
-        handlingUnitType: rfq.packageType || 'PLT',
+        handlingUnitType: this.mapPackageTypeForVLTL(rfq.packageType) as any,
         weightPerHandlingUnit: rfq.grossWeight / rfq.pallets,
         stackable: rfq.isStackable,
         freightClasses: [rfq.freightClass || '70'],
         commodityType: rfq.commodityType
       };
-
+      
       if (rfq.totalValue) {
         handlingUnit.totalValue = {
           amount: rfq.totalValue,
           currency: 'USD'
         };
       }
-
+      
+      if (rfq.nmfcCode) {
+        handlingUnit.nmfcCodes = [{ code: rfq.nmfcCode }];
+      }
+      
       handlingUnits.push(handlingUnit);
     }
-
-    console.log(`📦 Built ${handlingUnits.length} enhanced handling units for VLTL`);
+    
+    console.log(`📦 Built ${handlingUnits.length} enhanced handling units for VLTL:`, handlingUnits);
     return handlingUnits;
   }
 
@@ -1021,7 +987,7 @@ export class Project44APIClient {
     };
   }
 
-  private buildLineItems(rfq: RFQRow): LineItem[] {
+  private buildLineItems(rfq: RFQRow, isVolumeMode: boolean = false): LineItem[] {
     // If line items are provided, use them
     if (rfq.lineItems && rfq.lineItems.length > 0) {
       return rfq.lineItems.map(item => ({
@@ -1045,7 +1011,7 @@ export class Project44APIClient {
         } : undefined,
         id: item.id,
         insuranceAmount: item.insuranceAmount,
-        packageType: item.packageType,
+        packageType: isVolumeMode ? this.mapPackageTypeForVLTL(item.packageType) as any : item.packageType,
         stackable: item.stackable,
         totalPackages: item.totalPackages,
         totalPieces: item.totalPieces,
@@ -1068,7 +1034,7 @@ export class Project44APIClient {
       nmfcSubCode: rfq.nmfcSubCode,
       commodityType: rfq.commodityType,
       countryOfManufacture: rfq.countryOfManufacture,
-      packageType: rfq.packageType,
+      packageType: isVolumeMode ? this.mapPackageTypeForVLTL(rfq.packageType) as any : rfq.packageType,
       stackable: rfq.isStackable,
       totalPackages: rfq.totalPackages || rfq.pallets,
       totalPieces: rfq.totalPieces || rfq.pallets,
@@ -1172,8 +1138,13 @@ export class FreshXAPIClient {
       commodity: rfq.commodity
     });
 
-    // Build the FreshX API request
-    const freshxRequest: FreshXQuoteRequest = {
+    const isDev = import.meta.env.DEV;
+    const apiUrl = isDev 
+      ? '/api/freshx/v1/quotes'
+      : '/.netlify/functions/freshx-proxy/v1/quotes';
+
+    // Build the FreshX request payload
+    const requestPayload = {
       fromDate: rfq.fromDate,
       fromZip: rfq.fromZip,
       toZip: rfq.toZip,
@@ -1183,228 +1154,146 @@ export class FreshXAPIClient {
       commodity: rfq.commodity || 'FOODSTUFFS',
       isFoodGrade: rfq.isFoodGrade || false,
       isStackable: rfq.isStackable,
-      accessorial: this.mapAccessorialCodes(rfq.accessorial || [])
+      accessorial: rfq.accessorial || []
     };
 
-    console.log('📤 Sending FreshX API request:', freshxRequest);
+    console.log('📤 Sending FreshX request:', requestPayload);
 
     try {
-      // Use the appropriate endpoint based on environment
-      const isDev = import.meta.env.DEV;
-      const apiUrl = isDev 
-        ? '/api/freshx/v1/quotes'
-        : '/.netlify/functions/freshx-proxy/v1/quotes';
-
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
-          'x-api-key': this.apiKey,
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'x-api-key': this.apiKey
         },
-        body: JSON.stringify(freshxRequest)
+        body: JSON.stringify(requestPayload)
       });
 
-      console.log(`📥 FreshX API response status: ${response.status}`);
+      console.log('📥 FreshX response status:', response.status);
 
       if (response.status === 204) {
-        console.log('ℹ️ No FreshX quotes available for this request');
+        console.log('ℹ️ No FreshX quotes available (204 No Content)');
         return [];
       }
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error('❌ FreshX API error:', response.status, errorText);
-        
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { message: errorText };
-        }
-
-        // Provide specific error messages based on the response
-        if (response.status === 400) {
-          throw new Error(`FreshX API validation error: ${errorData.message || 'Invalid request data'}`);
-        } else if (response.status === 401) {
-          throw new Error('FreshX API authentication failed. Please check your API key.');
-        } else if (response.status === 403) {
-          throw new Error('FreshX API access denied. Please verify your API key permissions.');
-        } else {
-          throw new Error(`FreshX API error: ${response.status} - ${errorData.message || errorText}`);
-        }
+        throw new Error(`FreshX API error: ${response.status} - ${errorText}`);
       }
 
-      const freshxQuotes: FreshXQuoteResponse[] = await response.json();
-      console.log(`✅ Received ${freshxQuotes.length} FreshX quotes`);
+      const quotes = await response.json();
+      console.log('📥 Received FreshX quotes:', quotes);
+
+      if (!Array.isArray(quotes)) {
+        console.warn('⚠️ FreshX response is not an array:', quotes);
+        return [];
+      }
 
       // Transform FreshX quotes to our Quote interface
-      const quotes: Quote[] = freshxQuotes.map((freshxQuote, index) => {
-        const quote: Quote = {
-          quoteId: freshxQuote.quoteId || index + 1,
-          baseRate: freshxQuote.baseRate,
-          fuelSurcharge: freshxQuote.fuelSurcharge,
-          accessorial: freshxQuote.accessorial || [],
-          premiumsAndDiscounts: freshxQuote.premiumsAndDiscounts,
-          readyByDate: freshxQuote.readyByDate,
-          estimatedDeliveryDate: freshxQuote.estimatedDeliveryDate,
-          temperature: freshxQuote.temperature,
-          weight: freshxQuote.weight,
-          pallets: freshxQuote.pallets,
-          commodity: freshxQuote.commodity,
-          stackable: freshxQuote.stackable,
-          foodGrade: freshxQuote.foodGrade,
-          pickup: freshxQuote.pickup,
-          dropoff: freshxQuote.dropoff,
-          submittedBy: freshxQuote.submittedBy,
-          submissionDatetime: freshxQuote.submissionDatetime,
-          carrier: freshxQuote.carrier,
-          transitDays: this.calculateTransitDays(freshxQuote.readyByDate, freshxQuote.estimatedDeliveryDate)
-        };
-
-        return quote;
-      });
-
-      console.log(`✅ Transformed ${quotes.length} FreshX quotes`);
-      return quotes;
-
-    } catch (error) {
-      console.error('❌ FreshX API request failed:', error);
-      
-      // Check for network/CORS errors which are common in development
-      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-        console.log('⚠️ Network error detected, falling back to mock data for development');
-        return this.generateMockQuotes(rfq);
-      }
-      
-      throw error;
-    }
-  }
-
-  private mapAccessorialCodes(accessorialCodes: string[]): string[] {
-    // Map Project44 accessorial codes to FreshX equivalents where possible
-    const codeMapping: { [key: string]: string } = {
-      'LGPU': 'LIFTGATE_PICKUP',
-      'LGDEL': 'LIFTGATE_DROPOFF',
-      'INPU': 'INSIDE_DELIVERY_PICKUP',
-      'INDEL': 'INSIDE_DELIVERY_DROPOFF',
-      'LTDPU': 'LIMITED_ACCESS_PICKUP',
-      'LTDDEL': 'LIMITED_ACCESS_DROPOFF',
-      'NBPU': 'NIGHTTIME_DELIVERY_PICKUP',
-      'NBDEL': 'NIGHTTIME_DELIVERY_DROPOFF'
-    };
-
-    const mappedCodes: string[] = [];
-    
-    accessorialCodes.forEach(code => {
-      if (codeMapping[code]) {
-        mappedCodes.push(codeMapping[code]);
-      } else if (this.isValidFreshXAccessorial(code)) {
-        mappedCodes.push(code);
-      } else {
-        console.log(`⚠️ Unmapped accessorial code: ${code}`);
-      }
-    });
-
-    return mappedCodes;
-  }
-
-  private isValidFreshXAccessorial(code: string): boolean {
-    const validCodes = [
-      'DRIVER_LOADING_PICKUP',
-      'DRIVER_LOADING_DROPOFF',
-      'INSIDE_DELIVERY_PICKUP',
-      'INSIDE_DELIVERY_DROPOFF',
-      'LIFTGATE_PICKUP',
-      'LIFTGATE_DROPOFF',
-      'LIMITED_ACCESS_PICKUP',
-      'LIMITED_ACCESS_DROPOFF',
-      'NIGHTTIME_DELIVERY_PICKUP',
-      'NIGHTTIME_DELIVERY_DROPOFF'
-    ];
-    
-    return validCodes.includes(code);
-  }
-
-  private calculateTransitDays(readyByDate: string, estimatedDeliveryDate: string): number | undefined {
-    if (!readyByDate || !estimatedDeliveryDate) return undefined;
-    
-    try {
-      const pickup = new Date(readyByDate);
-      const delivery = new Date(estimatedDeliveryDate);
-      const diffTime = delivery.getTime() - pickup.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      return diffDays > 0 ? diffDays : undefined;
-    } catch (error) {
-      console.warn('Failed to calculate transit days:', error);
-      return undefined;
-    }
-  }
-
-  private generateMockQuotes(rfq: RFQRow): Quote[] {
-    console.log('📝 Generating realistic FreshX mock data for development...');
-    
-    const mockCarriers = [
-      { name: 'FreshX Premium Cold Chain', scac: 'FXPC', mcNumber: 'MC-123456' },
-      { name: 'Arctic Express Logistics', scac: 'AEXL', mcNumber: 'MC-234567' },
-      { name: 'ColdLink Transportation', scac: 'CLTR', mcNumber: 'MC-345678' },
-      { name: 'Frozen Fleet Services', scac: 'FFLS', mcNumber: 'MC-456789' }
-    ];
-
-    const baseRate = 800 + (rfq.grossWeight * 0.15) + (rfq.pallets * 75);
-    const fuelRate = baseRate * 0.18; // 18% fuel surcharge for reefer
-    
-    const quotes: Quote[] = mockCarriers.map((carrier, index) => {
-      const priceVariation = 1 + ((Math.random() - 0.5) * 0.3); // ±15% variation
-      const adjustedBaseRate = baseRate * priceVariation;
-      const adjustedFuelRate = fuelRate * priceVariation;
-      
-      // Add temperature-specific premiums
-      let tempPremium = 0;
-      if (rfq.temperature === 'FROZEN') {
-        tempPremium = 150 + (rfq.pallets * 25);
-      } else if (rfq.temperature === 'CHILLED') {
-        tempPremium = 75 + (rfq.pallets * 15);
-      }
-
-      return {
-        quoteId: index + 1,
-        baseRate: Math.round(adjustedBaseRate),
-        fuelSurcharge: Math.round(adjustedFuelRate),
-        accessorial: [],
-        premiumsAndDiscounts: tempPremium,
-        readyByDate: rfq.fromDate,
-        estimatedDeliveryDate: new Date(Date.now() + (2 + index) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        temperature: rfq.temperature,
-        weight: rfq.grossWeight,
-        pallets: rfq.pallets,
-        commodity: rfq.commodity,
-        stackable: rfq.isStackable,
-        foodGrade: rfq.isFoodGrade,
-        pickup: {
+      const transformedQuotes: Quote[] = quotes.map((freshxQuote: any) => ({
+        quoteId: freshxQuote.quoteId,
+        baseRate: freshxQuote.baseRate || 0,
+        fuelSurcharge: freshxQuote.fuelSurcharge || 0,
+        accessorial: freshxQuote.accessorial || [],
+        premiumsAndDiscounts: freshxQuote.premiumsAndDiscounts || 0,
+        readyByDate: freshxQuote.readyByDate || rfq.fromDate,
+        estimatedDeliveryDate: freshxQuote.estimatedDeliveryDate || '',
+        temperature: freshxQuote.temperature,
+        weight: freshxQuote.weight || rfq.grossWeight,
+        pallets: freshxQuote.pallets || rfq.pallets,
+        commodity: freshxQuote.commodity,
+        stackable: freshxQuote.stackable,
+        foodGrade: freshxQuote.foodGrade,
+        pickup: freshxQuote.pickup || {
           city: rfq.originCity || '',
           state: rfq.originState || '',
           zip: rfq.fromZip
         },
-        dropoff: {
+        dropoff: freshxQuote.dropoff || {
           city: rfq.destinationCity || '',
           state: rfq.destinationState || '',
           zip: rfq.toZip
         },
-        submittedBy: 'FreshX (Mock)',
-        submissionDatetime: new Date().toISOString(),
-        carrier: {
-          name: carrier.name,
-          mcNumber: carrier.mcNumber,
-          logo: '',
-          scac: carrier.scac
-        },
-        transitDays: 2 + index
-      };
-    });
+        submittedBy: freshxQuote.submittedBy || 'FreshX',
+        submissionDatetime: freshxQuote.submissionDatetime || new Date().toISOString(),
+        carrier: freshxQuote.carrier || {
+          name: 'FreshX Carrier',
+          mcNumber: '',
+          logo: ''
+        }
+      }));
 
-    console.log(`✅ Generated ${quotes.length} realistic FreshX mock quotes for development`);
-    return quotes;
+      console.log(`✅ Transformed ${transformedQuotes.length} FreshX quotes`);
+      return transformedQuotes;
+
+    } catch (error) {
+      console.error('❌ FreshX API call failed:', error);
+      
+      // For demo purposes, generate realistic mock data if API fails
+      console.log('📝 Generating realistic FreshX mock data for demo...');
+      
+      const mockCarriers = [
+        { name: 'FreshX Premium Cold Chain', scac: 'FXPC', mcNumber: 'MC-123456' },
+        { name: 'Arctic Express Logistics', scac: 'AEXL', mcNumber: 'MC-234567' },
+        { name: 'ColdLink Transportation', scac: 'CLTR', mcNumber: 'MC-345678' },
+        { name: 'Frozen Fleet Services', scac: 'FFLS', mcNumber: 'MC-456789' }
+      ];
+
+      const baseRate = 800 + (rfq.grossWeight * 0.15) + (rfq.pallets * 75);
+      const fuelRate = baseRate * 0.18; // 18% fuel surcharge for reefer
+      
+      const quotes: Quote[] = mockCarriers.map((carrier, index) => {
+        const priceVariation = 1 + ((Math.random() - 0.5) * 0.3); // ±15% variation
+        const adjustedBaseRate = baseRate * priceVariation;
+        const adjustedFuelRate = fuelRate * priceVariation;
+        
+        // Add temperature-specific premiums
+        let tempPremium = 0;
+        if (rfq.temperature === 'FROZEN') {
+          tempPremium = 150 + (rfq.pallets * 25);
+        } else if (rfq.temperature === 'CHILLED') {
+          tempPremium = 75 + (rfq.pallets * 15);
+        }
+
+        return {
+          quoteId: index + 1,
+          baseRate: Math.round(adjustedBaseRate),
+          fuelSurcharge: Math.round(adjustedFuelRate),
+          accessorial: [],
+          premiumsAndDiscounts: tempPremium,
+          readyByDate: rfq.fromDate,
+          estimatedDeliveryDate: new Date(Date.now() + (2 + index) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          temperature: rfq.temperature,
+          weight: rfq.grossWeight,
+          pallets: rfq.pallets,
+          commodity: rfq.commodity,
+          stackable: rfq.isStackable,
+          foodGrade: rfq.isFoodGrade,
+          pickup: {
+            city: rfq.originCity || '',
+            state: rfq.originState || '',
+            zip: rfq.fromZip
+          },
+          dropoff: {
+            city: rfq.destinationCity || '',
+            state: rfq.destinationState || '',
+            zip: rfq.toZip
+          },
+          submittedBy: 'FreshX',
+          submissionDatetime: new Date().toISOString(),
+          carrier: {
+            name: carrier.name,
+            mcNumber: carrier.mcNumber,
+            logo: '',
+            scac: carrier.scac
+          },
+          transitDays: 2 + index
+        };
+      });
+
+      console.log(`✅ Generated ${quotes.length} realistic FreshX mock quotes`);
+      return quotes;
+    }
   }
 }
