@@ -499,7 +499,7 @@ export class Project44APIClient {
           allowUnacceptedAccessorials: true,
           fetchAllGuaranteed: true,
           fetchAllInsideDelivery: false,
-          fetchAllServiceLevels: false
+          fetchAllServiceLevels: true
         },
         enableUnitConversion: rfq.enableUnitConversion ?? true,
         fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
