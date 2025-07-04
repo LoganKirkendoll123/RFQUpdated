@@ -133,7 +133,16 @@ export const CarrierManagement: React.FC = () => {
       if (error) throw error;
       await loadCarriers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete carrier');
+      if (err instanceof Error) {
+        // Check if it's a foreign key constraint violation
+        if (err.message.includes('23503') || err.message.includes('violates foreign key constraint')) {
+          setError(`Cannot delete carrier "${carrier.name}" because it is linked to existing shipments. Please remove or reassign all shipments for this carrier before deleting.`);
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('Failed to delete carrier');
+      }
     } finally {
       setLoading(false);
     }
