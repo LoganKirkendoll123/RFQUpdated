@@ -184,18 +184,20 @@ function App() {
     const processedQuotes: QuoteResult[] = [];
     
     try {
-      const onProgress = (status: string) => {
+      const onProgress = (progress: number, status: string) => {
+        console.log(`Progress: ${progress}%, Status: ${status}`);
         setCurrentProcessingStatus(status);
       };
       
       const onQuoteReceived = (rfqIndex: number, quotes: any[]) => {
+        console.log(`Received quotes for RFQ ${rfqIndex}: ${quotes.length} quotes`);
         setProcessingCompleted(prev => prev + 1);
         
         if (quotes && quotes.length > 0) {
           setProcessingSuccess(prev => prev + 1);
           // Convert quotes to QuoteResult format
           const quoteResults = quotes.map(quote => ({
-            rfqId: rfqData[rfqIndex].id || `rfq-${rfqIndex}`,
+            rfqId: (rfqData[rfqIndex]?.id) || `rfq-${rfqIndex}`,
             carrierId: quote.carrierId || 'unknown',
             carrierName: quote.carrierName || 'Unknown Carrier',
             serviceType: quote.serviceType || 'Standard',
@@ -338,7 +340,14 @@ function App() {
                     </button>
                   </div>
                   
-                  {isProcessing && <ProcessingStatus />}
+                  {isProcessing && <ProcessingStatus 
+                    total={processingTotal}
+                    completed={processingCompleted}
+                    success={processingSuccess || 0}
+                    errors={processingErrors || 0}
+                    isProcessing={isProcessing}
+                    currentProcessingStatus={currentProcessingStatus}
+                  />}
                 </div>
               )}
             </div>

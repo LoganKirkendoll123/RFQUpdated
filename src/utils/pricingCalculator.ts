@@ -211,7 +211,7 @@ export const calculatePricing = memoize((
   let markupApplied: number;
   let isCustomPrice = false;
   let appliedMarginType: 'customer' | 'fallback' | 'flat' = 'flat';
-  let appliedMarginPercentage: number = settings.markupPercentage;
+  let appliedMarginPercentage: number = settings?.markupPercentage || 15;
 
   if (customPrice !== undefined) {
     // Custom price override
@@ -220,25 +220,30 @@ export const calculatePricing = memoize((
     isCustomPrice = true;
     appliedMarginType = 'flat';
   } else {
+    // Default values if settings is undefined
+    const markupType = settings?.markupType || 'percentage';
+    const markupPercentage = settings?.markupPercentage || 15;
+    const minimumProfit = settings?.minimumProfit || 100;
+    
     // Determine which margin to apply
-    if (settings.usesCustomerMargins && selectedCustomer) {
+    if (settings?.usesCustomerMargins && selectedCustomer) {
       // For customer margins mode, we'll need to do async lookup
       // Use fallback margin with correct formula
-      const fallbackMargin = settings.fallbackMarkupPercentage || 23;
+      const fallbackMargin = settings?.fallbackMarkupPercentage || 23;
       appliedMarginPercentage = fallbackMargin;
       appliedMarginType = 'fallback';
       customerPrice = carrierTotalRate / (1 - (fallbackMargin / 100));
       markupApplied = customerPrice - carrierTotalRate;
     } else {
       // Apply flat markup
-      if (settings.markupType === 'percentage') {
-        customerPrice = carrierTotalRate / (1 - (settings.markupPercentage / 100));
+      if (markupType === 'percentage') {
+        customerPrice = carrierTotalRate / (1 - (markupPercentage / 100));
         markupApplied = customerPrice - carrierTotalRate;
-        appliedMarginPercentage = settings.markupPercentage;
+        appliedMarginPercentage = markupPercentage;
       } else {
-        markupApplied = settings.markupPercentage;
+        markupApplied = markupPercentage;
         customerPrice = carrierTotalRate + markupApplied;
-        appliedMarginPercentage = (settings.markupPercentage / carrierTotalRate) * 100; // Convert to percentage for display
+        appliedMarginPercentage = (markupPercentage / carrierTotalRate) * 100; // Convert to percentage for display
       }
       appliedMarginType = 'flat';
     }
@@ -246,12 +251,12 @@ export const calculatePricing = memoize((
     // Ensure minimum profit is met (only adjust if below minimum)
     // CRITICAL: Ensure minimum profit is ALWAYS enforced
     const calculatedProfit = customerPrice - carrierTotalRate;
-    if (calculatedProfit < settings.minimumProfit) {
-      console.log(`⚠️ Enforcing minimum profit: ${formatCurrency(calculatedProfit)} → ${formatCurrency(settings.minimumProfit)}`);
-      markupApplied = settings.minimumProfit;
-      customerPrice = carrierTotalRate + settings.minimumProfit;
+    if (calculatedProfit < minimumProfit) {
+      console.log(`⚠️ Enforcing minimum profit: ${formatCurrency(calculatedProfit)} → ${formatCurrency(minimumProfit)}`);
+      markupApplied = minimumProfit;
+      customerPrice = carrierTotalRate + minimumProfit;
       // Recalculate the applied margin percentage based on the enforced minimum
-      appliedMarginPercentage = carrierTotalRate > 0 ? (settings.minimumProfit / carrierTotalRate) * 100 : 0;
+      appliedMarginPercentage = carrierTotalRate > 0 ? (minimumProfit / carrierTotalRate) * 100 : 0;
     }
   }
 

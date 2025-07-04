@@ -210,20 +210,27 @@ const parseRow = memoize((row: any, index: number, isProject44: boolean = false)
   // Add rowIndex for batch processing
   const rowIndex = index;
   
+  // Ensure we have valid values for required fields
+  const validFromDate = fromDate || new Date().toISOString().split('T')[0];
+  const validFromZip = fromZip || '00000';
+  const validToZip = toZip || '00000';
+  const validPallets = isNaN(pallets) ? 1 : pallets;
+  const validGrossWeight = isNaN(grossWeight) ? 1000 : grossWeight;
+  
   // Validation
-  if (!fromDate || !isValidDate(fromDate)) {
+  if (!isValidDate(validFromDate)) {
     errors.push('Invalid or missing fromDate');
   }
-  if (!fromZip || !isValidZip(fromZip)) {
+  if (!isValidZip(validFromZip)) {
     errors.push('Invalid or missing fromZip');
   }
-  if (!toZip || !isValidZip(toZip)) {
+  if (!isValidZip(validToZip)) {
     errors.push('Invalid or missing toZip');
   }
-  if (!pallets || pallets < 1 || pallets > 100) {
+  if (validPallets < 1 || validPallets > 100) {
     errors.push('Pallets must be between 1 and 100');
   }
-  if (!grossWeight || grossWeight < 1 || grossWeight > 100000) {
+  if (validGrossWeight < 1 || validGrossWeight > 100000) {
     errors.push('Gross weight must be between 1 and 100000');
   }
   
@@ -240,11 +247,11 @@ const parseRow = memoize((row: any, index: number, isProject44: boolean = false)
   }
   
   const result: RFQRow = {
-    fromDate,
-    fromZip,
-    toZip,
-    pallets,
-    grossWeight,
+    fromDate: validFromDate,
+    fromZip: validFromZip,
+    toZip: validToZip,
+    pallets: validPallets,
+    grossWeight: validGrossWeight,
     isStackable,
     accessorial,
     // Add the new isReefer field for smart routing

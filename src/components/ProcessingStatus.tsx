@@ -8,6 +8,7 @@ interface ProcessingStatusProps {
   errors: number;
   isProcessing: boolean;
   currentCarrier?: string;
+  currentProcessingStatus?: string;
   carrierProgress?: {
     current: number;
     total: number;
@@ -21,6 +22,7 @@ export const ProcessingStatus: React.FC<ProcessingStatusProps> = ({
   errors,
   isProcessing,
   currentCarrier,
+  currentProcessingStatus,
   carrierProgress
 }) => {
   const progress = total > 0 ? (completed / total) * 100 : 0;
@@ -55,6 +57,14 @@ export const ProcessingStatus: React.FC<ProcessingStatusProps> = ({
             {progress.toFixed(1)}% complete
           </div>
         </div>
+
+        {/* Current Processing Status */}
+        {currentProcessingStatus && (
+          <div className="mt-3 text-sm text-gray-600">
+            <div className="font-medium">Current Status:</div>
+            <div>{currentProcessingStatus}</div>
+          </div>
+        )}
 
         {/* Current Carrier Progress (if processing) */}
         {isProcessing && currentCarrier && carrierProgress && (
