@@ -937,7 +937,7 @@ export const MarginAnalysisTools: React.FC = () => {
                     'capacityProviderAccountGroup: { accounts: [{code: "carrier"}], code: "group" }'
                   )}</li>
                   <li><strong>Customer matching:</strong> Case-insensitive with whitespace trimming</li>
-                  <li><strong>Outlier removal:</strong> Remove high-end outliers only if >50% above average AND less than target carrier rate</li>
+                  <li><strong>Outlier removal:</strong> Remove high-end outliers only if &gt;50% above average AND less than target carrier rate</li>
                   <li>Calculate average of competitor costs after outlier removal</li>
                   <li>Mark up this average using <strong>CORRECT formula: cost / (1 - margin)</strong></li>
                   <li>Process <strong>{shipmentData.length} historical shipments</strong> with actual service levels</li>
