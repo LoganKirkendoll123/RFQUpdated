@@ -133,6 +133,14 @@ export const loadSelectedModes = (): any | null => {
   }
 };
 
+// Get stored credentials in a unified format
+export const getStoredCredentials = () => {
+  const project44Config = loadProject44Config();
+  return {
+    project44ApiKey: project44Config?.clientId || null
+  };
+};
+
 // Clear all stored credentials and settings
 export const clearAllStoredData = (): void => {
   try {
