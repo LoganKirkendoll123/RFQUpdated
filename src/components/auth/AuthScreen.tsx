@@ -2,18 +2,11 @@ import React, { useState } from 'react';
 import { DollarSign, Truck, BarChart3, Shield, Zap, Globe } from 'lucide-react';
 import { LoginForm } from './LoginForm';
 import { SignupForm } from './SignupForm';
-import { VerificationForm } from './VerificationForm';
 
-type AuthMode = 'login' | 'signup' | 'verification';
+type AuthMode = 'login' | 'signup';
 
 export const AuthScreen: React.FC = () => {
   const [mode, setMode] = useState<AuthMode>('login');
-  const [verificationEmail, setVerificationEmail] = useState('');
-
-  const handleSwitchToVerification = (email: string) => {
-    setVerificationEmail(email);
-    setMode('verification');
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -105,20 +98,11 @@ export const AuthScreen: React.FC = () => {
           {mode === 'login' && (
             <LoginForm
               onSwitchToSignup={() => setMode('signup')}
-              onSwitchToVerification={() => setMode('verification')}
             />
           )}
           
           {mode === 'signup' && (
             <SignupForm
-              onSwitchToLogin={() => setMode('login')}
-              onSwitchToVerification={handleSwitchToVerification}
-            />
-          )}
-          
-          {mode === 'verification' && (
-            <VerificationForm
-              email={verificationEmail}
               onSwitchToLogin={() => setMode('login')}
             />
           )}

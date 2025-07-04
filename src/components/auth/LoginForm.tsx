@@ -4,10 +4,9 @@ import { useAuth } from './AuthProvider';
 
 interface LoginFormProps {
   onSwitchToSignup: () => void;
-  onSwitchToVerification: () => void;
 }
 
-export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignup, onSwitchToVerification }) => {
+export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignup }) => {
   const { signIn } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
@@ -26,10 +25,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignup, onSwitch
     
     if (error) {
       setError(error.message);
-      if (error.message.includes('verify your email')) {
-        // Switch to verification form if email needs verification
-        setTimeout(() => onSwitchToVerification(), 2000);
-      }
     }
     
     setLoading(false);

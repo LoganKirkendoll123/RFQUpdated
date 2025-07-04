@@ -2,34 +2,29 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../../utils/supabase';
 
-interface UserProfile {
+interface SimpleUser {
   id: string;
-  user_id: string;
+  auth_id: string;
   email: string;
-  first_name?: string;
-  last_name?: string;
+  name?: string;
   company?: string;
-  phone?: string;
   is_verified: boolean;
   is_active: boolean;
-  role: 'admin' | 'user' | 'manager';
+  is_admin: boolean;
   created_at: string;
-  updated_at: string;
   last_login?: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  profile: UserProfile | null;
+  profile: SimpleUser | null;
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: any }>;
   signUp: (email: string, password: string, userData: any) => Promise<{ error?: any }>;
   signOut: () => Promise<void>;
-  verifyEmail: (email: string, code: string) => Promise<{ error?: any }>;
-  resendVerification: (email: string) => Promise<{ error?: any }>;
-  resetPassword: (email: string) => Promise<{ error?: any }>;
-  updateProfile: (updates: Partial<UserProfile>) => Promise<{ error?: any }>;
+  updateProfile: (updates: Partial<SimpleUser>) => Promise<{ error?: any }>;
+  requestApproval: () => Promise<{ error?: any }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -44,7 +39,7 @@ export const useAuth = () => {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profile, setProfile] = useState<SimpleUser | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -88,183 +83,208 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadUserProfile = async (userId: string) => {
     try {
       console.log('Loading user profile for userId:', userId);
-      
-      // Create a minimal profile in memory as fallback
-      const minimalProfile = {
-        id: userId,
-        user_id: userId,
-        email: user?.email || 'unknown@example.com',
-        is_verified: true,
-        is_active: true,
-        role: 'user',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
 
       // Try to get the user profile
       const { data, error } = await supabase
-        .from('user_profiles')
+        .from('simple_users')
         .select('*')
-        .eq('user_id', userId)
+        .eq('auth_id', userId)
         .single();
       
-      console.log('Profile query result:', data ? 'Found profile' : 'No profile found', 'Error:', error?.code);
+      console.log('User profile query result:', data ? 'Found profile' : 'No profile found', 'Error:', error?.code);
       
       if (error) {
-        console.error('Error loading user profile:', error);
-        console.log('Error loading profile, using minimal profile');
-        setProfile(minimalProfile);
-        setLoading(false);
-        return;
+        console.error('Error loading simple user:', error);
+        
+        // Try to create a profile if it doesn't exist
+        if (error.code === 'PGRST116') { // No rows returned
+          console.log('No profile found, creating one...');
+          await createSimpleUser(userId);
+        } else {
+          // Use fallback profile
+          const fallbackProfile = {
+            id: userId,
+            auth_id: userId,
+            email: user?.email || 'unknown@example.com',
+            is_verified: false,
+            is_active: false,
+            is_admin: false,
+            created_at: new Date().toISOString()
+          };
+          setProfile(fallbackProfile);
+          setLoading(false);
+        }
+        return; 
       }
       
       if (!data) {
-        console.error('No profile found despite no error');
-        console.log('No profile found, using minimal profile');
-        setProfile(minimalProfile);
-        setLoading(false);
+        console.log('No profile found, creating one...');
+        await createSimpleUser(userId);
         return;
       }
       
       setProfile(data);
-      console.log('User profile loaded successfully:', data);
+      console.log('Simple user loaded successfully:', data);
       setLoading(false);
     } catch (error) {
-      console.error('Error loading user profile:', error);
+      console.error('Error in loadUserProfile:', error);
+      
+      // Use fallback profile
+      const fallbackProfile = {
+        id: userId,
+        auth_id: userId,
+        email: user?.email || 'unknown@example.com',
+        is_verified: false,
+        is_active: false,
+        is_admin: false,
+        created_at: new Date().toISOString()
+      };
+      setProfile(fallbackProfile);
       setLoading(false);
     }
   };
 
-  // Create a user profile if it doesn't exist
-  const createNewUserProfile = async (userId: string): Promise<boolean> => {
+  // Create a simple user if it doesn't exist
+  const createSimpleUser = async (userId: string): Promise<boolean> => {
     try {
-      console.log('Creating new user profile for userId:', userId);
+      console.log('Creating new simple user for userId:', userId);
       // Get user email from auth.users
       const { data: userData } = await supabase.auth.getUser();
       
       const email = userData?.user?.email;
       if (!email) {
-        console.error('Cannot create profile: user email not found, using fallback');
-        // Create a minimal profile in memory
-        const fallbackProfile = {
+        console.error('Cannot create simple user: user email not found, using fallback');
+        const fallbackUser = {
           id: userId,
-          user_id: userId,
+          auth_id: userId,
           email: 'unknown@example.com',
-          is_verified: true,
-          is_active: true,
-          role: 'user',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          is_verified: false,
+          is_active: false,
+          is_admin: false,
+          created_at: new Date().toISOString()
         };
-        setProfile(fallbackProfile);
+        setProfile(fallbackUser);
         setLoading(false);
         return true;
       }
       
-      // Create a basic profile
+      // Create a basic user
       try {
         const { data, error } = await supabase
-          .from('user_profiles')
+          .from('simple_users')
           .insert({
-            user_id: userId,
+            auth_id: userId,
             email: email,
-            is_verified: true, // Auto-verify for now
-            is_active: true
+            is_verified: false,
+            is_active: false
           })
           .select()
           .single();
 
-        console.log('Profile creation result:', data ? 'Profile created' : 'Failed to create profile', 'Error:', error?.code);
+        console.log('Simple user creation result:', data ? 'User created' : 'Failed to create user', 'Error:', error?.code);
           
         if (error) {
-          console.error('Error creating user profile:', error);
-          // If we can't create the profile in the database, create a minimal one in memory
-          const fallbackProfile = {
+          console.error('Error creating simple user:', error);
+          // If we can't create the user in the database, create a fallback one in memory
+          const fallbackUser = {
             id: userId,
-            user_id: userId,
+            auth_id: userId,
             email: email,
-            is_verified: true,
-            is_active: true,
-            role: 'user',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            is_verified: false,
+            is_active: false,
+            is_admin: false,
+            created_at: new Date().toISOString()
           };
-          setProfile(fallbackProfile);
+          setProfile(fallbackUser);
           setLoading(false);
           return true;
         } else {
-          console.log('User profile created successfully:', data);
+          console.log('Simple user created successfully:', data);
+          
+          // Create admin approval request
+          await supabase
+            .from('admin_approvals')
+            .insert({
+              user_id: data.id,
+              status: 'pending'
+            });
+            
           setProfile(data);
           setLoading(false);
           return true;
         }
       } catch (insertError) {
-        console.error('Exception creating user profile:', insertError);
-        // Create a minimal profile in memory as fallback
-        const fallbackProfile = {
+        console.error('Exception creating simple user:', insertError);
+        // Create a fallback user in memory
+        const fallbackUser = {
           id: userId,
-          user_id: userId,
+          auth_id: userId,
           email: email,
-          is_verified: true,
-          is_active: true,
-          role: 'user',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          is_verified: false,
+          is_active: false,
+          is_admin: false,
+          created_at: new Date().toISOString()
         };
-        setProfile(fallbackProfile);
+        setProfile(fallbackUser);
         setLoading(false);
         return true;
       }
     } catch (error) {
-      console.error('Error creating user profile:', error);
-      // Create a minimal profile in memory as fallback for any error
-      const fallbackProfile = {
+      console.error('Error in createSimpleUser:', error);
+      // Create a fallback user in memory for any error
+      const fallbackUser = {
         id: userId,
-        user_id: userId,
+        auth_id: userId,
         email: user?.email || 'unknown@example.com',
-        is_verified: true,
-        is_active: true,
-        role: 'user',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        is_verified: false,
+        is_active: false,
+        is_admin: false,
+        created_at: new Date().toISOString()
       };
-      setProfile(fallbackProfile);
+      setProfile(fallbackUser);
       setLoading(false);
       return true;
     }
   };
-
-
 
   const signIn = async (email: string, password: string) => {
     try {
       setLoading(true);
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
-        password
+        password,
+        options: {
+          captchaToken: undefined
+        }
       });
 
       if (error) {
         return { error };
       }
 
-      // Check if user is verified and active
+      // Check if user is approved and active
       if (data.user) {
-        const { data: profileData } = await supabase
-          .from('user_profiles')
+        const { data: userData } = await supabase
+          .from('simple_users')
           .select('is_verified, is_active')
-          .eq('user_id', data.user.id)
+          .eq('auth_id', data.user.id)
           .single();
 
-        if (profileData && !profileData.is_verified) {
+        if (userData && !userData.is_verified) {
           await supabase.auth.signOut();
-          return { error: { message: 'Please verify your email before signing in.' } };
+          return { error: { message: 'Your account is pending verification.' } };
         }
 
-        if (profileData && !profileData.is_active) {
+        if (userData && !userData.is_active) {
           await supabase.auth.signOut();
-          return { error: { message: 'Your account has been deactivated. Please contact support.' } };
+          return { error: { message: 'Your account is pending admin approval.' } };
         }
+        
+        // Update last login
+        await supabase
+          .from('simple_users')
+          .update({ last_login: new Date().toISOString() })
+          .eq('auth_id', data.user.id);
       }
 
       return { error: null };
@@ -278,8 +298,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signUp = async (email: string, password: string, userData: any) => {
     try {
       setLoading(true);
-      
-      // Create the user account
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -291,27 +310,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) {
         return { error };
       }
-
+      
       if (data.user) {
-        // Generate verification code
-        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-        
-        // Store verification code
-        await supabase
-          .from('verification_codes')
+        // Create simple user record
+        const { data: simpleUser, error: userError } = await supabase
+          .from('simple_users')
           .insert({
-            user_id: data.user.id,
+            auth_id: data.user.id,
             email: email,
-            code: verificationCode,
-            code_type: 'email_verification',
-            expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours
-          });
-
-        // In a real app, you would send this code via email
-        console.log('Verification code for', email, ':', verificationCode);
-        
-        // For demo purposes, show an alert
-        alert(`Verification code sent to ${email}. For demo: ${verificationCode}`);
+            name: `${userData.first_name || ''} ${userData.last_name || ''}`.trim(),
+            company: userData.company,
+            is_verified: false,
+            is_active: false
+          })
+          .select()
+          .single();
+          
+        if (userError) {
+          console.error('Error creating simple user:', userError);
+        } else {
+          // Create admin approval request
+          await supabase
+            .from('admin_approvals')
+            .insert({
+              user_id: simpleUser.id,
+              status: 'pending'
+            });
+            
+          // For demo purposes, show an alert
+          alert(`Account created! Please wait for admin approval.`);
+        }
       }
 
       return { error: null };
@@ -322,106 +350,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const verifyEmail = async (email: string, code: string) => {
+  const requestApproval = async () => {
     try {
-      setLoading(true);
+      if (!user || !profile) {
+        return { error: { message: 'No user logged in' } };
+      }
       
-      // Check verification code
-      const { data: codeData, error: codeError } = await supabase
-        .from('verification_codes')
+      // Check if there's already a pending approval
+      const { data: existingApproval } = await supabase
+        .from('admin_approvals')
         .select('*')
-        .eq('email', email)
-        .eq('code', code)
-        .eq('code_type', 'email_verification')
-        .is('used_at', null)
-        .gt('expires_at', new Date().toISOString())
+        .eq('user_id', profile.id)
+        .eq('status', 'pending')
         .single();
-
-      if (codeError || !codeData) {
-        return { error: { message: 'Invalid or expired verification code.' } };
+        
+      if (existingApproval) {
+        return { error: { message: 'Approval request already pending' } };
       }
-
-      // Mark code as used
-      await supabase
-        .from('verification_codes')
-        .update({ used_at: new Date().toISOString() })
-        .eq('id', codeData.id);
-
-      // Update user profile as verified
-      await supabase
-        .from('user_profiles')
-        .update({ is_verified: true })
-        .eq('user_id', codeData.user_id);
-
-      return { error: null };
-    } catch (error) {
-      return { error };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resendVerification = async (email: string) => {
-    try {
-      // Get user by email
-      const { data: userData } = await supabase
-        .from('user_profiles')
-        .select('user_id')
-        .eq('email', email)
-        .single();
-
-      if (!userData) {
-        return { error: { message: 'User not found.' } };
-      }
-
-      // Generate new verification code
-      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
       
-      // Delete old codes
-      await supabase
-        .from('verification_codes')
-        .delete()
-        .eq('user_id', userData.user_id)
-        .eq('code_type', 'email_verification');
-
-      // Store new verification code
-      await supabase
-        .from('verification_codes')
+      // Create new approval request
+      const { error } = await supabase
+        .from('admin_approvals')
         .insert({
-          user_id: userData.user_id,
-          email: email,
-          code: verificationCode,
-          code_type: 'email_verification',
-          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+          user_id: profile.id,
+          status: 'pending'
         });
-
-      // In a real app, send email here
-      console.log('New verification code for', email, ':', verificationCode);
-      alert(`New verification code sent to ${email}. For demo: ${verificationCode}`);
-
-      return { error: null };
-    } catch (error) {
-      return { error };
-    }
-  };
-
-  const resetPassword = async (email: string) => {
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email);
+        
       return { error };
     } catch (error) {
       return { error };
     }
   };
 
-  const updateProfile = async (updates: Partial<UserProfile>) => {
+  const updateProfile = async (updates: Partial<SimpleUser>) => {
     try {
       if (!user) return { error: { message: 'No user logged in' } };
 
       const { error } = await supabase
-        .from('user_profiles')
+        .from('simple_users')
         .update(updates)
-        .eq('user_id', user.id);
+        .eq('auth_id', user.id);
 
       if (!error) {
         setProfile(prev => prev ? { ...prev, ...updates } : null);
@@ -452,10 +420,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signIn,
     signUp,
     signOut,
-    verifyEmail,
-    resendVerification,
-    resetPassword,
-    updateProfile
+    updateProfile,
+    requestApproval
   };
 
   return (

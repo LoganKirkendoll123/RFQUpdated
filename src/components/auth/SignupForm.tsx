@@ -4,10 +4,9 @@ import { useAuth } from './AuthProvider';
 
 interface SignupFormProps {
   onSwitchToLogin: () => void;
-  onSwitchToVerification: (email: string) => void;
 }
 
-export const SignupForm: React.FC<SignupFormProps> = ({ onSwitchToLogin, onSwitchToVerification }) => {
+export const SignupForm: React.FC<SignupFormProps> = ({ onSwitchToLogin }) => {
   const { signUp } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
@@ -51,8 +50,9 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSwitchToLogin, onSwitc
     if (error) {
       setError(error.message);
     } else {
-      // Switch to verification form
-      onSwitchToVerification(formData.email);
+      // Show success message and switch to login
+      alert('Account created! Please wait for admin approval before logging in.');
+      onSwitchToLogin();
     }
     
     setLoading(false);

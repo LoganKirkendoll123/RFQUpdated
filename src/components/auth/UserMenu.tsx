@@ -17,15 +17,15 @@ export const UserMenu: React.FC = () => {
   const loadUserSessions = async () => {
     try {
       const { data, error } = await supabase
-        .from('user_sessions')
+        .from('simple_users')
         .select('id')
-        .eq('user_id', user?.id);
+        .eq('auth_id', user?.id);
         
       if (!error && data) {
-        setSessionCount(data.length);
+        setSessionCount(1); // Simplified - just show 1 session
       }
     } catch (error) {
-      console.error('Error loading user sessions:', error);
+      console.error('Error checking user session:', error);
     }
   };
 
@@ -63,7 +63,7 @@ export const UserMenu: React.FC = () => {
               </div>
               <div>
                 <div className="font-medium text-gray-900">
-                  {profile.first_name} {profile.last_name}
+                  {profile.name || 'User'}
                 </div>
                 <div className="text-sm text-gray-500">{profile.email}</div>
                 {profile.company && (
@@ -74,12 +74,11 @@ export const UserMenu: React.FC = () => {
             
             <div className="mt-3 flex items-center space-x-2">
               <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                profile.role === 'admin' ? 'bg-purple-100 text-purple-800' :
-                profile.role === 'manager' ? 'bg-blue-100 text-blue-800' :
+                profile.is_admin ? 'bg-purple-100 text-purple-800' :
                 'bg-gray-100 text-gray-800'
               }`}>
-                {profile.role === 'admin' && <Shield className="h-3 w-3 mr-1" />}
-                {profile.role.charAt(0).toUpperCase() + profile.role.slice(1)}
+                {profile.is_admin && <Shield className="h-3 w-3 mr-1" />}
+                {profile.is_admin ? 'Admin' : 'User'}
               </span>
               
               {profile.is_verified && (
@@ -94,9 +93,7 @@ export const UserMenu: React.FC = () => {
             <div className="flex items-center space-x-2 text-xs text-gray-500">
               <Clock className="h-3 w-3" />
               <span>
-                {sessionCount > 1 
-                  ? `${sessionCount} active sessions` 
-                  : '1 active session'}
+                Active session
               </span>
             </div>
           </div>

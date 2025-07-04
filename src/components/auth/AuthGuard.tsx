@@ -30,7 +30,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
     return <AuthScreen />;
   }
 
-  if (!profile.is_verified) {
+  if (!profile.is_verified || !profile.is_active) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
         <div className="text-center">
@@ -38,33 +38,12 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
             <div className="bg-yellow-100 rounded-full p-4 w-16 h-16 mx-auto mb-4">
               <Shield className="h-8 w-8 text-yellow-600" />
             </div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Email Verification Required</h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Account Approval Required</h2>
             <p className="text-gray-600 mb-4">
-              Please verify your email address to access FreightIQ Pro.
+              Your account is pending admin approval.
             </p>
             <p className="text-sm text-gray-500">
-              Check your email for a verification code, or contact support if you need assistance.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!profile.is_active) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-200 max-w-md">
-            <div className="bg-red-100 rounded-full p-4 w-16 h-16 mx-auto mb-4">
-              <Shield className="h-8 w-8 text-red-600" />
-            </div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Account Deactivated</h2>
-            <p className="text-gray-600 mb-4">
-              Your account has been deactivated. Please contact support for assistance.
-            </p>
-            <p className="text-sm text-gray-500">
-              If you believe this is an error, please reach out to our support team.
+              An administrator will review your account shortly. Please check back later.
             </p>
           </div>
         </div>
