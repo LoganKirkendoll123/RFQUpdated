@@ -9,17 +9,20 @@ export const SupabaseStatus: React.FC = () => {
   useEffect(() => {
     const checkConnection = async () => {
       try {
+        console.log('Checking Supabase connection...');
         // Check if environment variables are set
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
         if (!supabaseUrl || !supabaseAnonKey) {
+          console.log('Supabase environment variables not configured');
           setStatus('not-configured');
           setError('Supabase environment variables not configured');
           return;
         }
 
         const { connected, error } = await checkSupabaseConnection();
+        console.log('Supabase connection check result:', { connected, error });
         
         if (connected) {
           setStatus('connected');
@@ -29,6 +32,7 @@ export const SupabaseStatus: React.FC = () => {
           setError(error || 'Failed to connect to Supabase');
         }
       } catch (err) {
+        console.error('Error checking Supabase connection:', err);
         setStatus('error');
         setError(err instanceof Error ? err.message : 'Unknown error');
       }

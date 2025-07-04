@@ -39,20 +39,25 @@ export const supabase = createClient(
 // Helper function to check if Supabase is properly configured
 export const checkSupabaseConnection = async () => {
   try {
+    console.log('Checking Supabase connection with URL:', supabaseUrl);
     // Check if we have real credentials
     if (!hasValidCredentials) {
+      console.log('Supabase credentials not properly configured');
       return { connected: false, error: 'Supabase credentials not configured' };
     }
 
     // Test connection by querying a user-accessible table
-    const { error } = await supabase.from('Shipments').select('count', { count: 'exact', head: true });
+    console.log('Testing connection to Supabase...');
+    const { data, error } = await supabase.from('CustomerCarriers').select('count', { count: 'exact', head: true });
+    
     if (error) {
-    }
-    if (error) {
+      console.error('Supabase connection test failed:', error);
       throw error;
     }
+    console.log('Supabase connection successful, data:', data);
     return { connected: true, error: null };
   } catch (error) {
+    console.error('Supabase connection check error:', error);
     return { connected: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 };

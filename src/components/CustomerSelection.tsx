@@ -25,7 +25,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
   useEffect(() => {
     if (searchTerm) {
       const filtered = customers.filter(customer =>
-        customer.toLowerCase().includes(searchTerm.toLowerCase())
+        customer?.toLowerCase().includes(searchTerm.toLowerCase())
       );
       setFilteredCustomers(filtered);
     } else {
@@ -38,7 +38,9 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
     setError('');
     
     try {
+      console.log('Loading customer list...');
       const customerList = await getCustomerList();
+      console.log('Customer list loaded:', customerList);
       setCustomers(customerList);
       setFilteredCustomers(customerList);
     } catch (err) {
@@ -54,13 +56,15 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
   const handleCustomerSelect = (customer: string) => {
     onCustomerChange(customer);
     setIsOpen(false);
-    setSearchTerm('');
+    setSearchTerm(''); 
+    console.log('Selected customer:', customer);
   };
 
   const clearSelection = () => {
     onCustomerChange('');
     setIsOpen(false);
     setSearchTerm('');
+    console.log('Customer selection cleared');
   };
 
   return (

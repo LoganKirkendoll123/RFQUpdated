@@ -63,19 +63,21 @@ export interface Shipment {
 // Customer Carrier Management Functions (unchanged)
 export const getCustomerCarriers = async (customerName?: string): Promise<CustomerCarrier[]> => {
   try {
-    let query = supabase.from('CustomerCarriers').select('*');
+    console.log('Fetching customer carriers, customer filter:', customerName);
+    let query = supabase.from('CustomerCarriers').select('*', { count: 'exact' });
     
     if (customerName) {
-      query = query.eq('customer_name', customerName);
+      query = query.eq('InternalName', customerName);
     }
     
-    const { data, error } = await query.order('customer_name', { ascending: true });
+    const { data, error, count } = await query.order('InternalName', { ascending: true });
     
     if (error) {
       console.error('Error fetching customer carriers:', error);
       throw error;
     }
     
+    console.log(`Retrieved ${count || 0} customer carriers`);
     return data || [];
   } catch (error) {
     console.error('Failed to fetch customer carriers:', error);
@@ -476,10 +478,10 @@ export const getShipmentAnalytics = async (customerName?: string, branch?: strin
 export const getCustomerList = async (): Promise<string[]> => {
   try {
     const { data, error } = await supabase
-      .from('Shipments')
-      .select('"Customer"')
-      .not('"Customer"', 'is', null)
-      .order('"Customer"');
+      .from('CustomerCarriers')
+      .select('InternalName')
+      .not('InternalName', 'is', null)
+      .order('InternalName');
     
     if (error) {
       console.error('Error fetching customer list:', error);
@@ -487,7 +489,8 @@ export const getCustomerList = async (): Promise<string[]> => {
     }
     
     // Get unique customer names
-    const uniqueCustomers = [...new Set(data?.map(d => d.Customer) || [])];
+    const uniqueCustomers = [...new Set(data?.map(d => d.InternalName) || [])];
+    console.log(`Retrieved ${uniqueCustomers.length} unique customers`);
     return uniqueCustomers.filter(Boolean);
   } catch (error) {
     console.error('Failed to fetch customer list:', error);
@@ -536,5 +539,69 @@ export const getSalesRepList = async (): Promise<string[]> => {
   } catch (error) {
     console.error('Failed to fetch sales rep list:', error);
     throw error;
+  }
+};
+
+// Cache for margin lookups to avoid repeated database queries
+const marginCache = new Map<string, number>();
+
+export const getCustomerCarrierMargin = async (
+  customerName: string, 
+  carrierName: string, 
+  carrierScac?: string
+): Promise<number | null> => {
+  if (!customerName) return null;
+  
+  // Create cache key
+  const cacheKey = `${customerName}:${carrierName}:${carrierScac || ''}`;
+  
+  // Check cache first
+  if (marginCache.has(cacheKey)) {
+    return marginCache.get(cacheKey)!;
+  }
+  
+  try {
+    console.log(`🔍 Looking up margin for customer "${customerName}" and carrier "${carrierName}" (SCAC: ${carrierScac})`);
+    
+    // Query CustomerCarriers table for matching customer and carrier
+    let query = supabase
+      .from('CustomerCarriers')
+      .select('*')
+      .eq('InternalName', customerName)
+      .limit(10);
+    
+    const { data, error } = await query;
+    
+    console.log('Customer carrier lookup results:', data);
+    
+    if (error) {
+      console.error('❌ Error querying CustomerCarriers:', error);
+      return null;
+    }
+    
+    // Find a matching carrier by name or SCAC
+    const matchingCarrier = data?.find(cc => {
+      if (carrierScac && cc.P44CarrierCode === carrierScac) return true;
+      if (cc.P44CarrierCode && cc.P44CarrierCode.includes(carrierName)) return true;
+      return false;
+    });
+    
+    if (matchingCarrier) {
+      const percentage = parseFloat(matchingCarrier.Percentage || '0');
+      console.log(`✅ Found customer margin: ${percentage}% for ${customerName} + ${carrierName}`);
+      
+      // Cache the result
+      marginCache.set(cacheKey, percentage);
+      return percentage;
+    } else {
+      console.log(`ℹ️ No margin found for customer "${customerName}" and carrier "${carrierName}"`);
+      
+      // Cache null result to avoid repeated queries
+      marginCache.set(cacheKey, 0);
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Failed to get customer carrier margin:', error);
+    return null;
   }
 };
