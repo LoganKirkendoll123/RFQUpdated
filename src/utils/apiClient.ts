@@ -112,6 +112,46 @@ export class Project44APIClient {
     }
   }
 
+  // FIXED: Package type mapping for VLTL API compatibility
+  private mapPackageTypeForVLTL(packageType?: string): string {
+    if (!packageType) return 'PALLET';
+    
+    // Map common package types to VLTL-compatible values
+    // The VLTL API expects "PALLET" not "PLT"
+    const packageTypeMapping: { [key: string]: string } = {
+      'PLT': 'PALLET', // Fix: Map PLT to PALLET for VLTL
+      'PALLET': 'PALLET',
+      'BOX': 'BOX',
+      'CRATE': 'CRATE',
+      'CARTON': 'CARTON',
+      'CASE': 'CASE',
+      'DRUM': 'DRUM',
+      'PAIL': 'PAIL',
+      'TOTE': 'TOTE',
+      'TUBE': 'TUBE',
+      'ROLL': 'ROLL',
+      'REEL': 'REEL',
+      'PIECES': 'PIECES',
+      'SKID': 'SKID',
+      'BUNDLE': 'BUNDLE',
+      'BALE': 'BALE',
+      'BAG': 'BAG',
+      'BUCKET': 'BUCKET',
+      'CAN': 'CAN',
+      'COIL': 'COIL',
+      'CYLINDER': 'CYLINDER'
+    };
+    
+    const mapped = packageTypeMapping[packageType.toUpperCase()];
+    if (!mapped) {
+      console.warn(`⚠️ Unknown package type '${packageType}', defaulting to 'PALLET'`);
+      return 'PALLET';
+    }
+    
+    console.log(`📦 Mapped package type '${packageType}' to '${mapped}' for VLTL`);
+    return mapped;
+  }
+
   async getAvailableCarriersByGroup(isVolumeMode: boolean = false, isFTLMode: boolean = false): Promise<CarrierGroup[]> {
     const token = await this.getAccessToken();
     
@@ -444,45 +484,6 @@ export class Project44APIClient {
 
     console.log(`✅ Loaded ${serviceLevels.length} service levels for ${modeDescription}`);
     return serviceLevels;
-  }
-
-  // NEW: Package type mapping for VLTL API compatibility
-  private mapPackageTypeForVLTL(packageType?: string): string {
-    if (!packageType) return 'PLT';
-    
-    // Map common package types to VLTL-compatible values
-    const packageTypeMapping: { [key: string]: string } = {
-      'PLT': 'PLT',
-      'PALLET': 'PLT', // Fix: Map PALLET to PLT
-      'BOX': 'BOX',
-      'CRATE': 'CRATE',
-      'CARTON': 'CARTON',
-      'CASE': 'CASE',
-      'DRUM': 'DRUM',
-      'PAIL': 'PAIL',
-      'TOTE': 'TOTE',
-      'TUBE': 'TUBE',
-      'ROLL': 'ROLL',
-      'REEL': 'REEL',
-      'PIECES': 'PIECES',
-      'SKID': 'SKID',
-      'BUNDLE': 'BUNDLE',
-      'BALE': 'BALE',
-      'BAG': 'BAG',
-      'BUCKET': 'BUCKET',
-      'CAN': 'CAN',
-      'COIL': 'COIL',
-      'CYLINDER': 'CYLINDER'
-    };
-    
-    const mapped = packageTypeMapping[packageType.toUpperCase()];
-    if (!mapped) {
-      console.warn(`⚠️ Unknown package type '${packageType}', defaulting to 'PLT'`);
-      return 'PLT';
-    }
-    
-    console.log(`📦 Mapped package type '${packageType}' to '${mapped}' for VLTL`);
-    return mapped;
   }
 
   async getQuotes(
