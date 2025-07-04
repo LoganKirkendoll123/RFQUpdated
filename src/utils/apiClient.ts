@@ -519,7 +519,6 @@ export class Project44APIClient {
       console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
       
       // Add enhanced handling units for VLTL (without handlingUnitType)
-      requestPayload.enhancedHandlingUnits = this.buildEnhancedHandlingUnits(rfq);
     }
 
     // Add capacity provider account group to filter by selected carriers
@@ -714,8 +713,6 @@ export class Project44APIClient {
       requestPayload.totalLinearFeet = rfq.totalLinearFeet || this.calculateLinearFeet(rfq);
       console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
       
-      // Add enhanced handling units for VLTL (without handlingUnitType)
-      requestPayload.enhancedHandlingUnits = this.buildEnhancedHandlingUnits(rfq);
     }
 
     console.log('📤 Sending group request payload:', JSON.stringify(requestPayload, null, 2));
@@ -826,20 +823,7 @@ export class Project44APIClient {
     return totalLinearFeet;
   }
 
-  // NEW: Build enhanced handling units for VLTL (without handlingUnitType)
-  private buildEnhancedHandlingUnits(rfq: RFQRow): EnhancedHandlingUnit[] {
-    const handlingUnits: EnhancedHandlingUnit[] = [];
-    
-    if (rfq.lineItems && rfq.lineItems.length > 0) {
-      // Use line items to create enhanced handling units
-      rfq.lineItems.forEach((item, index) => {
-        const handlingUnit: EnhancedHandlingUnit = {
-          description: item.description || `Item ${index + 1}`,
-          handlingUnitDimensions: {
-            length: item.packageLength,
-            width: item.packageWidth,
-            height: item.packageHeight
-          },
+
           handlingUnitQuantity: item.totalPackages || 1,
           // REMOVED: handlingUnitType to avoid package type validation errors
           weightPerHandlingUnit: item.totalWeight / (item.totalPackages || 1),
@@ -863,14 +847,6 @@ export class Project44APIClient {
         handlingUnits.push(handlingUnit);
       });
     } else {
-      // Create a single handling unit from RFQ data
-      const handlingUnit: EnhancedHandlingUnit = {
-        description: rfq.commodityDescription || 'General Freight',
-        handlingUnitDimensions: {
-          length: 48, // Standard pallet length
-          width: 40,  // Standard pallet width
-          height: 48  // Standard pallet height
-        },
         handlingUnitQuantity: rfq.pallets,
         // REMOVED: handlingUnitType to avoid package type validation errors
         weightPerHandlingUnit: rfq.grossWeight / rfq.pallets,
