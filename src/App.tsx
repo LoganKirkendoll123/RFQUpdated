@@ -1247,7 +1247,7 @@ export async function processRFQBatch(
     loadPricingSettings, 
     loadSelectedModes,
     loadSelectedCustomer 
-  } = await import('./credentialStorage');
+  } = await import('./utils/credentialStorage');
   
   const project44Config = loadProject44Config();
   const freshxApiKey = loadFreshXApiKey();
