@@ -18,7 +18,9 @@ import {
   CapacityProviderAccountGroupInfo,
   RateCharge,
   Contact,
-  HazmatDetail
+  HazmatDetail,
+  EnhancedHandlingUnit,
+  PackageDimensions
 } from '../types';
 
 // Carrier group interface for organizing carriers
@@ -83,6 +85,12 @@ interface FreshXQuoteRequest {
   isFoodGrade: boolean;
   isStackable: boolean;
   accessorial: string[];
+}
+
+// Enhanced VLTL-specific request interface
+interface VLTLRateQuoteRequest extends Project44RateQuoteRequest {
+  totalLinearFeet: number; // Required for VLTL
+  enhancedHandlingUnits?: EnhancedHandlingUnit[]; // VLTL supports enhanced handling units
 }
 
 export class Project44APIClient {
@@ -536,37 +544,67 @@ export class Project44APIClient {
       endpoint = '/api/v4/truckload/quotes/rates/query';
     }
 
-    // Build the request payload with comprehensive data
-    const requestPayload: Project44RateQuoteRequest = {
-      originAddress: this.buildAddress(rfq),
-      destinationAddress: this.buildDestinationAddress(rfq),
-      lineItems: this.buildLineItems(rfq),
-      accessorialServices: this.buildAccessorialServices(rfq, isReeferMode),
-      pickupWindow: this.buildPickupWindow(rfq),
-      deliveryWindow: this.buildDeliveryWindow(rfq),
-      apiConfiguration: {
-        accessorialServiceConfiguration: {
-          allowUnacceptedAccessorials: false,
-          fetchAllGuaranteed: false,
-          fetchAllInsideDelivery: false,
-          fetchAllServiceLevels: false
-        },
-        enableUnitConversion: rfq.enableUnitConversion ?? true,
-        fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
-        timeout: rfq.apiTimeout ?? 30000
-      },
-      directionOverride: rfq.direction,
-      lengthUnit: rfq.lengthUnit || 'IN',
-      paymentTermsOverride: rfq.paymentTerms,
-      preferredCurrency: rfq.preferredCurrency || 'USD',
-      preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
-      weightUnit: rfq.weightUnit || 'LB'
-    };
+    // Build the request payload - use VLTL-specific structure for Volume LTL
+    let requestPayload: Project44RateQuoteRequest | VLTLRateQuoteRequest;
 
-    // Add totalLinearFeet for VLTL requests (required field)
     if (isVolumeMode) {
-      requestPayload.totalLinearFeet = rfq.totalLinearFeet || this.calculateLinearFeet(rfq);
-      console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
+      // VLTL-specific payload with enhanced handling units
+      const vltlPayload: VLTLRateQuoteRequest = {
+        originAddress: this.buildAddress(rfq),
+        destinationAddress: this.buildDestinationAddress(rfq),
+        lineItems: this.buildLineItems(rfq),
+        accessorialServices: this.buildAccessorialServices(rfq, isReeferMode),
+        pickupWindow: this.buildPickupWindow(rfq),
+        deliveryWindow: this.buildDeliveryWindow(rfq),
+        apiConfiguration: {
+          accessorialServiceConfiguration: {
+            allowUnacceptedAccessorials: false,
+            fetchAllGuaranteed: false,
+            fetchAllInsideDelivery: false,
+            fetchAllServiceLevels: false
+          },
+          enableUnitConversion: rfq.enableUnitConversion ?? true,
+          fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
+          timeout: rfq.apiTimeout ?? 30000
+        },
+        directionOverride: rfq.direction,
+        lengthUnit: rfq.lengthUnit || 'IN',
+        paymentTermsOverride: rfq.paymentTerms,
+        preferredCurrency: rfq.preferredCurrency || 'USD',
+        preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
+        weightUnit: rfq.weightUnit || 'LB',
+        totalLinearFeet: rfq.totalLinearFeet || this.calculateLinearFeet(rfq), // Required for VLTL
+        enhancedHandlingUnits: this.buildEnhancedHandlingUnits(rfq) // VLTL-specific
+      };
+
+      requestPayload = vltlPayload;
+    } else {
+      // Standard LTL payload
+      requestPayload = {
+        originAddress: this.buildAddress(rfq),
+        destinationAddress: this.buildDestinationAddress(rfq),
+        lineItems: this.buildLineItems(rfq),
+        accessorialServices: this.buildAccessorialServices(rfq, isReeferMode),
+        pickupWindow: this.buildPickupWindow(rfq),
+        deliveryWindow: this.buildDeliveryWindow(rfq),
+        apiConfiguration: {
+          accessorialServiceConfiguration: {
+            allowUnacceptedAccessorials: false,
+            fetchAllGuaranteed: false,
+            fetchAllInsideDelivery: false,
+            fetchAllServiceLevels: false
+          },
+          enableUnitConversion: rfq.enableUnitConversion ?? true,
+          fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
+          timeout: rfq.apiTimeout ?? 30000
+        },
+        directionOverride: rfq.direction,
+        lengthUnit: rfq.lengthUnit || 'IN',
+        paymentTermsOverride: rfq.paymentTerms,
+        preferredCurrency: rfq.preferredCurrency || 'USD',
+        preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
+        weightUnit: rfq.weightUnit || 'LB'
+      };
     }
 
     // Add capacity provider account group to filter by selected carriers
@@ -758,8 +796,8 @@ export class Project44APIClient {
 
     // Add totalLinearFeet for VLTL requests (required field)
     if (isVolumeMode) {
-      requestPayload.totalLinearFeet = rfq.totalLinearFeet || this.calculateLinearFeet(rfq);
-      console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
+      (requestPayload as VLTLRateQuoteRequest).totalLinearFeet = rfq.totalLinearFeet || this.calculateLinearFeet(rfq);
+      console.log(`📏 Using totalLinearFeet: ${(requestPayload as VLTLRateQuoteRequest).totalLinearFeet} for VLTL request`);
     }
 
     console.log('📤 Sending group request payload:', JSON.stringify(requestPayload, null, 2));
@@ -868,6 +906,69 @@ export class Project44APIClient {
     
     console.log(`📏 Calculated linear feet: ${rfq.pallets} pallets × ${palletLength}" = ${totalLinearInches}" = ${totalLinearFeet} linear feet`);
     return totalLinearFeet;
+  }
+
+  private buildEnhancedHandlingUnits(rfq: RFQRow): EnhancedHandlingUnit[] {
+    // Build enhanced handling units for VLTL - more detailed than line items
+    const handlingUnits: EnhancedHandlingUnit[] = [];
+
+    if (rfq.lineItems && rfq.lineItems.length > 0) {
+      // Use line items to build handling units
+      rfq.lineItems.forEach((item, index) => {
+        const handlingUnit: EnhancedHandlingUnit = {
+          description: item.description || `Item ${index + 1}`,
+          handlingUnitDimensions: {
+            length: item.packageLength,
+            width: item.packageWidth,
+            height: item.packageHeight
+          },
+          handlingUnitQuantity: item.totalPackages || 1,
+          handlingUnitType: item.packageType || 'PLT',
+          weightPerHandlingUnit: item.totalWeight / (item.totalPackages || 1),
+          stackable: item.stackable,
+          freightClasses: [item.freightClass],
+          commodityType: item.commodityType,
+          harmonizedCode: item.harmonizedCode
+        };
+
+        if (item.totalValue) {
+          handlingUnit.totalValue = {
+            amount: item.totalValue,
+            currency: 'USD'
+          };
+        }
+
+        handlingUnits.push(handlingUnit);
+      });
+    } else {
+      // Fallback to single handling unit from RFQ data
+      const handlingUnit: EnhancedHandlingUnit = {
+        description: rfq.commodityDescription || 'General Freight',
+        handlingUnitDimensions: {
+          length: rfq.packageLength || 48,
+          width: rfq.packageWidth || 40,
+          height: rfq.packageHeight || 48
+        },
+        handlingUnitQuantity: rfq.pallets,
+        handlingUnitType: rfq.packageType || 'PLT',
+        weightPerHandlingUnit: rfq.grossWeight / rfq.pallets,
+        stackable: rfq.isStackable,
+        freightClasses: [rfq.freightClass || '70'],
+        commodityType: rfq.commodityType
+      };
+
+      if (rfq.totalValue) {
+        handlingUnit.totalValue = {
+          amount: rfq.totalValue,
+          currency: 'USD'
+        };
+      }
+
+      handlingUnits.push(handlingUnit);
+    }
+
+    console.log(`📦 Built ${handlingUnits.length} enhanced handling units for VLTL`);
+    return handlingUnits;
   }
 
   private getCarrierNameFromCode(carrierCode?: string): string {
