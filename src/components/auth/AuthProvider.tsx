@@ -88,13 +88,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadUserProfile = async (userId: string) => {
     try {
       console.log('Loading user profile for userId:', userId);
-      const { data, error, status } = await supabase
+      const { data, error } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('user_id', userId)
         .single();
 
-      console.log('Profile query status:', status, 'Error:', error?.message);
+      console.log('Profile query result:', data ? 'Found profile' : 'No profile found', 'Error:', error?.message);
       
       if (error) {
         console.error('Error loading user profile:', error);
@@ -118,16 +118,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLoading(false);
         }
         return;
-      } else {
-        setProfile(data);
-        console.log('User profile loaded successfully:', data);
-        setLoading(false);
       }
+      
+      setProfile(data);
+      console.log('User profile loaded successfully:', data);
+      setLoading(false);
     } catch (error) {
       console.error('Error loading user profile:', error);
       setLoading(false);
     }
   };
+
+  // Create a user profile if it doesn't exist
+  const createUserProfile = async (userId: string) => {
+    try {
+      console.log('Creating new user profile for userId:', userId);
+      // Get user email from auth.users
+      const { data: userData } = await supabase.auth.getUser();
+      
+      if (!userData?.user?.email) {
+        console.error('Cannot create profile: user email not found');
+        return false;
+      }
+      
+      // Create a basic profile
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .insert({
+          user_id: userId,
+          email: userData.user.email,
+          is_verified: true, // Auto-verify for now
+          is_active: true
+        })
+        .select()
+        .single();
+
+      console.log('Profile creation result:', data ? 'Profile created' : 'Failed to create profile', 'Error:', error?.message);
+        
+      if (error) {
+        console.error('Error creating user profile:', error);
+        return false;
+      } else {
+        console.log('User profile created successfully:', data);
+        setProfile(data);
+        setLoading(false);
+        return true;
+      }
+    } catch (error) {
+      console.error('Error creating user profile:', error);
+      setLoading(false);
+      return false;
+    }
+  };
+
 
   // Create a user profile if it doesn't exist
   const createUserProfile = async (userId: string) => {
