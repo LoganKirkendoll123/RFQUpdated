@@ -24,7 +24,7 @@ import {
   Percent,
   History
 } from 'lucide-react';
-import { supabase } from './utils/supabase';
+import { supabase } from '../utils/supabase';
 import { formatCurrency } from './utils/pricingCalculator';
 import { Project44APIClient } from './utils/project44Client';
 import { calculatePricingWithCustomerMargins } from './utils/pricingCalculator';
