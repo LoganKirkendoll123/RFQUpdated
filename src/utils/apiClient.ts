@@ -1,5 +1,4 @@
 import { 
-  getCarriers,
   RFQRow, 
   Quote, 
   Project44OAuthConfig, 
@@ -21,6 +20,7 @@ import {
   Contact,
   HazmatDetail
 } from '../types';
+import { getCarriers } from './database';
 
 // Carrier group interface for organizing carriers
 export interface CarrierGroup {
