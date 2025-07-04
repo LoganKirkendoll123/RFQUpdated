@@ -11,7 +11,7 @@ import { Analytics } from './components/Analytics';
 import { SpotQuote } from './components/SpotQuote';
 import { CustomerSelection } from './components/CustomerSelection';
 import { QuickActions } from './components/QuickActions';
-import { RFQRow, QuoteResult } from './types';
+import { RFQRow, QuoteResult, PricingSettings as PricingSettingsType } from './types';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { processRFQBatch } from './utils/apiClient';
 import { getStoredCredentials } from './utils/credentialStorage';
@@ -23,6 +23,84 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileError, setFileError] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
+  const [selectedCarriers, setSelectedCarriers] = useState<string[]>([]);
+  const [pricingSettings, setPricingSettings] = useState<PricingSettingsType>({
+    usesCustomerMargins: false,
+    defaultMargin: 15,
+    minimumMargin: 5,
+    maximumMargin: 50,
+    accessorialMarkup: 10,
+    fuelSurchargeMarkup: 5,
+    carrierSpecificMarkups: {},
+    customerSpecificMarkups: {},
+    laneSpecificMarkups: {},
+    weightBreakMarkups: {},
+    serviceTypeMarkups: {},
+    seasonalAdjustments: {},
+    competitorPricing: {},
+    autoApprovalThreshold: 1000,
+    requiresApprovalAbove: 5000,
+    discountLimits: {
+      maxDiscount: 20,
+      requiresApproval: 10
+    }
+  });
+  const [project44Client, setProject44Client] = useState<any>(null);
+  const [freshxClient, setFreshxClient] = useState<any>(null);
+
+  // Load initial state from localStorage
+  useEffect(() => {
+    const savedPricingSettings = localStorage.getItem('pricingSettings');
+    if (savedPricingSettings) {
+      try {
+        setPricingSettings(JSON.parse(savedPricingSettings));
+      } catch (error) {
+        console.error('Failed to parse saved pricing settings:', error);
+      }
+    }
+
+    const savedSelectedCustomer = localStorage.getItem('selectedCustomer');
+    if (savedSelectedCustomer) {
+      setSelectedCustomer(savedSelectedCustomer);
+    }
+
+    const savedSelectedCarriers = localStorage.getItem('selectedCarriers');
+    if (savedSelectedCarriers) {
+      try {
+        setSelectedCarriers(JSON.parse(savedSelectedCarriers));
+      } catch (error) {
+        console.error('Failed to parse saved selected carriers:', error);
+      }
+    }
+  }, []);
+
+  // Persist state to localStorage
+  useEffect(() => {
+    localStorage.setItem('pricingSettings', JSON.stringify(pricingSettings));
+  }, [pricingSettings]);
+
+  useEffect(() => {
+    localStorage.setItem('selectedCustomer', selectedCustomer);
+  }, [selectedCustomer]);
+
+  useEffect(() => {
+    localStorage.setItem('selectedCarriers', JSON.stringify(selectedCarriers));
+  }, [selectedCarriers]);
+
+  // Initialize API clients based on stored credentials
+  useEffect(() => {
+    const credentials = getStoredCredentials();
+    
+    if (credentials.project44ApiKey) {
+      // Initialize Project44 client (placeholder - would need actual implementation)
+      setProject44Client({ apiKey: credentials.project44ApiKey });
+    }
+    
+    if (credentials.freshxApiKey) {
+      // Initialize FreshX client (placeholder - would need actual implementation)
+      setFreshxClient({ apiKey: credentials.freshxApiKey });
+    }
+  }, []);
 
   const handleFileSelect = async (file: File) => {
     setFileError('');
@@ -162,7 +240,16 @@ function App() {
 
         {activeTab === 'spot' && (
           <div className="bg-white rounded-lg shadow p-6">
-            <SpotQuote />
+            <SpotQuote 
+              selectedCustomer={selectedCustomer}
+              selectedCarriers={selectedCarriers}
+              onCustomerChange={setSelectedCustomer}
+              onCarriersChange={setSelectedCarriers}
+              pricingSettings={pricingSettings}
+              onPricingSettingsChange={setPricingSettings}
+              project44Client={project44Client}
+              freshxClient={freshxClient}
+            />
           </div>
         )}
 
@@ -187,7 +274,10 @@ function App() {
 
         {activeTab === 'pricing' && (
           <div className="bg-white rounded-lg shadow p-6">
-            <PricingSettings />
+            <PricingSettings 
+              settings={pricingSettings}
+              onSettingsChange={setPricingSettings}
+            />
           </div>
         )}
 
