@@ -63,7 +63,7 @@ export interface Shipment {
 // Customer Carrier Management Functions (unchanged)
 export const getCustomerCarriers = async (customerName?: string): Promise<CustomerCarrier[]> => {
   try {
-    let query = supabase.from('CustomerCarrier').select('*');
+    let query = supabase.from('CustomerCarriers').select('*');
     
     if (customerName) {
       query = query.eq('customer_name', customerName);
@@ -86,7 +86,7 @@ export const getCustomerCarriers = async (customerName?: string): Promise<Custom
 export const saveCustomerCarrier = async (customerCarrier: Omit<CustomerCarrier, 'id' | 'created_at' | 'updated_at'>): Promise<CustomerCarrier> => {
   try {
     const { data, error } = await supabase
-      .from('CustomerCarrier')
+      .from('CustomerCarriers')
       .insert([{
         ...customerCarrier,
         created_at: new Date().toISOString(),
@@ -110,7 +110,7 @@ export const saveCustomerCarrier = async (customerCarrier: Omit<CustomerCarrier,
 export const updateCustomerCarrier = async (id: number, updates: Partial<CustomerCarrier>): Promise<CustomerCarrier> => {
   try {
     const { data, error } = await supabase
-      .from('CustomerCarrier')
+      .from('CustomerCarriers')
       .update({
         ...updates,
         updated_at: new Date().toISOString()
@@ -134,7 +134,7 @@ export const updateCustomerCarrier = async (id: number, updates: Partial<Custome
 export const deleteCustomerCarrier = async (id: number): Promise<void> => {
   try {
     const { error } = await supabase
-      .from('CustomerCarrier')
+      .from('CustomerCarriers')
       .delete()
       .eq('id', id);
     
