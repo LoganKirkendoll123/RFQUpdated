@@ -47,6 +47,7 @@ export const checkSupabaseConnection = async () => {
     // Test connection by querying a user-accessible table
     const { error } = await supabase.from('Shipments').select('count', { count: 'exact', head: true });
     if (error) {
+    if (error) {
       throw error;
     }
     return { connected: true, error: null };
