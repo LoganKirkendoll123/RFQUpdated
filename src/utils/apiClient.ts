@@ -18,8 +18,7 @@ import {
   CapacityProviderAccountGroupInfo,
   RateCharge,
   Contact,
-  HazmatDetail,
-  EnhancedHandlingUnit
+  HazmatDetail
 } from '../types';
 
 // Carrier group interface for organizing carriers
