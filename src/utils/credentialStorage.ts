@@ -8,7 +8,6 @@ const STORAGE_KEYS = {
   PRICING_SETTINGS: 'pricing_settings',
   SELECTED_MODES: 'selected_modes',
   SELECTED_CUSTOMER: 'selected_customer'
-  SELECTED_CUSTOMER: 'selected_customer'
 };
 
 // Save Project44 configuration to local storage
@@ -42,16 +41,6 @@ export const saveFreshXApiKey = (apiKey: string): void => {
     localStorage.setItem(STORAGE_KEYS.FRESHX_API_KEY, apiKey);
     console.log('✅ FreshX API key saved to local storage');
   } catch (error) {
-    console.error('❌ Failed to save FreshX API key:', error);
-  }
-};
-
-// Load FreshX API key from local storage
-export const loadFreshXApiKey = (): string | null => {
-  try {
-    const apiKey = localStorage.getItem(STORAGE_KEYS.FRESHX_API_KEY);
-    if (apiKey) {
-      console.log('✅ FreshX API key loaded from local storage');
     }
     return apiKey;
   } catch (error) {
@@ -133,41 +122,6 @@ export const loadSelectedModes = (): any | null => {
     console.error('❌ Failed to load selected modes:', error);
     return null;
   }
-};
-
-// Save selected customer to local storage
-export const saveSelectedCustomer = (customer: any): void => {
-  try {
-    localStorage.setItem(STORAGE_KEYS.SELECTED_CUSTOMER, JSON.stringify(customer));
-    console.log('✅ Selected customer saved to local storage');
-  } catch (error) {
-    console.error('❌ Failed to save selected customer:', error);
-  }
-};
-
-// Load selected customer from local storage
-export const loadSelectedCustomer = (): any | null => {
-  try {
-    const storedCustomer = localStorage.getItem(STORAGE_KEYS.SELECTED_CUSTOMER);
-    if (!storedCustomer) return null;
-    
-    const customer = JSON.parse(storedCustomer);
-    console.log('✅ Selected customer loaded from local storage');
-    return customer;
-  } catch (error) {
-    console.error('❌ Failed to load selected customer:', error);
-    return null;
-  }
-};
-
-// Get stored credentials in a unified format
-export const getStoredCredentials = () => {
-  const project44Config = loadProject44Config();
-  const freshxApiKey = loadFreshXApiKey();
-  return {
-    project44ApiKey: project44Config?.clientId || null,
-    freshxApiKey: freshxApiKey || null
-  };
 };
 
 // Save selected customer to local storage

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Key, Eye, EyeOff, CheckCircle, XCircle, Loader, Shield, RefreshCw, AlertTriangle, Globe, HelpCircle, CheckSquare } from 'lucide-react';
 import { Project44OAuthConfig } from '../types';
 import { saveProject44Config, saveFreshXApiKey } from '../utils/credentialStorage';
-import { saveProject44Config, saveFreshXApiKey } from '../utils/credentialStorage';
 
 interface ApiKeyInputProps {
   value?: string;
@@ -220,16 +219,6 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
       saveFreshXApiKey(apiKey);
     }
     
-    // Save the API key regardless of validation status
-    if (apiKey && apiKey.length > 5) {
-      saveFreshXApiKey(apiKey);
-    }
-    
-    // Save the API key regardless of validation status
-    if (apiKey && apiKey.length > 5) {
-      saveFreshXApiKey(apiKey);
-    }
-    
     if (!isProject44 && (!apiKey || apiKey.length < 10)) {
       setValidationStatus('idle');
       setValidationMessage('');
@@ -315,16 +304,6 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
       saveFreshXApiKey(newValue);
     }
     
-    // Save FreshX API key
-    if (!isProject44 && newValue && newValue.length > 5) {
-      saveFreshXApiKey(newValue);
-    }
-    
-    // Save FreshX API key
-    if (!isProject44 && newValue && newValue.length > 5) {
-      saveFreshXApiKey(newValue);
-    }
-    
     if (!isProject44) {
       // Debounce validation for FreshX
       const timeoutId = setTimeout(() => {
@@ -338,18 +317,6 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
   const handleOAuthConfigChange = (field: keyof Project44OAuthConfig, value: string) => {
     const newConfig = { ...oauthConfig, [field]: value };
     setOauthConfig(newConfig);
-    
-    // Save Project44 config when client ID or secret changes
-    if ((field === 'clientId' || field === 'clientSecret') && value.trim()) {
-      saveProject44Config(newConfig);
-    }
-    
-    
-    // Save Project44 config when client ID or secret changes
-    if ((field === 'clientId' || field === 'clientSecret') && value.trim()) {
-      saveProject44Config(newConfig);
-    }
-    
     
     // Save Project44 config when client ID or secret changes
     if ((field === 'clientId' || field === 'clientSecret') && value.trim()) {
@@ -446,15 +413,6 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
                     }}
                     placeholder="Enter your Project44 Client ID"
                     className={`w-full px-3 py-2 pr-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${getInputBorderColor()}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowKey(!showKey)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
                   />
                   <button
                     type="button"
