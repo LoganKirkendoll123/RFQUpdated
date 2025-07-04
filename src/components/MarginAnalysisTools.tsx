@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
-import { Project44APIClient } from './utils/project44Client';
+import { Project44APIClient } from '../utils/project44Client';
 import { calculatePricingWithCustomerMargins } from './utils/pricingCalculator';
 import * as XLSX from 'xlsx';
 
