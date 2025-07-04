@@ -39,6 +39,7 @@ export class Project44APIClient {
   private config: Project44OAuthConfig;
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
+  private carrierGroups: CarrierGroup[] = []; // Store carrier groups for lookup
 
   constructor(config: Project44OAuthConfig) {
     this.config = config;
@@ -225,6 +226,9 @@ export class Project44APIClient {
       const totalCarriers = carrierGroups.reduce((sum, group) => sum + group.carriers.length, 0);
       console.log(`✅ Loaded ${carrierGroups.length} carrier groups with ${totalCarriers} total carriers for ${modeDescription}`);
       
+      // Store carrier groups for lookup
+      this.carrierGroups = carrierGroups;
+      
       return carrierGroups;
 
     } catch (error) {
@@ -298,7 +302,23 @@ export class Project44APIClient {
       }).sort((a, b) => a.name.localeCompare(b.name))
     };
 
+    // Store carrier groups for lookup
+    this.carrierGroups = [carrierGroup];
+
     return [carrierGroup];
+  }
+
+  // Helper method to find the group code for a given carrier ID
+  private findGroupCodeForCarrier(carrierId: string): string {
+    for (const group of this.carrierGroups) {
+      const carrier = group.carriers.find(c => c.id === carrierId);
+      if (carrier) {
+        console.log(`🔍 Found carrier ${carrierId} in group ${group.groupCode}`);
+        return group.groupCode;
+      }
+    }
+    console.log(`⚠️ Carrier ${carrierId} not found in any group, using Default`);
+    return 'Default';
   }
 
   private getCarrierNameFromAccountInfo(accountInfo: CapacityProviderAccountInfos, scac?: string): string {
@@ -430,14 +450,18 @@ export class Project44APIClient {
     selectedCarrierIds: string[] = [], 
     isVolumeMode: boolean = false,
     isFTLMode: boolean = false,
-    isReeferMode: boolean = false,
-    accountGroupCode: string = ''
+    isReeferMode: boolean = false
   ): Promise<Quote[]> {
     const token = await this.getAccessToken();
     
     const modeDescription = isReeferMode ? 'Refrigerated LTL' : 
                            isVolumeMode ? 'Volume LTL (VLTL)' : 
                            isFTLMode ? 'Full Truckload' : 'Standard LTL';
+    
+    // Find the group code from the first selected carrier
+    const accountGroupCode = selectedCarrierIds.length > 0 
+      ? this.findGroupCodeForCarrier(selectedCarrierIds[0])
+      : 'Default';
     
     console.log(`💰 Getting ${modeDescription} quotes for:`, {
       route: `${rfq.fromZip} → ${rfq.toZip}`,
@@ -495,13 +519,13 @@ export class Project44APIClient {
       console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
     }
 
-    // FIXED: Add capacity provider account group to filter by selected carriers
+    // Add capacity provider account group to filter by selected carriers
     if (selectedCarrierIds.length > 0) {
       requestPayload.capacityProviderAccountGroup = {
         accounts: selectedCarrierIds.map(carrierId => ({ code: carrierId })),
         code: accountGroupCode
       };
-      console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
+      console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers in group ${accountGroupCode}:`, selectedCarrierIds);
     } else {
       console.log('⚠️ No carriers selected - will get quotes from all available carriers');
     }
@@ -619,7 +643,7 @@ export class Project44APIClient {
     return quotes;
   }
 
-  // FIXED: Method to get quotes for an entire account group
+  // Method to get quotes for an entire account group
   async getQuotesForAccountGroup(
     rfq: RFQRow,
     accountGroupCode: string,
@@ -676,7 +700,7 @@ export class Project44APIClient {
       preferredCurrency: rfq.preferredCurrency || 'USD',
       preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
       weightUnit: rfq.weightUnit || 'LB',
-      // FIXED: For entire group, just specify the group code without accounts array
+      // For entire group, just specify the group code without accounts array
       capacityProviderAccountGroup: {
         code: accountGroupCode
       }
