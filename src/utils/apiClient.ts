@@ -431,7 +431,7 @@ export class Project44APIClient {
     isVolumeMode: boolean = false,
     isFTLMode: boolean = false,
     isReeferMode: boolean = false,
-    accountGroupCode: string = 'Default'
+    accountGroupCode: string = ''
   ): Promise<Quote[]> {
     const token = await this.getAccessToken();
     
