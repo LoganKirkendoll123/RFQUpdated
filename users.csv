@@ -1,0 +1,13 @@
+id,email,first_name,last_name,company,phone,is_verified,is_active,role,created_at,updated_at,last_login
+1,admin@example.com,Admin,User,FreightIQ Pro,555-123-4567,true,true,admin,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z
+2,manager@example.com,Manager,User,FreightIQ Pro,555-234-5678,true,true,manager,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z
+3,user1@example.com,John,Smith,Acme Logistics,555-345-6789,true,true,user,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z
+4,user2@example.com,Jane,Doe,Global Transport,555-456-7890,true,true,user,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z
+5,user3@example.com,Robert,Johnson,FastShip Inc,555-567-8901,true,true,user,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z
+6,user4@example.com,Sarah,Williams,Prime Freight,555-678-9012,true,true,user,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z
+7,user5@example.com,Michael,Brown,Elite Shipping,555-789-0123,true,true,user,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z
+8,user6@example.com,Emily,Davis,Rapid Delivery,555-890-1234,true,true,user,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z
+9,user7@example.com,David,Miller,Speedy Logistics,555-901-2345,true,true,user,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z
+10,user8@example.com,Jessica,Wilson,Express Cargo,555-012-3456,true,true,user,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z
+11,inactive@example.com,Inactive,User,Former Client,555-123-7890,true,false,user,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z
+12,unverified@example.com,Unverified,User,New Client,555-234-8901,false,true,user,2025-01-01T00:00:00Z,2025-01-01T00:00:00Z,null
