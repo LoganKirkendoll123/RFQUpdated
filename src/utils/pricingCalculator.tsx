@@ -1,5 +1,137 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Users, Building2, CheckCircle, AlertCircle, History, Loader, RefreshCw } from 'lucide-react';
+import { supabase } from './supabase';
+import { Quote, PricingSettings, QuoteWithPricing } from '../types';
+
+// Customer margin cache to avoid repeated database queries
+const customerMarginCache = new Map<string, any>();
+
+export const clearMarginCache = () => {
+  customerMarginCache.clear();
+  console.log('🗑️ Customer margin cache cleared');
+};
+
+// Basic pricing calculation function
+export const calculatePricing = (quote: Quote, settings: PricingSettings, customPrice?: number): QuoteWithPricing => {
+  const carrierRate = quote.totalRate || 0;
+  
+  let customerPrice: number;
+  if (customPrice !== undefined) {
+    customerPrice = customPrice;
+  } else {
+    if (settings.markupType === 'percentage') {
+      customerPrice = carrierRate * (1 + settings.markupPercentage / 100);
+    } else {
+      customerPrice = carrierRate + settings.markupPercentage;
+    }
+  }
+  
+  // Apply minimum profit
+  const profit = customerPrice - carrierRate;
+  if (profit < settings.minimumProfit) {
+    customerPrice = carrierRate + settings.minimumProfit;
+  }
+  
+  return {
+    ...quote,
+    carrierTotalRate: carrierRate,
+    customerPrice: Math.round(customerPrice * 100) / 100,
+    profit: Math.round((customerPrice - carrierRate) * 100) / 100
+  };
+};
+
+// Enhanced pricing calculation with customer-specific margins
+export const calculatePricingWithCustomerMargins = async (
+  quote: Quote, 
+  settings: PricingSettings, 
+  selectedCustomer: string,
+  customPrice?: number
+): Promise<QuoteWithPricing> => {
+  // If no customer is selected or customer margins are disabled, use basic calculation
+  if (!selectedCustomer || !settings.usesCustomerMargins) {
+    return calculatePricing(quote, settings, customPrice);
+  }
+
+  try {
+    // Check cache first
+    const cacheKey = `${selectedCustomer}-${quote.carrier.scac || quote.carrier.name}`;
+    let customerMargin = customerMarginCache.get(cacheKey);
+
+    if (!customerMargin) {
+      // Query customer-specific margin from database
+      console.log(`🔍 Looking up customer margin for ${selectedCustomer} with carrier ${quote.carrier.scac || quote.carrier.name}`);
+      
+      const { data: marginData, error } = await supabase
+        .from('CustomerCarriers')
+        .select('Percentage, MinDollar, MaxDollar')
+        .eq('InternalName', selectedCustomer)
+        .or(`P44CarrierCode.eq.${quote.carrier.scac},InternalName.ilike.%${quote.carrier.name}%`)
+        .limit(1);
+
+      if (error) {
+        console.warn('⚠️ Error querying customer margins:', error);
+        customerMargin = null;
+      } else if (marginData && marginData.length > 0) {
+        customerMargin = marginData[0];
+        console.log(`✅ Found customer margin for ${selectedCustomer}:`, customerMargin);
+      } else {
+        customerMargin = null;
+        console.log(`ℹ️ No specific margin found for ${selectedCustomer} with carrier ${quote.carrier.scac || quote.carrier.name}`);
+      }
+
+      // Cache the result (including null results)
+      customerMarginCache.set(cacheKey, customerMargin);
+    }
+
+    // Apply customer-specific margin if found
+    if (customerMargin && customerMargin.Percentage) {
+      const carrierRate = quote.totalRate || 0;
+      const marginPercentage = parseFloat(customerMargin.Percentage) || 0;
+      
+      let customerPrice: number;
+      if (customPrice !== undefined) {
+        customerPrice = customPrice;
+      } else {
+        customerPrice = carrierRate * (1 + marginPercentage / 100);
+      }
+
+      // Apply customer-specific min/max if available
+      const minDollar = customerMargin.MinDollar ? parseFloat(customerMargin.MinDollar) : settings.minimumProfit;
+      const maxDollar = customerMargin.MaxDollar ? parseFloat(customerMargin.MaxDollar) : null;
+
+      const profit = customerPrice - carrierRate;
+      if (profit < minDollar) {
+        customerPrice = carrierRate + minDollar;
+      }
+      if (maxDollar && profit > maxDollar) {
+        customerPrice = carrierRate + maxDollar;
+      }
+
+      console.log(`💰 Applied customer margin: ${marginPercentage}% (min: $${minDollar}, max: ${maxDollar || 'none'})`);
+
+      return {
+        ...quote,
+        carrierTotalRate: carrierRate,
+        customerPrice: Math.round(customerPrice * 100) / 100,
+        profit: Math.round((customerPrice - carrierRate) * 100) / 100
+      };
+    }
+
+    // Fall back to default pricing with fallback markup
+    const fallbackSettings = {
+      ...settings,
+      markupPercentage: settings.fallbackMarkupPercentage || settings.markupPercentage
+    };
+    
+    console.log(`📋 Using fallback margin: ${fallbackSettings.markupPercentage}%`);
+    return calculatePricing(quote, fallbackSettings, customPrice);
+
+  } catch (error) {
+    console.error('❌ Error in customer margin calculation:', error);
+    // Fall back to basic calculation on error
+    return calculatePricing(quote, settings, customPrice);
+  }
+};
 
 interface CustomerSelectionProps {
   selectedCustomer: string;
@@ -22,6 +154,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
   const PAGE_SIZE = 200;
   const [loadedCount, setLoadedCount] = useState(0); 
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     loadCustomers();
@@ -59,7 +192,6 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
       
       setTotalCount(count || 0);
       console.log(`📊 Total customer count: ${count}`);
-      setHasMore(true);
       setHasMore(true);
 
       await loadCustomerBatch(0);
@@ -114,49 +246,6 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
     }
   };
 
-  const loadCustomersFromHistory = async () => {
-    setLoadingHistory(true);
-    setError('');
-    try {
-      // Get unique customers from Shipments table
-      console.log('🔍 Loading customers from shipment history...');
-      
-      const { data: shipmentCustomers, error: shipmentError } = await supabase
-        .from('Shipments')
-        .select('"Customer"')
-        .not('"Customer"', 'is', null);
-      
-      if (shipmentError) throw shipmentError;
-      
-      // Get unique customers from CustomerCarriers table
-      const { data: carrierCustomers, error: carrierError } = await supabase
-        .from('CustomerCarriers')
-        .select('InternalName')
-        .not('InternalName', 'is', null);
-      
-      if (carrierError) throw carrierError;
-      
-      // Combine and deduplicate
-      const shipmentNames = shipmentCustomers?.map(s => s.Customer).filter(Boolean) || [];
-      const carrierNames = carrierCustomers?.map(c => c.InternalName).filter(Boolean) || [];
-      const allHistoryNames = [...shipmentNames, ...carrierNames];
-      const uniqueHistoryNames = Array.from(new Set(allHistoryNames)).sort();
-      
-      console.log(`✅ Loaded ${uniqueHistoryNames.length} customers from history (${shipmentNames.length} from shipments, ${carrierNames.length} from carrier relationships)`);
-      
-      // Add to existing customers without duplicates
-      const combinedCustomers = Array.from(new Set([...customers, ...uniqueHistoryNames]));
-      setCustomers(combinedCustomers);
-      setFilteredCustomers(combinedCustomers);
-      setLoadedCount(combinedCustomers.length);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load customers from history');
-    } finally {
-      setLoadingHistory(false);
-    }
-  };
-
-  const [page, setPage] = useState(0);
   const loadCustomerBatch = async (pageNum: number) => {
     try {
       const from = pageNum * PAGE_SIZE;
@@ -196,9 +285,6 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
         // Check if we should load more
         setHasMore(data.length === PAGE_SIZE);
       }
-      
-      // Update total count if we have it
-      if (count !== null) setTotalCount(count);
       
       // Update total count if we have it
       if (count !== null) setTotalCount(count);
