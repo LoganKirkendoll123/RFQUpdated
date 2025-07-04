@@ -688,10 +688,10 @@ export class Project44APIClient {
       deliveryWindow: this.buildDeliveryWindow(rfq),
       apiConfiguration: {
         accessorialServiceConfiguration: {
-          allowUnacceptedAccessorials: false,
-          fetchAllGuaranteed: false,
+          allowUnacceptedAccessorials: true,
+          fetchAllGuaranteed: true,
           fetchAllInsideDelivery: false,
-          fetchAllServiceLevels: false
+          fetchAllServiceLevels: yes
         },
         enableUnitConversion: rfq.enableUnitConversion ?? true,
         fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
