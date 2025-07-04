@@ -3,7 +3,7 @@ import { Truck, Upload, Database, Settings, BarChart3, Calculator, Users, FileTe
 import { FileUpload } from './components/FileUpload';
 import { ApiKeyInput } from './components/ApiKeyInput';
 import ResultsTable from './components/ResultsTable';
-import ProcessingStatus from './components/ProcessingStatus';
+import { ProcessingStatus } from './components/ProcessingStatus';
 import SupabaseStatus from './components/SupabaseStatus';
 import { DatabaseManager } from './components/DatabaseManager';
 import { PricingSettingsComponent as PricingSettings } from './components/PricingSettings';
