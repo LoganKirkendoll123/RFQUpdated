@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { AuthProvider } from './components/auth/AuthProvider';
+import { AuthGuard } from './components/auth/AuthGuard';
+import { UserMenu } from './components/auth/UserMenu';
 import { FileUpload } from './components/FileUpload';
 import { CarrierSelection } from './components/CarrierSelection';
 import { PricingSettingsComponent } from './components/PricingSettings';
@@ -11,6 +14,7 @@ import { SupabaseStatus } from './components/SupabaseStatus';
 import { SupabaseSetup } from './components/SupabaseSetup';
 import { DatabaseToolbox } from './components/DatabaseToolbox';
 import { SpotQuote } from './components/SpotQuote';
+import { useAuth } from './components/auth/AuthProvider';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { calculatePricing } from './utils/pricingCalculator';
 import { Project44APIClient, FreshXAPIClient, CarrierGroup } from './utils/apiClient';
@@ -62,13 +66,9 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-// Enhanced result type for smart quoting
-interface SmartQuotingResult extends ProcessingResult {
-  quotingDecision: 'freshx' | 'project44-standard' | 'project44-volume';
-  quotingReason: string;
-}
-
-function App() {
+// Main App Component (now wrapped with auth)
+const AppContent: React.FC = () => {
+  const { profile } = useAuth();
   // Core state
   const [rfqData, setRfqData] = useState<RFQRow[]>([]);
   const [results, setResults] = useState<SmartQuotingResult[]>([]);
@@ -572,6 +572,9 @@ function App() {
                   <span className="text-xs font-medium text-slate-600">Automated</span>
                 </div>
               </div>
+              
+              {/* User Menu */}
+              <UserMenu />
               
               {/* Connection Status */}
               <div className="flex items-center space-x-4 bg-slate-50 rounded-lg px-4 py-2">
@@ -1085,6 +1088,17 @@ function App() {
         )}
       </main>
     </div>
+  );
+};
+
+// Main App with Auth Wrapper
+function App() {
+  return (
+    <AuthProvider>
+      <AuthGuard>
+        <AppContent />
+      </AuthGuard>
+    </AuthProvider>
   );
 }
 

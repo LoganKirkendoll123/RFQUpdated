@@ -1,5 +1,124 @@
 import { createClient } from '@supabase/supabase-js';
 
+// Database type definitions for better TypeScript support
+export interface Database {
+  public: {
+    Tables: {
+      user_profiles: {
+        Row: {
+          id: string;
+          user_id: string;
+          email: string;
+          first_name: string | null;
+          last_name: string | null;
+          company: string | null;
+          phone: string | null;
+          is_verified: boolean;
+          is_active: boolean;
+          role: 'admin' | 'user' | 'manager';
+          created_at: string;
+          updated_at: string;
+          last_login: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          email: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          company?: string | null;
+          phone?: string | null;
+          is_verified?: boolean;
+          is_active?: boolean;
+          role?: 'admin' | 'user' | 'manager';
+          created_at?: string;
+          updated_at?: string;
+          last_login?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          email?: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          company?: string | null;
+          phone?: string | null;
+          is_verified?: boolean;
+          is_active?: boolean;
+          role?: 'admin' | 'user' | 'manager';
+          created_at?: string;
+          updated_at?: string;
+          last_login?: string | null;
+        };
+      };
+      verification_codes: {
+        Row: {
+          id: string;
+          user_id: string;
+          email: string;
+          code: string;
+          code_type: 'email_verification' | 'password_reset';
+          expires_at: string;
+          used_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          email: string;
+          code: string;
+          code_type: 'email_verification' | 'password_reset';
+          expires_at: string;
+          used_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          email?: string;
+          code?: string;
+          code_type?: 'email_verification' | 'password_reset';
+          expires_at?: string;
+          used_at?: string | null;
+          created_at?: string;
+        };
+      };
+      user_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          session_token: string;
+          ip_address: string | null;
+          user_agent: string | null;
+          expires_at: string;
+          created_at: string;
+          last_activity: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          session_token: string;
+          ip_address?: string | null;
+          user_agent?: string | null;
+          expires_at: string;
+          created_at?: string;
+          last_activity?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          session_token?: string;
+          ip_address?: string | null;
+          user_agent?: string | null;
+          expires_at?: string;
+          created_at?: string;
+          last_activity?: string;
+        };
+      };
+    };
+  };
+}
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -31,7 +150,7 @@ if (!hasValidCredentials) {
 }
 
 // Create client with valid fallback values to prevent app crash
-export const supabase = createClient(
+export const supabase = createClient<Database>(
   hasValidCredentials ? supabaseUrl! : 'https://placeholder.supabase.co', 
   hasValidCredentials ? supabaseAnonKey! : 'placeholder-key'
 );
