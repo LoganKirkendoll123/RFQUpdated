@@ -179,7 +179,13 @@ function App() {
         }
       };
       
-      await processRFQBatch(rfqData, onProgress, onQuoteReceived);
+      await processRFQBatch(rfqData, 
+        (progress: number, status: string) => {
+          setCurrentProcessingStatus(status);
+          setProcessingCompleted(Math.floor(progress * rfqData.length / 100));
+        }, 
+        onQuoteReceived
+      );
       setResults(processedQuotes);
       setActiveTab('results');
     } catch (error) {
