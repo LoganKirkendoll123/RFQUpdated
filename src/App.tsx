@@ -30,6 +30,7 @@ import {
   savePricingSettings,
   loadPricingSettings
 } from './utils/credentialStorage';
+import { calculatePricingWithCustomerMargins, clearMarginCache } from './utils/pricingCalculator';
 import { 
   Truck, 
   Upload, 
@@ -110,9 +111,6 @@ function App() {
   // API clients - store as instance variables to maintain token state
   const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
   const [freshxClient, setFreshxClient] = useState<FreshXAPIClient | null>(null);
-
-  // Import the async pricing calculator
-  const { calculatePricingWithCustomerMargins, clearMarginCache } = require('./utils/pricingCalculator');
 
   // Load saved data on component mount
   useEffect(() => {
