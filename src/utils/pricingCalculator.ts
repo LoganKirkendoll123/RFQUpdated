@@ -75,7 +75,9 @@ export const calculatePricing = (
   customPrice?: number,
   selectedCustomer?: string
 ): QuoteWithPricing => {
-  // Use the Project44 total directly - no complex categorization
+  // Check if this is a FreshX quote (has submittedBy = 'FreshX' or temperature field)
+  const isFreshXQuote = quote.submittedBy === 'FreshX' || quote.temperature;
+  
   let carrierTotalRate: number;
   let chargeBreakdown = {
     baseCharges: [] as RateCharge[],
@@ -86,7 +88,54 @@ export const calculatePricing = (
     otherCharges: [] as RateCharge[]
   };
 
-  if (quote.rateQuoteDetail?.total !== undefined && quote.rateQuoteDetail.total > 0) {
+  if (isFreshXQuote) {
+    // FreshX: Use baseRate + fuelSurcharge + premiumsAndDiscounts
+    carrierTotalRate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
+    
+    console.log(`🌡️ FreshX quote breakdown: Base=${quote.baseRate}, Fuel=${quote.fuelSurcharge}, Premiums=${quote.premiumsAndDiscounts}, Total=${carrierTotalRate}`);
+    
+    // Create itemized charge breakdown for FreshX
+    if (quote.baseRate > 0) {
+      chargeBreakdown.baseCharges.push({
+        amount: quote.baseRate,
+        code: 'BASE',
+        description: 'Base Rate'
+      });
+    }
+    
+    if (quote.fuelSurcharge > 0) {
+      chargeBreakdown.fuelCharges.push({
+        amount: quote.fuelSurcharge,
+        code: 'FUEL',
+        description: 'Fuel Surcharge'
+      });
+    }
+    
+    if (quote.premiumsAndDiscounts !== 0) {
+      if (quote.premiumsAndDiscounts > 0) {
+        chargeBreakdown.premiumCharges.push({
+          amount: quote.premiumsAndDiscounts,
+          code: 'PREMIUM',
+          description: 'Temperature Control & Accessorials'
+        });
+      } else {
+        chargeBreakdown.discountCharges.push({
+          amount: quote.premiumsAndDiscounts,
+          code: 'DISCOUNT',
+          description: 'Discounts'
+        });
+      }
+    }
+    
+    // Add accessorial charges if available
+    if (quote.accessorial && Array.isArray(quote.accessorial)) {
+      quote.accessorial.forEach(acc => {
+        if (typeof acc === 'object' && acc.amount) {
+          chargeBreakdown.accessorialCharges.push(acc);
+        }
+      });
+    }
+  } else if (quote.rateQuoteDetail?.total !== undefined && quote.rateQuoteDetail.total > 0) {
     // Use Project44's calculated total
     carrierTotalRate = quote.rateQuoteDetail.total;
     
@@ -105,7 +154,7 @@ export const calculatePricing = (
     quote.baseRate = 0;
     quote.fuelSurcharge = 0;
     quote.premiumsAndDiscounts = carrierTotalRate;
-  } else if (quote.baseRate > 0 || quote.fuelSurcharge > 0) {
+  } else if (!isFreshXQuote && (quote.baseRate > 0 || quote.fuelSurcharge > 0)) {
     // Fall back to legacy calculation if we have valid base components
     carrierTotalRate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
     
@@ -152,7 +201,7 @@ export const calculatePricing = (
     }
   } else {
     // No valid pricing data - this quote should have been filtered out
-    console.warn('Quote has no valid pricing data:', quote);
+    console.warn(`Quote has no valid pricing data (isFreshX: ${isFreshXQuote}):`, quote);
     carrierTotalRate = 0;
   }
   
