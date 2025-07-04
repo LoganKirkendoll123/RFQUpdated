@@ -157,12 +157,6 @@ function App() {
                 </div>
               )}
             </div>
-
-            <QuickActions 
-              onProcessRFQ={handleProcessRFQ}
-              hasData={rfqData.length > 0}
-              isProcessing={isProcessing}
-            />
           </div>
         )}
 
