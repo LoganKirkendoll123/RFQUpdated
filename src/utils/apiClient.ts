@@ -501,15 +501,15 @@ export class Project44APIClient {
       if (isGroupCode) {
         // If it's a group code, use it directly
         requestPayload.capacityProviderAccountGroup = {
-          code: selectedCarrierIds[0],
-          accounts: []
+          code: "Default",
+          accounts: selectedCarrierIds
         };
         console.log(`🎯 Using account group code directly: ${selectedCarrierIds[0]}`);
       } else {
         // Otherwise use the traditional approach with individual carrier accounts
         requestPayload.capacityProviderAccountGroup = {
-          accounts: selectedCarrierIds.map(carrierId => ({ code: carrierId })),
-          code: selectedCompetitorGroup
+          code: "Default",
+          accounts: selectedCarrierIds
         };
         console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
       }
@@ -687,10 +687,10 @@ export class Project44APIClient {
       preferredCurrency: rfq.preferredCurrency || 'USD',
       preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
       weightUnit: rfq.weightUnit || 'LB',
-      // FIXED: Include both code and empty accounts array for the account group
+      // FIXED: Include both code and accounts array for the account group
       capacityProviderAccountGroup: {
-        code: accountGroupCode,
-        accounts: []
+        code: "Default",
+        accounts: [accountGroupCode]
       }
     };
 
