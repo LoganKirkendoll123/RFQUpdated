@@ -689,8 +689,7 @@ export class Project44APIClient {
       weightUnit: rfq.weightUnit || 'LB',
       // FIXED: Include both code and accounts array for the account group
       capacityProviderAccountGroup: {
-        code: "Default",
-        accounts: [accountGroupCode]
+        code: accountGroupCode
       }
     };
 
