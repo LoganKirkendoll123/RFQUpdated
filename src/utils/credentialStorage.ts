@@ -134,8 +134,6 @@ export const loadSelectedModes = (): any | null => {
   }
 };
 
-
-
 // Save selected customer to local storage
 export const saveSelectedCustomer = (customer: any): void => {
   try {
