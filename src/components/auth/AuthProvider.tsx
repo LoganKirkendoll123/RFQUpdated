@@ -87,19 +87,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadUserProfile = async (userId: string) => {
     try {
+      console.log('Loading user profile for userId:', userId);
       const { data, error } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('user_id', userId)
         .single();
 
-      if (error) {
-        console.error('Error loading user profile:', error);
+      if (error || !data) {
+        console.error('Error loading user profile:', error || 'No profile found');
+        // Try to create a profile if it doesn't exist
+        if (error?.code === 'PGRST116') { // No rows returned
+          await createUserProfile(userId);
+        }
       } else {
         setProfile(data);
+        console.log('User profile loaded successfully:', data);
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Create a user profile if it doesn't exist
+  const createUserProfile = async (userId: string) => {
+    try {
+      console.log('Creating user profile for userId:', userId);
+      // Get user email from auth.users
+      const { data: userData } = await supabase.auth.getUser();
+      
+      if (!userData?.user?.email) {
+        console.error('Cannot create profile: user email not found');
+        return;
+      }
+      
+      // Create a basic profile
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .insert({
+          user_id: userId,
+          email: userData.user.email,
+          is_verified: true, // Auto-verify for now
+          is_active: true
+        })
+        .select()
+        .single();
+        
+      if (error) {
+        console.error('Error creating user profile:', error);
+      } else {
+        console.log('User profile created successfully:', data);
+        setProfile(data);
+      }
+    } catch (error) {
+      console.error('Error creating user profile:', error);
     } finally {
       setLoading(false);
     }
