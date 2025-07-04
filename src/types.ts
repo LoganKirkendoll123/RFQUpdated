@@ -125,6 +125,8 @@ export interface PricingSettings {
   markupPercentage: number;
   minimumProfit: number;
   markupType: 'percentage' | 'fixed';
+  usesCustomerMargins?: boolean;
+  fallbackMarkupPercentage?: number;
 }
 
 // Updated to match Project44 schema
@@ -314,6 +316,8 @@ export interface QuoteWithPricing extends Quote {
   profit: number;
   markupApplied: number;
   isCustomPrice: boolean;
+  appliedMarginType?: 'customer' | 'fallback' | 'flat';
+  appliedMarginPercentage?: number;
   // Detailed charge breakdown
   chargeBreakdown: {
     baseCharges: RateCharge[];

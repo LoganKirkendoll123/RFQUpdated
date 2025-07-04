@@ -1,9 +1,79 @@
 import { Quote, QuoteWithPricing, PricingSettings, RateCharge } from '../types';
+import { supabase } from './supabase';
+
+// Customer-carrier margin lookup cache
+const marginCache = new Map<string, number>();
+
+// Function to get customer-specific margin for a carrier
+export const getCustomerCarrierMargin = async (
+  customerName: string, 
+  carrierName: string, 
+  carrierScac?: string
+): Promise<number | null> => {
+  if (!customerName) return null;
+  
+  // Create cache key
+  const cacheKey = `${customerName}:${carrierName}:${carrierScac || ''}`;
+  
+  // Check cache first
+  if (marginCache.has(cacheKey)) {
+    return marginCache.get(cacheKey)!;
+  }
+  
+  try {
+    console.log(`🔍 Looking up margin for customer "${customerName}" and carrier "${carrierName}" (SCAC: ${carrierScac})`);
+    
+    // Query CustomerCarriers table for matching customer and carrier
+    let query = supabase
+      .from('CustomerCarriers')
+      .select('Percentage')
+      .eq('InternalName', customerName);
+    
+    // Try to match by carrier name first, then by SCAC if available
+    if (carrierScac) {
+      query = query.or(`P44CarrierCode.eq.${carrierScac},P44CarrierCode.ilike.%${carrierName}%`);
+    } else {
+      query = query.ilike('P44CarrierCode', `%${carrierName}%`);
+    }
+    
+    const { data, error } = await query.limit(1);
+    
+    if (error) {
+      console.error('❌ Error querying CustomerCarriers:', error);
+      return null;
+    }
+    
+    if (data && data.length > 0) {
+      const percentage = parseFloat(data[0].Percentage || '0');
+      console.log(`✅ Found customer margin: ${percentage}% for ${customerName} + ${carrierName}`);
+      
+      // Cache the result
+      marginCache.set(cacheKey, percentage);
+      return percentage;
+    } else {
+      console.log(`ℹ️ No margin found for customer "${customerName}" and carrier "${carrierName}"`);
+      
+      // Cache null result to avoid repeated queries
+      marginCache.set(cacheKey, 0);
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Failed to lookup customer-carrier margin:', error);
+    return null;
+  }
+};
+
+// Clear the margin cache (useful when customer changes)
+export const clearMarginCache = () => {
+  marginCache.clear();
+  console.log('🧹 Cleared customer-carrier margin cache');
+};
 
 export const calculatePricing = (
   quote: Quote, 
   settings: PricingSettings,
-  customPrice?: number
+  customPrice?: number,
+  selectedCustomer?: string
 ): QuoteWithPricing => {
   // Use the Project44 total directly - no complex categorization
   let carrierTotalRate: number;
@@ -89,18 +159,33 @@ export const calculatePricing = (
   let customerPrice: number;
   let markupApplied: number;
   let isCustomPrice = false;
+  let appliedMarginType: 'customer' | 'fallback' | 'flat' = 'flat';
+  let appliedMarginPercentage: number = settings.markupPercentage;
 
   if (customPrice !== undefined) {
     // Custom price override
     customerPrice = customPrice;
     markupApplied = customerPrice - carrierTotalRate;
     isCustomPrice = true;
+    appliedMarginType = 'flat';
   } else {
-    // Apply default markup
-    if (settings.markupType === 'percentage') {
-      markupApplied = carrierTotalRate * (settings.markupPercentage / 100);
+    // Determine which margin to apply
+    if (settings.usesCustomerMargins && selectedCustomer) {
+      // For customer margins mode, we'll need to do async lookup
+      // For now, use fallback margin and mark for async update
+      appliedMarginPercentage = settings.fallbackMarkupPercentage || 23;
+      appliedMarginType = 'fallback';
+      markupApplied = carrierTotalRate * (appliedMarginPercentage / 100);
     } else {
-      markupApplied = settings.markupPercentage;
+      // Apply flat markup
+      if (settings.markupType === 'percentage') {
+        markupApplied = carrierTotalRate * (settings.markupPercentage / 100);
+        appliedMarginPercentage = settings.markupPercentage;
+      } else {
+        markupApplied = settings.markupPercentage;
+        appliedMarginPercentage = (settings.markupPercentage / carrierTotalRate) * 100; // Convert to percentage for display
+      }
+      appliedMarginType = 'flat';
     }
     
     // Ensure minimum profit is met
@@ -117,8 +202,58 @@ export const calculatePricing = (
     profit,
     markupApplied,
     isCustomPrice,
-    chargeBreakdown
+    chargeBreakdown,
+    appliedMarginType,
+    appliedMarginPercentage
   };
+};
+
+// Async version of calculatePricing that can lookup customer margins
+export const calculatePricingWithCustomerMargins = async (
+  quote: Quote, 
+  settings: PricingSettings,
+  selectedCustomer?: string,
+  customPrice?: number
+): Promise<QuoteWithPricing> => {
+  // Start with basic calculation
+  let result = calculatePricing(quote, settings, customPrice, selectedCustomer);
+  
+  // If using customer margins and we have a customer selected, try to lookup specific margin
+  if (settings.usesCustomerMargins && selectedCustomer && !customPrice) {
+    const carrierName = quote.carrier.name;
+    const carrierScac = quote.carrier.scac || quote.carrierCode;
+    
+    // Check if this is a reefer quote (always use fallback for reefer)
+    const isReeferQuote = quote.temperature && ['CHILLED', 'FROZEN'].includes(quote.temperature);
+    
+    if (!isReeferQuote) {
+      const customerMargin = await getCustomerCarrierMargin(selectedCustomer, carrierName, carrierScac);
+      
+      if (customerMargin !== null && customerMargin > 0) {
+        // Apply customer-specific margin
+        const markupApplied = result.carrierTotalRate * (customerMargin / 100);
+        const customerPrice = result.carrierTotalRate + Math.max(markupApplied, settings.minimumProfit);
+        const profit = customerPrice - result.carrierTotalRate;
+        
+        result = {
+          ...result,
+          customerPrice,
+          profit,
+          markupApplied: Math.max(markupApplied, settings.minimumProfit),
+          appliedMarginType: 'customer',
+          appliedMarginPercentage: customerMargin
+        };
+        
+        console.log(`💰 Applied customer margin: ${customerMargin}% for ${selectedCustomer} + ${carrierName}`);
+      } else {
+        console.log(`📋 Using fallback margin: ${settings.fallbackMarkupPercentage || 23}% for ${selectedCustomer} + ${carrierName}`);
+      }
+    } else {
+      console.log(`🌡️ Using fallback margin for reefer quote: ${settings.fallbackMarkupPercentage || 23}%`);
+    }
+  }
+  
+  return result;
 };
 
 export const calculateBestQuote = (quotes: QuoteWithPricing[]): QuoteWithPricing | null => {

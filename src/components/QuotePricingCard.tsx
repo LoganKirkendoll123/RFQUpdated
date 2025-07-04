@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Edit3, Check, X, Truck, ChevronDown, ChevronUp, Info, DollarSign } from 'lucide-react';
+import { Edit3, Check, X, Truck, ChevronDown, ChevronUp, Info, DollarSign, Users, Calculator, Building2 } from 'lucide-react';
 import { QuoteWithPricing } from '../types';
 import { formatCurrency, formatProfit, formatChargeDescription } from '../utils/pricingCalculator';
 
@@ -36,6 +36,31 @@ export const QuotePricingCard: React.FC<QuotePricingCardProps> = ({
   // Get all charges from Project44 response
   const allCharges = quote.rateQuoteDetail?.charges || [];
   const hasDetailedCharges = allCharges.length > 0;
+
+  // Get margin type icon and color
+  const getMarginTypeIcon = () => {
+    switch (quote.appliedMarginType) {
+      case 'customer': return Users;
+      case 'fallback': return Building2;
+      default: return Calculator;
+    }
+  };
+
+  const getMarginTypeColor = () => {
+    switch (quote.appliedMarginType) {
+      case 'customer': return 'text-green-600';
+      case 'fallback': return 'text-orange-600';
+      default: return 'text-blue-600';
+    }
+  };
+
+  const getMarginTypeLabel = () => {
+    switch (quote.appliedMarginType) {
+      case 'customer': return 'Customer Margin';
+      case 'fallback': return 'Fallback Margin';
+      default: return 'Flat Margin';
+    }
+  };
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-all duration-200">
@@ -134,12 +159,20 @@ export const QuotePricingCard: React.FC<QuotePricingCardProps> = ({
           <div className="bg-green-50 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-sm font-medium text-gray-700">Your Pricing</h4>
-              <button
-                onClick={() => setIsEditing(true)}
-                className="text-blue-600 hover:text-blue-700 transition-colors"
-              >
-                <Edit3 className="h-4 w-4" />
-              </button>
+              <div className="flex items-center space-x-2">
+                {quote.appliedMarginType && (
+                  <div className={`flex items-center space-x-1 text-xs ${getMarginTypeColor()}`}>
+                    {React.createElement(getMarginTypeIcon(), { className: 'h-3 w-3' })}
+                    <span>{getMarginTypeLabel()}</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="text-blue-600 hover:text-blue-700 transition-colors"
+                >
+                  <Edit3 className="h-4 w-4" />
+                </button>
+              </div>
             </div>
             
             {isEditing ? (
@@ -184,6 +217,14 @@ export const QuotePricingCard: React.FC<QuotePricingCardProps> = ({
                   <span className="text-gray-600">Margin:</span>
                   <span className="font-medium text-green-600">{profitMargin.toFixed(1)}%</span>
                 </div>
+                {quote.appliedMarginPercentage && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Applied Rate:</span>
+                    <span className={`font-medium ${getMarginTypeColor()}`}>
+                      {quote.appliedMarginPercentage.toFixed(1)}%
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>

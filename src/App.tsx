@@ -97,8 +97,11 @@ function App() {
   const [pricingSettings, setPricingSettings] = useState<PricingSettings>({
     markupPercentage: 15,
     minimumProfit: 100,
-    markupType: 'percentage'
+    markupType: 'percentage',
+    usesCustomerMargins: false,
+    fallbackMarkupPercentage: 23
   });
+  const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   
   // UI state
   const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database'>('upload');
@@ -107,6 +110,9 @@ function App() {
   // API clients - store as instance variables to maintain token state
   const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
   const [freshxClient, setFreshxClient] = useState<FreshXAPIClient | null>(null);
+
+  // Import the async pricing calculator
+  const { calculatePricingWithCustomerMargins, clearMarginCache } = require('./utils/pricingCalculator');
 
   // Load saved data on component mount
   useEffect(() => {
@@ -273,6 +279,13 @@ function App() {
     savePricingSettings(settings);
   };
 
+  const handleCustomerChange = (customer: string) => {
+    setSelectedCustomer(customer);
+    // Clear margin cache when customer changes
+    clearMarginCache();
+    console.log(`👤 Customer changed to: ${customer || 'None'}`);
+  };
+
   // Smart quoting classification function
   const classifyShipment = (rfq: RFQRow): {quoting: 'freshx' | 'project44-standard' | 'project44-volume' | 'project44-dual', reason: string} => {
     // Check the isReefer field first - this is the primary quoting control
@@ -379,8 +392,10 @@ function App() {
         
         if (quotes.length > 0) {
           // Apply pricing to quotes
-          const quotesWithPricing = quotes.map(quote => 
-            calculatePricing(quote, pricingSettings)
+          const quotesWithPricing = await Promise.all(
+            quotes.map(quote => 
+              calculatePricingWithCustomerMargins(quote, pricingSettings, selectedCustomer)
+            )
           );
           
           result.quotes = quotesWithPricing;
@@ -417,7 +432,7 @@ function App() {
       if (result && result.quotes) {
         const updatedQuotes = result.quotes.map(quote => {
           if (quote.quoteId === quoteId) {
-            return calculatePricing(quote, pricingSettings, newPrice);
+            return calculatePricingWithCustomerMargins(quote, pricingSettings, selectedCustomer, newPrice);
           }
           return quote;
         });
@@ -898,6 +913,8 @@ function App() {
                 <PricingSettingsComponent
                   settings={pricingSettings}
                   onSettingsChange={handlePricingSettingsChange}
+                  selectedCustomer={selectedCustomer}
+                  onCustomerChange={handleCustomerChange}
                 />
               </div>
             )}
