@@ -10,6 +10,7 @@ import { TemplateDownload } from './components/TemplateDownload';
 import { SupabaseStatus } from './components/SupabaseStatus';
 import { SupabaseSetup } from './components/SupabaseSetup';
 import { DatabaseToolbox } from './components/DatabaseToolbox';
+import { SpotQuote } from './components/SpotQuote';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { calculatePricing } from './utils/pricingCalculator';
 import { Project44APIClient, FreshXAPIClient, CarrierGroup } from './utils/apiClient';
@@ -105,7 +106,7 @@ function App() {
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   
   // UI state
-  const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database' | 'spot-quote'>('upload');
   const [fileError, setFileError] = useState<string>('');
   
   // API clients - store as instance variables to maintain token state
@@ -692,6 +693,7 @@ function App() {
           <nav className="flex space-x-1 bg-slate-100 rounded-xl p-1">
             {[
               { id: 'upload', label: 'Setup & Processing', icon: Upload, badge: rfqData.length },
+              { id: 'spot-quote', label: 'Spot Quote', icon: Zap, badge: null },
               { id: 'results', label: 'Smart Quotes', icon: Target, badge: results.length },
               { id: 'analytics', label: 'Business Intelligence', icon: BarChart3 },
               { id: 'database', label: 'Database Toolbox', icon: Database }
@@ -980,6 +982,16 @@ function App() {
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'spot-quote' && (
+          <SpotQuote
+            project44Client={project44Client}
+            freshxClient={freshxClient}
+            selectedCarriers={selectedCarriers}
+            pricingSettings={pricingSettings}
+            selectedCustomer={selectedCustomer}
+          />
         )}
 
         {activeTab === 'results' && (
