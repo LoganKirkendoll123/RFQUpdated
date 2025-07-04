@@ -497,11 +497,9 @@ export class Project44APIClient {
 
     // FIXED: Add capacity provider account group to filter by selected carriers
     if (selectedCarrierIds.length > 0) {
-      // The group code should be determined from the carriers being selected
-      // For now, we'll use "Default" but this should be the actual group code
       requestPayload.capacityProviderAccountGroup = {
-        code: accountGroupCode, 
-        accounts: code: selectedCarrierIds.map(carrierId => ({ code: carrierId }))
+        accounts: selectedCarrierIds.map(carrierId => ({ code: carrierId })),
+        code: accountGroupCode
       };
       console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
     } else {
