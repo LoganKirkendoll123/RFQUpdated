@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Users, Building2, CheckCircle, AlertCircle, History, Loader, RefreshCw } from 'lucide-react';
+import { supabase } from './utils/supabase';
 
 interface CustomerSelectionProps {
   selectedCustomer: string;
@@ -412,3 +413,22 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
     </div>
   );
 };
+
+// Main App component
+const App: React.FC = () => {
+  const [selectedCustomer, setSelectedCustomer] = useState('');
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-8">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold text-gray-900 mb-8">Customer Management</h1>
+        <CustomerSelection 
+          selectedCustomer={selectedCustomer}
+          onCustomerChange={setSelectedCustomer}
+        />
+      </div>
+    </div>
+  );
+};
+
+export default App;
