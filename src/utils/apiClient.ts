@@ -501,7 +501,8 @@ export class Project44APIClient {
       if (isGroupCode) {
         // If it's a group code, use it directly
         requestPayload.capacityProviderAccountGroup = {
-          code: selectedCarrierIds[0]
+          code: selectedCarrierIds[0],
+          accounts: []
         };
         console.log(`🎯 Using account group code directly: ${selectedCarrierIds[0]}`);
       } else {
