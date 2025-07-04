@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
+import { Project44APIClient } from '../utils/apiClient';
+import { loadProject44Config } from '../utils/credentialStorage';
 
 interface MarginMetrics {
   totalRevenue: number;
@@ -67,11 +69,18 @@ export const MarginAnalysisTools: React.FC = () => {
   const [loadingNegotiated, setLoadingNegotiated] = useState(false);
   const [p44Rates, setP44Rates] = useState<{[key: string]: number}>({});
   const [p44Loading, setP44Loading] = useState(false);
+  const [p44Client, setP44Client] = useState<Project44APIClient | null>(null);
 
   useEffect(() => {
     loadFilterOptions();
     if (activeTab === 'current') {
       loadMarginAnalysis();
+    }
+    
+    // Initialize Project44 client
+    const config = loadProject44Config();
+    if (config) {
+      setP44Client(new Project44APIClient(config));
     }
   }, [dateRange, selectedCustomer, selectedCarrier, activeTab]);
 
@@ -80,8 +89,8 @@ export const MarginAnalysisTools: React.FC = () => {
       // Load unique customers
       const { data: customerData } = await supabase
         .from('Shipments')
-        .select('Customer')
-        .not('Customer', 'is', null);
+        .select('"Customer"')
+        .not('"Customer"', 'is', null);
       
       if (customerData) {
         const uniqueCustomers = [...new Set(customerData.map(s => s.Customer).filter(Boolean))];
@@ -119,8 +128,8 @@ export const MarginAnalysisTools: React.FC = () => {
       let query = supabase
         .from('Shipments')
         .select('*')
-        .not('Revenue', 'is', null)
-        .not('Profit', 'is', null);
+        .not('"Revenue"', 'is', null)
+        .not('"Profit"', 'is', null);
 
       // Apply filters
       if (dateRange.start) {
@@ -130,7 +139,7 @@ export const MarginAnalysisTools: React.FC = () => {
         query = query.lte('"Scheduled Pickup Date"', dateRange.end);
       }
       if (selectedCustomer) {
-        query = query.eq('Customer', selectedCustomer);
+        query = query.eq('"Customer"', selectedCustomer);
       }
       if (selectedCarrier) {
         query = query.or(`"Booked Carrier".eq.${selectedCarrier},"Quoted Carrier".eq.${selectedCarrier}`);
@@ -166,15 +175,15 @@ export const MarginAnalysisTools: React.FC = () => {
     };
 
     shipments.forEach(shipment => {
-      const revenue = parseNumeric(shipment.Revenue);
-      const profit = parseNumeric(shipment.Profit);
+      const revenue = parseNumeric(shipment["Revenue"]);
+      const profit = parseNumeric(shipment["Profit"]);
       const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
 
       totalRevenue += revenue;
       totalProfit += profit;
 
       // Customer analysis
-      const customer = shipment.Customer || 'Unknown';
+      const customer = shipment["Customer"] || 'Unknown';
       if (!customerMap.has(customer)) {
         customerMap.set(customer, { revenue: 0, profit: 0, shipments: 0 });
       }
@@ -257,8 +266,8 @@ export const MarginAnalysisTools: React.FC = () => {
         .from('Shipments')
         .select('*')
         .or(`"Booked Carrier".eq.${negotiatedCarrier},"Quoted Carrier".eq.${negotiatedCarrier}`)
-        .not('Revenue', 'is', null)
-        .not('Carrier Expense', 'is', null);
+        .not('"Revenue"', 'is', null)
+        .not('"Carrier Expense"', 'is', null);
 
       if (error) throw error;
 
@@ -275,8 +284,8 @@ export const MarginAnalysisTools: React.FC = () => {
       let totalRevenue = 0;
 
       shipments.forEach(shipment => {
-        const customer = shipment.Customer || 'Unknown';
-        const revenue = parseNumeric(shipment.Revenue);
+        const customer = shipment["Customer"] || 'Unknown';
+        const revenue = parseNumeric(shipment["Revenue"]);
         const oldCost = parseNumeric(shipment["Carrier Expense"]);
         const newCost = oldCost * (1 - (discountPercentage / 100));
         
