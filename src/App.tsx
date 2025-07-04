@@ -274,7 +274,7 @@ function App() {
   };
 
   // Smart quoting classification function
-  const classifyShipment = (rfq: RFQRow): {quoting: 'freshx' | 'project44-standard' | 'project44-volume', reason: string} => {
+  const classifyShipment = (rfq: RFQRow): {quoting: 'freshx' | 'project44-standard' | 'project44-volume' | 'project44-dual', reason: string} => {
     // Check the isReefer field first - this is the primary quoting control
     if (rfq.isReefer === true) {
       return {
@@ -287,8 +287,8 @@ function App() {
     // Determine LTL vs VLTL based on size and weight
     if (rfq.pallets >= 10 || rfq.grossWeight >= 15000) {
       return {
-        quoting: 'project44-volume',
-        reason: `Large shipment (${rfq.pallets} pallets, ${rfq.grossWeight.toLocaleString()} lbs) - quoted through Project44 Volume LTL`
+        quoting: 'project44-dual',
+        reason: `Large shipment (${rfq.pallets} pallets, ${rfq.grossWeight.toLocaleString()} lbs) - quoted through both Project44 Volume LTL and Standard LTL for comparison`
       };
     } else {
       return {
@@ -348,9 +348,30 @@ function App() {
         if (classification.quoting === 'freshx' && freshxClient) {
           console.log(`🌡️ Getting FreshX quotes for RFQ ${i + 1}`);
           quotes = await freshxClient.getQuotes(rfq);
-        } else if (classification.quoting === 'project44-volume') {
-          console.log(`📦 Getting Volume LTL quotes for RFQ ${i + 1}`);
-          quotes = await project44Client.getQuotes(rfq, selectedCarrierIds, true, false, false);
+        } else if (classification.quoting === 'project44-dual') {
+          console.log(`📦 Getting dual quotes (Volume LTL + Standard LTL) for RFQ ${i + 1}`);
+          
+          // Get both Volume LTL and Standard LTL quotes
+          const [volumeQuotes, standardQuotes] = await Promise.all([
+            project44Client.getQuotes(rfq, selectedCarrierIds, true, false, false),  // Volume LTL
+            project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false)  // Standard LTL
+          ]);
+          
+          // Tag quotes with their mode for identification
+          const taggedVolumeQuotes = volumeQuotes.map(quote => ({
+            ...quote,
+            quoteMode: 'volume',
+            quoteModeLabel: 'Volume LTL'
+          }));
+          
+          const taggedStandardQuotes = standardQuotes.map(quote => ({
+            ...quote,
+            quoteMode: 'standard',
+            quoteModeLabel: 'Standard LTL'
+          }));
+          
+          quotes = [...taggedVolumeQuotes, ...taggedStandardQuotes];
+          console.log(`✅ Dual quoting completed: ${volumeQuotes.length} Volume LTL + ${standardQuotes.length} Standard LTL quotes`);
         } else {
           console.log(`🚛 Getting Standard LTL quotes for RFQ ${i + 1}`);
           quotes = await project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false);
