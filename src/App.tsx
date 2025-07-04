@@ -20,7 +20,7 @@ import {
   Contact,
   HazmatDetail
 } from '../types';
-import { memoize, batchRequests } from './utils/performance';
+import { memoize, batchRequests } from './performance';
 
 // Carrier group interface for organizing carriers
 export interface CarrierGroup {
