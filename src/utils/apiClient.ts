@@ -497,7 +497,7 @@ export class Project44APIClient {
       apiConfiguration: {
         accessorialServiceConfiguration: {
           allowUnacceptedAccessorials: true,
-          fetchAllGuaranteed: false,
+          fetchAllGuaranteed: true,
           fetchAllInsideDelivery: false,
           fetchAllServiceLevels: false
         },
