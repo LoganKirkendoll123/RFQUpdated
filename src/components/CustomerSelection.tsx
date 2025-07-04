@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Users, Building2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Search, Users, Building2, CheckCircle, AlertCircle, History, Loader, RefreshCw } from 'lucide-react';
 import { supabase } from '../utils/supabase';
-import { Loader } from 'lucide-react';
 
 interface CustomerSelectionProps {
   selectedCustomer: string;
@@ -22,7 +21,8 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
   const [hasMore, setHasMore] = useState(true); 
   const [totalCount, setTotalCount] = useState(0);
   const PAGE_SIZE = 200;
-  const [loadedCount, setLoadedCount] = useState(0);
+  const [loadedCount, setLoadedCount] = useState(0); 
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   useEffect(() => {
     loadCustomers();
@@ -44,7 +44,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
     setError('');
     setCustomers([]);
     setFilteredCustomers([]);
-    setPage(0);
+    setPage(0); 
     setLoadedCount(0);
     try {
       // Get customers from customers table
@@ -60,6 +60,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
       
       setTotalCount(count || 0);
       console.log(`📊 Total customer count: ${count}`);
+      setHasMore(true);
 
       await loadCustomerBatch(0);
     } catch (err) {
@@ -68,6 +69,48 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
       console.error('❌ Failed to load customers:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCustomersFromHistory = async () => {
+    setLoadingHistory(true);
+    setError('');
+    try {
+      // Get unique customers from Shipments table
+      console.log('🔍 Loading customers from shipment history...');
+      
+      const { data: shipmentCustomers, error: shipmentError } = await supabase
+        .from('Shipments')
+        .select('"Customer"')
+        .not('"Customer"', 'is', null);
+      
+      if (shipmentError) throw shipmentError;
+      
+      // Get unique customers from CustomerCarriers table
+      const { data: carrierCustomers, error: carrierError } = await supabase
+        .from('CustomerCarriers')
+        .select('InternalName')
+        .not('InternalName', 'is', null);
+      
+      if (carrierError) throw carrierError;
+      
+      // Combine and deduplicate
+      const shipmentNames = shipmentCustomers?.map(s => s.Customer).filter(Boolean) || [];
+      const carrierNames = carrierCustomers?.map(c => c.InternalName).filter(Boolean) || [];
+      const allHistoryNames = [...shipmentNames, ...carrierNames];
+      const uniqueHistoryNames = Array.from(new Set(allHistoryNames)).sort();
+      
+      console.log(`✅ Loaded ${uniqueHistoryNames.length} customers from history (${shipmentNames.length} from shipments, ${carrierNames.length} from carrier relationships)`);
+      
+      // Add to existing customers without duplicates
+      const combinedCustomers = Array.from(new Set([...customers, ...uniqueHistoryNames]));
+      setCustomers(combinedCustomers);
+      setFilteredCustomers(combinedCustomers);
+      setLoadedCount(combinedCustomers.length);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load customers from history');
+    } finally {
+      setLoadingHistory(false);
     }
   };
 
@@ -83,7 +126,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
         setLoadingMore(true);
       }
       
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from('customers')
         .select('name')
         .not('name', 'is', null)
@@ -103,7 +146,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
         const customerNames = data.map(customer => customer.name);
         const uniqueNames = Array.from(new Set([...customers, ...customerNames]));
         setCustomers(uniqueNames);
-        setFilteredCustomers(uniqueNames);
+        setFilteredCustomers(searchTerm ? uniqueNames.filter(name => name.toLowerCase().includes(searchTerm.toLowerCase())) : uniqueNames);
         setPage(pageNum);
         setLoadedCount(uniqueNames.length);
         console.log(`✅ Loaded ${customerNames.length} more customers (batch ${pageNum + 1}), total: ${uniqueNames.length}`);
@@ -111,6 +154,9 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
         // Check if we should load more
         setHasMore(data.length === PAGE_SIZE);
       }
+      
+      // Update total count if we have it
+      if (count !== null) setTotalCount(count);
     } catch (err) {
       console.error(`❌ Failed to load customers batch ${pageNum + 1}:`, err);
       throw err;
@@ -121,7 +167,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
 
   // Function to search customers directly from the database
   const searchCustomers = async (term: string) => {
-    if (!term || term.length < 3) return;
+    if (!term || term.length < 2) return;
     
     setLoading(true);
     try {
@@ -131,7 +177,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
         .from('customers')
         .select('name')
         .eq('is_active', true)
-        .ilike('name', `%${term}%`)
+        .ilike('name', `%${term}%`) 
         .limit(100);
       
       if (error) throw error;
@@ -175,7 +221,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
 
   const handleSearchChange = (term: string) => {
     setSearchTerm(term);
-    if (term.length >= 3) {
+    if (term.length >= 2) {
       // For longer search terms, search directly in the database
       searchCustomers(term);
     } else if (term.length > 0) {
@@ -213,7 +259,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
               <Users className="h-4 w-4 text-gray-400" />
             </div>
           </div>
-        </button>
+        </button> 
 
         {isOpen && (
           <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-64 overflow-hidden">
@@ -230,7 +276,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
                   autoFocus
                 />
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-gray-500 mt-1 flex justify-between">
                 Type 3+ characters to search all customers
               </div>
             </div>
@@ -248,7 +294,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
                   <span>{error}</span>
                 </div>
               ) : filteredCustomers.length === 0 ? (
-                <div className="p-4 text-center text-gray-500 text-sm">
+                <div className="p-4 text-center text-gray-500 text-sm"> 
                   {searchTerm ? 'No customers found' : 'No customers available'}
                 </div>
               ) : searchTerm.length >= 3 ? (
@@ -262,7 +308,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
                   </button>
                   
                   <div className="p-2 text-xs text-blue-600 bg-blue-50 border-b border-blue-100">
-                    Showing {filteredCustomers.length} search results for "{searchTerm}"
+                    Showing {filteredCustomers.length} search results for "{searchTerm}" 
                   </div>
                   
                   {/* Search Results */}
@@ -324,7 +370,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
                   {loadingMore ? (
                     <>
                       <Loader className="h-3 w-3 animate-spin" />
-                      <span>Loading more customers...</span>
+                      <span>Loading more ({loadedCount} of {totalCount})...</span>
                     </>
                   ) : (
                     <>
@@ -354,7 +400,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
 
       {customers.length > 0 && (
         <p className="mt-2 text-xs text-gray-500">
-          Showing {loadedCount} of {totalCount} customer{totalCount !== 1 ? 's' : ''} 
+          Loaded {loadedCount} of {totalCount} customer{totalCount !== 1 ? 's' : ''} from customers table
           {hasMore && ' (type 3+ characters to search all customers)'}
         </p>
       )}

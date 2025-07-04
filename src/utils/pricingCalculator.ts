@@ -1,417 +1,409 @@
-import { Quote, QuoteWithPricing, PricingSettings, RateCharge } from '../types';
-import { supabase } from './supabase';
+import React, { useState, useEffect } from 'react';
+import { Search, Users, Building2, CheckCircle, AlertCircle, History, Loader, RefreshCw } from 'lucide-react';
+import { supabase } from '../utils/supabase';
 
-// Customer-carrier margin lookup cache
-const marginCache = new Map<string, number>();
+interface CustomerSelectionProps {
+  selectedCustomer: string;
+  onCustomerChange: (customer: string) => void;
+}
 
-// Function to get customer-specific margin for a carrier
-export const getCustomerCarrierMargin = async (
-  customerName: string, 
-  carrierName: string, 
-  carrierScac?: string
-): Promise<number | null> => {
-  if (!customerName) return null;
-  
-  // Create cache key
-  const cacheKey = `${customerName}:${carrierName}:${carrierScac || ''}`;
-  
-  // Check cache first
-  if (marginCache.has(cacheKey)) {
-    return marginCache.get(cacheKey)!;
-  }
-  
-  try {
-    console.log(`🔍 Looking up margin for customer "${customerName}" and carrier "${carrierName}" (SCAC: ${carrierScac || 'N/A'})`);
+export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
+  selectedCustomer,
+  onCustomerChange
+}) => {
+  const [customers, setCustomers] = useState<string[]>([]);
+  const [filteredCustomers, setFilteredCustomers] = useState<string[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string>('');
+  const [hasMore, setHasMore] = useState(true); 
+  const [totalCount, setTotalCount] = useState(0);
+  const PAGE_SIZE = 200;
+  const [loadedCount, setLoadedCount] = useState(0); 
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
-    // First try to find the carrier by SCAC or name to get its account_code
-    const { data: carrierData, error: carrierError } = await supabase
-      .from('carriers')
-      .select('account_code')
-      .or(`scac.eq.${carrierScac || ''},name.ilike.%${carrierName}%`)
-      .limit(1);
-    
-    if (carrierError) {
-      console.error('❌ Error finding carrier:', carrierError);
-      return null;
-    }
-    
-    const carrierCode = carrierData && carrierData.length > 0 ? carrierData[0].account_code : carrierScac || carrierName;
-    
-    // First find the customer ID from the customers table
-    const { data: customerData, error: customerError } = await supabase
-      .from('customers')
-      .select('id')
-      .eq('name', customerName)
-      .single();
-    
-    if (customerError) {
-      console.error('❌ Error finding customer:', customerError);
-      return null;
-    }
-    
-    const customerId = customerData.id;
-    
-    // Now find the carrier ID from the carriers table
-    const { data: carrierIdData, error: carrierIdError } = await supabase
-      .from('carriers')
-      .select('id')
-      .eq('account_code', carrierCode)
-      .limit(1);
-    
-    if (carrierIdError) {
-      console.error('❌ Error finding carrier ID:', carrierIdError);
-      return null;
-    }
-    
-    const carrierId = carrierIdData && carrierIdData.length > 0 ? carrierIdData[0].id : null;
-    
-    if (!carrierId) {
-      console.log(`⚠️ No carrier found with account code: ${carrierCode}`);
-      return null;
-    }
-    
-    // Now query CustomerCarriers table using the UUIDs
-    const { data, error } = await supabase
-      .from('CustomerCarriers')
-      .select('Percentage')
-      .eq('customer_id', customerId)
-      .eq('carrier_id', carrierId)
-      .limit(1);
-    
-    
-    if (error) {
-      console.error('❌ Error querying CustomerCarriers:', error);
-      return null;
-    }
-    
-    if (data && data.length > 0) {
-      const percentage = parseFloat(data[0].Percentage || '0');
-      console.log(`✅ Found customer margin: ${percentage}% for ${customerName} (ID: ${customerId}) + ${carrierName} (ID: ${carrierId})`);
-      
-      // Cache the result
-      marginCache.set(cacheKey, percentage);
-      return percentage;
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
+  useEffect(() => {
+    if (searchTerm) {
+      const filtered = customers.filter(customer =>
+        customer.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      setFilteredCustomers(filtered);
     } else {
-      console.log(`ℹ️ No margin found for customer "${customerName}" and carrier "${carrierCode}"`);
-      
-      // Cache null result to avoid repeated queries
-      marginCache.set(cacheKey, 0);
-      return null;
+      setFilteredCustomers(customers);
     }
-  } catch (error) {
-    console.error('❌ Failed to lookup customer-carrier margin:', error);
-    return null;
-  }
-};
+  }, [searchTerm, customers]);
 
-// Clear the margin cache (useful when customer changes)
-export const clearMarginCache = () => {
-  marginCache.clear();
-  console.log('🧹 Cleared customer-carrier margin cache');
-};
+  const loadCustomers = async () => {
+    setLoading(true);
+    setError('');
+    setCustomers([]);
+    setFilteredCustomers([]);
+    setPage(0); 
+    setLoadedCount(0);
+    try {
+      // Get customers from customers table
+      console.log('🔍 Loading customers from customers table...');
+      
+      // First get the total count
+      const { count, error: countError } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true);
+      
+      if (countError) throw countError;
+      
+      setTotalCount(count || 0);
+      console.log(`📊 Total customer count: ${count}`);
+      setHasMore(true);
 
-export const calculatePricing = (
-  quote: Quote, 
-  settings: PricingSettings,
-  customPrice?: number,
-  selectedCustomer?: string
-): QuoteWithPricing => {
-  // Check if this is a FreshX quote (has submittedBy = 'FreshX' or temperature field)
-  const isFreshXQuote = quote.submittedBy === 'FreshX' || quote.temperature;
-  
-  let carrierTotalRate: number;
-  let chargeBreakdown = {
-    baseCharges: [] as RateCharge[],
-    fuelCharges: [] as RateCharge[],
-    accessorialCharges: [] as RateCharge[],
-    discountCharges: [] as RateCharge[],
-    premiumCharges: [] as RateCharge[],
-    otherCharges: [] as RateCharge[]
+      await loadCustomerBatch(0);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load customers';
+      setError(errorMsg);
+      console.error('❌ Failed to load customers:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  if (isFreshXQuote) {
-    // FreshX: Use baseRate + fuelSurcharge + premiumsAndDiscounts
-    carrierTotalRate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
-    
-    console.log(`🌡️ FreshX quote breakdown: Base=${quote.baseRate}, Fuel=${quote.fuelSurcharge}, Premiums=${quote.premiumsAndDiscounts}, Total=${carrierTotalRate}`);
-    
-    // Create itemized charge breakdown for FreshX
-    if (quote.baseRate > 0) {
-      chargeBreakdown.baseCharges.push({
-        amount: quote.baseRate,
-        code: 'BASE',
-        description: 'Base Rate'
-      });
-    }
-    
-    if (quote.fuelSurcharge > 0) {
-      chargeBreakdown.fuelCharges.push({
-        amount: quote.fuelSurcharge,
-        code: 'FUEL',
-        description: 'Fuel Surcharge'
-      });
-    }
-    
-    if (quote.premiumsAndDiscounts !== 0) {
-      if (quote.premiumsAndDiscounts > 0) {
-        chargeBreakdown.premiumCharges.push({
-          amount: quote.premiumsAndDiscounts,
-          code: 'PREMIUM',
-          description: 'Temperature Control & Accessorials'
-        });
-      } else {
-        chargeBreakdown.discountCharges.push({
-          amount: quote.premiumsAndDiscounts,
-          code: 'DISCOUNT',
-          description: 'Discounts'
-        });
-      }
-    }
-    
-    // Add accessorial charges if available
-    if (quote.accessorial && Array.isArray(quote.accessorial)) {
-      quote.accessorial.forEach(acc => {
-        if (typeof acc === 'object' && acc.amount) {
-          chargeBreakdown.accessorialCharges.push(acc);
-        }
-      });
-    }
-  } else if (quote.rateQuoteDetail?.total !== undefined && quote.rateQuoteDetail.total > 0) {
-    // Use Project44's calculated total
-    carrierTotalRate = quote.rateQuoteDetail.total;
-    
-    // Simply display ALL charges exactly as they come from Project44
-    if (quote.rateQuoteDetail.charges && Array.isArray(quote.rateQuoteDetail.charges)) {
-      // Put all charges in "otherCharges" to display them exactly as received
-      chargeBreakdown.otherCharges = [...quote.rateQuoteDetail.charges];
+  const loadCustomersFromHistory = async () => {
+    setLoadingHistory(true);
+    setError('');
+    try {
+      // Get unique customers from Shipments table
+      console.log('🔍 Loading customers from shipment history...');
       
-      console.log(`💰 Displaying ${quote.rateQuoteDetail.charges.length} charges exactly as received from Project44`);
-      quote.rateQuoteDetail.charges.forEach((charge, index) => {
-        console.log(`  ${index + 1}. ${charge.code || 'NO_CODE'} - ${charge.description || 'No description'}: $${charge.amount || 0}`);
-      });
+      const { data: shipmentCustomers, error: shipmentError } = await supabase
+        .from('Shipments')
+        .select('"Customer"')
+        .not('"Customer"', 'is', null);
+      
+      if (shipmentError) throw shipmentError;
+      
+      // Get unique customers from CustomerCarriers table
+      const { data: carrierCustomers, error: carrierError } = await supabase
+        .from('CustomerCarriers')
+        .select('InternalName')
+        .not('InternalName', 'is', null);
+      
+      if (carrierError) throw carrierError;
+      
+      // Combine and deduplicate
+      const shipmentNames = shipmentCustomers?.map(s => s.Customer).filter(Boolean) || [];
+      const carrierNames = carrierCustomers?.map(c => c.InternalName).filter(Boolean) || [];
+      const allHistoryNames = [...shipmentNames, ...carrierNames];
+      const uniqueHistoryNames = Array.from(new Set(allHistoryNames)).sort();
+      
+      console.log(`✅ Loaded ${uniqueHistoryNames.length} customers from history (${shipmentNames.length} from shipments, ${carrierNames.length} from carrier relationships)`);
+      
+      // Add to existing customers without duplicates
+      const combinedCustomers = Array.from(new Set([...customers, ...uniqueHistoryNames]));
+      setCustomers(combinedCustomers);
+      setFilteredCustomers(combinedCustomers);
+      setLoadedCount(combinedCustomers.length);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load customers from history');
+    } finally {
+      setLoadingHistory(false);
     }
-    
-    // For legacy compatibility, set these to zero since we're showing actual charges
-    quote.baseRate = 0;
-    quote.fuelSurcharge = 0;
-    quote.premiumsAndDiscounts = carrierTotalRate;
-  } else if (!isFreshXQuote && (quote.baseRate > 0 || quote.fuelSurcharge > 0)) {
-    // Fall back to legacy calculation if we have valid base components
-    carrierTotalRate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
-    
-    // Create legacy charge breakdown
-    if (quote.baseRate > 0) {
-      chargeBreakdown.baseCharges.push({
-        amount: quote.baseRate,
-        code: 'BASE',
-        description: 'Base Rate'
-      });
-    }
-    
-    if (quote.fuelSurcharge > 0) {
-      chargeBreakdown.fuelCharges.push({
-        amount: quote.fuelSurcharge,
-        code: 'FUEL',
-        description: 'Fuel Surcharge'
-      });
-    }
-    
-    if (quote.premiumsAndDiscounts !== 0) {
-      if (quote.premiumsAndDiscounts > 0) {
-        chargeBreakdown.premiumCharges.push({
-          amount: quote.premiumsAndDiscounts,
-          code: 'PREMIUM',
-          description: 'Premiums and Accessorials'
-        });
-      } else {
-        chargeBreakdown.discountCharges.push({
-          amount: quote.premiumsAndDiscounts,
-          code: 'DISCOUNT',
-          description: 'Discounts'
-        });
-      }
-    }
-    
-    // Add accessorial charges if available
-    if (quote.accessorial && Array.isArray(quote.accessorial)) {
-      quote.accessorial.forEach(acc => {
-        if (typeof acc === 'object' && acc.amount) {
-          chargeBreakdown.accessorialCharges.push(acc);
-        }
-      });
-    }
-  } else {
-    // No valid pricing data - this quote should have been filtered out
-    console.warn(`Quote has no valid pricing data (isFreshX: ${isFreshXQuote}):`, quote);
-    carrierTotalRate = 0;
-  }
-  
-  let customerPrice: number;
-  let markupApplied: number;
-  let isCustomPrice = false;
-  let appliedMarginType: 'customer' | 'fallback' | 'flat' = 'flat';
-  let appliedMarginPercentage: number = settings.markupPercentage;
-
-  if (customPrice !== undefined) {
-    // Custom price override
-    customerPrice = customPrice;
-    markupApplied = customerPrice - carrierTotalRate;
-    isCustomPrice = true;
-    appliedMarginType = 'flat';
-  } else {
-    // Determine which margin to apply
-    if (settings.usesCustomerMargins && selectedCustomer) {
-      // For customer margins mode, we'll need to do async lookup
-      // Use fallback margin with correct formula
-      const fallbackMargin = settings.fallbackMarkupPercentage || 23;
-      appliedMarginPercentage = fallbackMargin;
-      appliedMarginType = 'fallback';
-      customerPrice = carrierTotalRate / (1 - (fallbackMargin / 100));
-      markupApplied = customerPrice - carrierTotalRate;
-    } else {
-      // Apply flat markup
-      if (settings.markupType === 'percentage') {
-        customerPrice = carrierTotalRate / (1 - (settings.markupPercentage / 100));
-        markupApplied = customerPrice - carrierTotalRate;
-        appliedMarginPercentage = settings.markupPercentage;
-      } else {
-        markupApplied = settings.markupPercentage;
-        customerPrice = carrierTotalRate + markupApplied;
-        appliedMarginPercentage = (settings.markupPercentage / carrierTotalRate) * 100; // Convert to percentage for display
-      }
-      appliedMarginType = 'flat';
-    }
-    
-    // Ensure minimum profit is met (only adjust if below minimum)
-    // CRITICAL: Ensure minimum profit is ALWAYS enforced
-    const calculatedProfit = customerPrice - carrierTotalRate;
-    if (calculatedProfit < settings.minimumProfit) {
-      console.log(`⚠️ Enforcing minimum profit: ${formatCurrency(calculatedProfit)} → ${formatCurrency(settings.minimumProfit)}`);
-      markupApplied = settings.minimumProfit;
-      customerPrice = carrierTotalRate + settings.minimumProfit;
-      // Recalculate the applied margin percentage based on the enforced minimum
-      appliedMarginPercentage = carrierTotalRate > 0 ? (settings.minimumProfit / carrierTotalRate) * 100 : 0;
-    }
-  }
-
-  const profit = customerPrice - carrierTotalRate;
-
-  return {
-    ...quote,
-    carrierTotalRate,
-    customerPrice,
-    profit,
-    markupApplied,
-    isCustomPrice,
-    chargeBreakdown,
-    appliedMarginType,
-    appliedMarginPercentage
   };
-};
 
-// Async version of calculatePricing that can lookup customer margins
-export const calculatePricingWithCustomerMargins = async (
-  quote: Quote, 
-  settings: PricingSettings,
-  selectedCustomer?: string,
-  customPrice?: number
-): Promise<QuoteWithPricing> => {
-  // Start with basic calculation
-  let result = calculatePricing(quote, settings, customPrice, selectedCustomer);
-  
-  // If using customer margins and we have a customer selected, try to lookup specific margin
-  if (settings.usesCustomerMargins && selectedCustomer && !customPrice) {
-    const carrierName = quote.carrier.name;
-    const carrierScac = quote.carrier.scac || quote.carrierCode;
-    
-    // Check if this is a reefer quote (always use fallback for reefer)
-    const isReeferQuote = quote.temperature && ['CHILLED', 'FROZEN'].includes(quote.temperature);
-    
-    if (!isReeferQuote) {
-      const customerMargin = await getCustomerCarrierMargin(selectedCustomer, carrierName, carrierScac);
+  const [page, setPage] = useState(0);
+  const loadCustomerBatch = async (pageNum: number) => {
+    try {
+      const from = pageNum * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
       
-      if (customerMargin !== null && customerMargin > 0) {
-        // Apply customer-specific margin
-        const customerPrice = result.carrierTotalRate / (1 - (customerMargin / 100));
-        let markupApplied = customerPrice - result.carrierTotalRate;
-        let finalCustomerPrice = customerPrice;
-        
-        // CRITICAL: Enforce minimum profit for customer margins too
-        if (markupApplied < settings.minimumProfit) {
-          console.log(`⚠️ Customer margin below minimum profit. Enforcing: ${formatCurrency(markupApplied)} → ${formatCurrency(settings.minimumProfit)}`);
-          markupApplied = settings.minimumProfit;
-          finalCustomerPrice = result.carrierTotalRate + settings.minimumProfit;
-        }
-        
-        const profit = finalCustomerPrice - result.carrierTotalRate;
-        
-        result = {
-          ...result,
-          customerPrice: finalCustomerPrice,
-          profit,
-          markupApplied,
-          appliedMarginType: 'customer',
-          appliedMarginPercentage: result.carrierTotalRate > 0 ? (profit / result.carrierTotalRate) * 100 : 0
-        };
-        
-        console.log(`💰 Applied customer margin: ${customerMargin}% (final: ${result.appliedMarginPercentage.toFixed(1)}%) for ${selectedCustomer} + ${carrierName}`);
-      } else {
-        console.log(`📋 Using fallback margin: ${settings.fallbackMarkupPercentage || 23}% for ${selectedCustomer} + ${carrierName}`);
+      console.log(`📋 Loading customers batch ${pageNum + 1} (${from}-${to})...`);
+      
+      if (pageNum > 0) {
+        setLoadingMore(true);
       }
-    } else {
-      console.log(`🌡️ Using fallback margin for reefer quote: ${settings.fallbackMarkupPercentage || 23}%`);
+      
+      const { data, error, count } = await supabase
+        .from('customers')
+        .select('name')
+        .not('name', 'is', null)
+        .eq('is_active', true)
+        .order('name')
+        .range(from, to);
+      
+      if (error) {
+        throw error;
+      }
+      
+      if (!data || data.length === 0) {
+        setHasMore(false);
+        console.log('📋 No more customers to load');
+      } else {
+        // Extract customer names and append to existing list
+        const customerNames = data.map(customer => customer.name);
+        const uniqueNames = Array.from(new Set([...customers, ...customerNames]));
+        setCustomers(uniqueNames);
+        setFilteredCustomers(searchTerm ? uniqueNames.filter(name => name.toLowerCase().includes(searchTerm.toLowerCase())) : uniqueNames);
+        setPage(pageNum);
+        setLoadedCount(uniqueNames.length);
+        console.log(`✅ Loaded ${customerNames.length} more customers (batch ${pageNum + 1}), total: ${uniqueNames.length}`);
+        
+        // Check if we should load more
+        setHasMore(data.length === PAGE_SIZE);
+      }
+      
+      // Update total count if we have it
+      if (count !== null) setTotalCount(count);
+    } catch (err) {
+      console.error(`❌ Failed to load customers batch ${pageNum + 1}:`, err);
+      throw err;
+    } finally {
+      setLoadingMore(false);
     }
-  }
-  
-  return result;
-};
+  };
 
-export const calculateBestQuote = (quotes: QuoteWithPricing[]): QuoteWithPricing | null => {
-  if (quotes.length === 0) return null;
-  
-  return quotes.reduce((best, current) => 
-    current.customerPrice < best.customerPrice ? current : best
+  // Function to search customers directly from the database
+  const searchCustomers = async (term: string) => {
+    if (!term || term.length < 2) return;
+    
+    setLoading(true);
+    try {
+      console.log(`🔍 Searching for customers with term: "${term}"...`);
+      
+      const { data, error } = await supabase
+        .from('customers')
+        .select('name')
+        .eq('is_active', true)
+        .ilike('name', `%${term}%`) 
+        .limit(100);
+      
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        const searchResults = data.map(c => c.name);
+        console.log(`✅ Found ${searchResults.length} customers matching "${term}"`);
+        
+        // Add search results to the existing list without duplicates
+        const combinedResults = Array.from(new Set([...customers, ...searchResults]));
+        setCustomers(combinedResults);
+        setFilteredCustomers(searchResults);
+      } else {
+        console.log(`ℹ️ No customers found matching "${term}"`);
+        setFilteredCustomers([]);
+      }
+    } catch (err) {
+      console.error('Search error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCustomerSelect = (customer: string) => {
+    onCustomerChange(customer);
+    setIsOpen(false);
+    setSearchTerm('');
+  };
+
+  const clearSelection = () => {
+    onCustomerChange('');
+    setIsOpen(false);
+    setSearchTerm('');
+  };
+
+  const loadMoreCustomers = () => {
+    if (hasMore && !loadingMore) {
+      loadCustomerBatch(page + 1);
+    }
+  };
+
+  const handleSearchChange = (term: string) => {
+    setSearchTerm(term);
+    if (term.length >= 2) {
+      // For longer search terms, search directly in the database
+      searchCustomers(term);
+    } else if (term.length > 0) {
+      // For shorter terms, filter the already loaded customers
+      const filtered = customers.filter(customer =>
+        customer.toLowerCase().includes(term.toLowerCase())
+      );
+      setFilteredCustomers(filtered);
+    } else {
+      // If search is cleared, show all loaded customers
+      setFilteredCustomers(customers);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        <Building2 className="inline h-4 w-4 mr-1" />
+        Customer Selection
+      </label>
+      
+      <div className="relative">
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className="w-full px-4 py-3 text-left border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <span className={selectedCustomer ? 'text-gray-900' : 'text-gray-500'}>
+              {selectedCustomer || 'Select a customer...'}
+            </span>
+            <div className="flex items-center space-x-2">
+              {selectedCustomer && (
+                <CheckCircle className="h-4 w-4 text-green-500" />
+              )}
+              <Users className="h-4 w-4 text-gray-400" />
+            </div>
+          </div>
+        </button> 
+
+        {isOpen && (
+          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-64 overflow-hidden">
+            {/* Search Input */}
+            <div className="p-3 border-b border-gray-200 bg-gray-50">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  placeholder="Search customers..."
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  autoFocus
+                />
+              </div>
+              <div className="text-xs text-gray-500 mt-1 flex justify-between">
+                Type 3+ characters to search all customers
+              </div>
+            </div>
+
+            {/* Customer List */}
+            <div className="max-h-80 overflow-y-auto">
+              {loading ? (
+                <div className="p-4 text-center text-gray-500 flex items-center justify-center space-x-2">
+                  <Loader className="h-4 w-4 animate-spin" />
+                  <span>Loading customers...</span>
+                </div>
+              ) : error ? (
+                <div className="p-4 text-center text-red-600 flex items-center justify-center space-x-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>{error}</span>
+                </div>
+              ) : filteredCustomers.length === 0 ? (
+                <div className="p-4 text-center text-gray-500 text-sm"> 
+                  {searchTerm ? 'No customers found' : 'No customers available'}
+                </div>
+              ) : searchTerm.length >= 3 ? (
+                <>
+                  {/* Clear Selection Option */}
+                  <button
+                    onClick={clearSelection}
+                    className="w-full px-4 py-2 text-left hover:bg-gray-100 transition-colors border-b border-gray-100"
+                  >
+                    <span className="text-gray-500 italic">No customer selected</span>
+                  </button>
+                  
+                  <div className="p-2 text-xs text-blue-600 bg-blue-50 border-b border-blue-100">
+                    Showing {filteredCustomers.length} search results for "{searchTerm}" 
+                  </div>
+                  
+                  {/* Search Results */}
+                  {filteredCustomers.map((customer) => (
+                    <button
+                      key={customer}
+                      onClick={() => handleCustomerSelect(customer)}
+                      className={`w-full px-4 py-2 text-left hover:bg-blue-50 transition-colors ${
+                        selectedCustomer === customer ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>{customer}</span>
+                        {selectedCustomer === customer && (
+                          <CheckCircle className="h-4 w-4 text-blue-600" />
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <>
+                  {/* Clear Selection Option */}
+                  <button
+                    onClick={clearSelection}
+                    className="w-full px-4 py-2 text-left hover:bg-gray-100 transition-colors border-b border-gray-100"
+                  >
+                    <span className="text-gray-500 italic">No customer selected</span>
+                  </button>
+                  
+                  {/* Customer Options */}
+                  {filteredCustomers.map((customer) => (
+                    <button
+                      key={customer}
+                      onClick={() => handleCustomerSelect(customer)}
+                      className={`w-full px-4 py-2 text-left hover:bg-blue-50 transition-colors ${
+                        selectedCustomer === customer ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>{customer}</span>
+                        {selectedCustomer === customer && (
+                          <CheckCircle className="h-4 w-4 text-blue-600" />
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+            
+            {hasMore && (
+              <div className="p-3 text-center border-t border-gray-200 bg-gray-50">
+                <button
+                  onClick={loadMoreCustomers} 
+                  disabled={loadingMore}
+                  className="text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 px-4 py-2 rounded-md transition-colors flex items-center justify-center space-x-2 w-full"
+                > 
+                  {loadingMore ? (
+                    <>
+                      <Loader className="h-3 w-3 animate-spin" />
+                      <span>Loading more customers...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Load more customers</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {selectedCustomer && (
+        <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <div className="flex items-center space-x-2 text-green-800">
+            <CheckCircle className="h-4 w-4" />
+            <span className="text-sm font-medium">
+              Customer selected: {selectedCustomer}
+            </span>
+          </div>
+          <p className="text-xs text-green-700 mt-1">
+            Customer-specific margins will be applied where available
+          </p>
+        </div>
+      )}
+
+      {customers.length > 0 && (
+        <p className="mt-2 text-xs text-gray-500">
+          Showing {loadedCount} of {totalCount} customer{totalCount !== 1 ? 's' : ''} 
+          {hasMore && ' (type 3+ characters to search all customers)'}
+        </p>
+      )}
+    </div>
   );
-};
-
-export const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(amount);
-};
-
-export const formatProfit = (profit: number): string => {
-  const formatted = formatCurrency(profit);
-  return profit >= 0 ? `+${formatted}` : formatted;
-};
-
-export const getTotalChargesByCategory = (charges: RateCharge[]): number => {
-  return charges.reduce((sum, charge) => sum + charge.amount, 0);
-};
-
-export const formatChargeDescription = (charge: RateCharge): string => {
-  if (charge.description) {
-    return charge.description;
-  }
-  
-  // Fallback to code-based descriptions
-  const codeDescriptions: { [key: string]: string } = {
-    'BASE': 'Base Rate',
-    'FUEL': 'Fuel Surcharge',
-    'LGPU': 'Liftgate Pickup',
-    'LGDEL': 'Liftgate Delivery',
-    'INPU': 'Inside Pickup',
-    'INDEL': 'Inside Delivery',
-    'RESPU': 'Residential Pickup',
-    'RESDEL': 'Residential Delivery',
-    'APPTPU': 'Appointment Pickup',
-    'APPTDEL': 'Appointment Delivery',
-    'LTDPU': 'Limited Access Pickup',
-    'LTDDEL': 'Limited Access Delivery'
-  };
-  
-  return codeDescriptions[charge.code] || charge.code || 'Additional Charge';
 };
