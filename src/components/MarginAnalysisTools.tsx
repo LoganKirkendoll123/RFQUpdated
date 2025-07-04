@@ -299,7 +299,7 @@ export const MarginAnalysisTools: React.FC = () => {
     };
   };
 
-  // FIXED: High-end outlier removal with 25% threshold
+  // FIXED: High-end outlier removal with 50% threshold
   const removeHighEndOutliers = (rates: number[]): number[] => {
     if (rates.length < 4) {
       console.log(`⚠️ Not enough data points (${rates.length}) for outlier removal, keeping all rates`);
@@ -312,14 +312,14 @@ export const MarginAnalysisTools: React.FC = () => {
     
     let removedCount = 0;
     
-    // Keep removing the most expensive rate if it's more than 25% above the average of the remaining rates
+    // Keep removing the most expensive rate if it's more than 50% above the average of the remaining rates
     while (sortedRates.length >= 4) { // Need at least 4 rates to continue
       const mostExpensive = sortedRates[sortedRates.length - 1];
       const remainingRates = sortedRates.slice(0, -1); // All rates except the most expensive
       const averageWithoutMostExpensive = remainingRates.reduce((sum, rate) => sum + rate, 0) / remainingRates.length;
       
-      // Check if the most expensive is more than 25% above the average
-      const threshold = averageWithoutMostExpensive * 1.25; // 25% above average
+      // Check if the most expensive is more than 50% above the average
+      const threshold = averageWithoutMostExpensive * 1.5; // 50% above average
       
       console.log(`🔍 Checking most expensive: ${formatCurrency(mostExpensive)} vs threshold: ${formatCurrency(threshold)} (avg: ${formatCurrency(averageWithoutMostExpensive)})`);
       
@@ -330,7 +330,7 @@ export const MarginAnalysisTools: React.FC = () => {
         console.log(`❌ Removed outlier: ${formatCurrency(mostExpensive)} (${((mostExpensive / averageWithoutMostExpensive - 1) * 100).toFixed(1)}% above average)`);
       } else {
         // No more outliers to remove
-        console.log(`✅ No more outliers: ${formatCurrency(mostExpensive)} is within 25% of average`);
+        console.log(`✅ No more outliers: ${formatCurrency(mostExpensive)} is within 50% of average`);
         break;
       }
     }
@@ -471,7 +471,7 @@ export const MarginAnalysisTools: React.FC = () => {
             };
           });
           
-          // FIXED: Remove high-end outliers only using the new 25% threshold method
+          // FIXED: Remove high-end outliers only using the new 50% threshold method
           const competitorCosts = competitorRates.map(cr => cr.rate);
           const costsWithoutOutliers = removeHighEndOutliers(competitorCosts);
           
@@ -637,7 +637,7 @@ export const MarginAnalysisTools: React.FC = () => {
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Fixed Carrier Margin Discovery</h1>
             <p className="text-sm text-gray-600">
-              Analyze competitor pricing with case-insensitive customer matching, high-end outlier removal (25% threshold), and correct margin formula: cost/(1-margin)
+              Analyze competitor pricing with case-insensitive customer matching, high-end outlier removal (50% threshold), and correct margin formula: cost/(1-margin)
             </p>
           </div>
         </div>
@@ -929,7 +929,7 @@ export const MarginAnalysisTools: React.FC = () => {
                     'capacityProviderAccountGroup: { accounts: [{code: "carrier"}], code: "group" }'
                   )}</li>
                   <li><strong>Customer matching:</strong> Case-insensitive with whitespace trimming</li>
-                  <li><strong>Outlier removal:</strong> Remove high-end outliers only if &gt;25% above average</li>
+                  <li><strong>Outlier removal:</strong> Remove high-end outliers only if &gt;50% above average</li>
                   <li>Mark up remaining competitor costs using <strong>CORRECT formula: cost / (1 - margin)</strong></li>
                   <li>Calculate average of marked-up competitor prices as <strong>target price</strong></li>
                   <li>Process <strong>{shipmentData.length} historical shipments</strong> with actual service levels</li>
@@ -994,7 +994,7 @@ export const MarginAnalysisTools: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-800">Fixed Margin Analysis Results</h3>
               <p className="text-sm text-gray-600 mt-1">
-                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed with case-insensitive matching, high-end outlier removal (25% threshold), and correct formula: cost/(1-margin)
+                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed with case-insensitive matching, high-end outlier removal (50% threshold), and correct formula: cost/(1-margin)
               </p>
             </div>
             <button
