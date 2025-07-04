@@ -70,7 +70,6 @@ interface ShipmentData {
   "Service Level": string;
   "Booked Carrier": string;
   "Quoted Carrier": string;
-  "SCAC": string;
   "Revenue": string;
   "Carrier Expense": string;
 }
@@ -80,6 +79,10 @@ interface CustomerCarrierMargin {
   "P44CarrierCode": string;
   "Percentage": string;
 }
+
+// Batch processing configuration
+const BATCH_SIZE = 10; // Process 10 shipments concurrently
+const BATCH_DELAY = 6000; // 6 second delay between batches (600 requests/minute = 10 requests/second)
 
 export const MarginAnalysisTools: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -381,6 +384,136 @@ export const MarginAnalysisTools: React.FC = () => {
     return marginValue;
   };
 
+  // NEW: Process a single shipment (for concurrent processing)
+  const processShipment = async (shipment: ShipmentData, index: number): Promise<{
+    customerName: string;
+    shipmentResult: ShipmentResult | null;
+    error?: string;
+  }> => {
+    const customerName = shipment["Customer"];
+    
+    try {
+      console.log(`📦 Processing shipment ${index + 1}: ${shipment["Zip"]} → ${shipment["Zip_1"]} for ${customerName}`);
+
+      // Convert shipment to RFQ format
+      const rfqData = convertShipmentToRFQ(shipment);
+      
+      // Skip if essential data is missing
+      if (!rfqData.fromZip || !rfqData.toZip || rfqData.grossWeight === 0) {
+        console.warn(`⚠️ Skipping shipment ${index + 1} - missing essential data`);
+        return { customerName, shipmentResult: null };
+      }
+
+      // STEP 1: Get target carrier rate
+      const targetRates = await project44Client!.getQuotes(rfqData, [selectedTargetCarrier], false, false, false);
+      
+      if (targetRates.length === 0) {
+        console.warn(`⚠️ No rate from target carrier ${selectedTargetCarrier} for shipment ${index + 1}`);
+        return { customerName, shipmentResult: null };
+      }
+
+      const targetRate = targetRates[0].baseRate + targetRates[0].fuelSurcharge + targetRates[0].premiumsAndDiscounts;
+      console.log(`🎯 STEP 1 - Target carrier rate: ${formatCurrency(targetRate)}`);
+
+      // STEP 2: Get competitor rates
+      let competitorQuotes;
+      
+      if (selectedCompetitorCarriers.length === 0) {
+        // Use entire group
+        console.log(`📊 Getting quotes for entire group ${selectedCompetitorGroup}`);
+        competitorQuotes = await project44Client!.getQuotesForAccountGroup(
+          rfqData, 
+          selectedCompetitorGroup, 
+          false, 
+          false, 
+          false
+        );
+      } else {
+        // Use specific carriers
+        console.log(`📊 Getting quotes for ${selectedCompetitorCarriers.length} specific carriers in group ${selectedCompetitorGroup}`);
+        
+        competitorQuotes = await project44Client!.getQuotes(
+          rfqData, 
+          selectedCompetitorCarriers, 
+          false, 
+          false, 
+          false
+        );
+      }
+      
+      console.log(`📊 STEP 2 - Got ${competitorQuotes.length} competitor quotes`);
+      
+      if (competitorQuotes.length === 0) {
+        console.warn(`⚠️ No competitor quotes for shipment ${index + 1}`);
+        return { customerName, shipmentResult: null };
+      }
+      
+      // STEP 3: Remove invalid competitor costs (already done by API filtering)
+      const competitorRates = competitorQuotes.map(quote => {
+        const rate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
+        const carrierCode = quote.carrierCode || quote.carrier.name;
+        
+        // Get the specific customer margin for this carrier
+        const margin = getCustomerMarginForCarrier(customerName, carrierCode);
+        
+        // Calculate customer price using correct formula: cost / (1 - margin)
+        const customerPrice = rate / (1 - margin / 100);
+        
+        return {
+          carrierId: carrierCode,
+          carrierName: quote.carrier.name,
+          rate: rate,
+          margin: margin,
+          customerPrice: customerPrice
+        };
+      });
+      
+      console.log(`📊 STEP 3 - ${competitorRates.length} valid competitor rates`);
+      
+      // STEP 4: Remove outliers using the specified method
+      const competitorCosts = competitorRates.map(cr => cr.rate);
+      const costsWithoutOutliers = removeHighEndOutliers(competitorCosts, targetRate);
+      
+      // Filter competitor rates to only include those without outliers
+      const competitorRatesWithoutOutliers = competitorRates.filter(cr => 
+        costsWithoutOutliers.includes(cr.rate)
+      );
+      
+      console.log(`📊 STEP 4 - Removed ${competitorRates.length - competitorRatesWithoutOutliers.length} high-end outliers`);
+      
+      if (competitorRatesWithoutOutliers.length === 0) {
+        console.warn(`⚠️ No competitor rates remaining after outlier removal for shipment ${index + 1}`);
+        return { customerName, shipmentResult: null };
+      }
+      
+      // STEP 5: Calculate average competitor cost and price
+      const averageCompetitorCostWithoutOutliers = costsWithoutOutliers.reduce((sum, cost) => sum + cost, 0) / costsWithoutOutliers.length;
+      const averageCompetitorPriceWithoutOutliers = competitorRatesWithoutOutliers.reduce((sum, cr) => sum + cr.customerPrice, 0) / competitorRatesWithoutOutliers.length;
+      
+      console.log(`📊 STEP 5 - Average competitor cost: ${formatCurrency(averageCompetitorCostWithoutOutliers)}, Average competitor price: ${formatCurrency(averageCompetitorPriceWithoutOutliers)}`);
+      
+      // Create shipment result
+      const shipmentResult: ShipmentResult = {
+        targetCarrierRate: targetRate,
+        competitorRates: competitorRates,
+        competitorRatesWithoutOutliers: competitorRatesWithoutOutliers,
+        averageCompetitorCostWithoutOutliers: averageCompetitorCostWithoutOutliers,
+        averageCompetitorPriceWithoutOutliers: averageCompetitorPriceWithoutOutliers
+      };
+      
+      return { customerName, shipmentResult };
+      
+    } catch (error) {
+      console.error(`❌ Failed to process shipment ${index + 1}:`, error);
+      return { 
+        customerName, 
+        shipmentResult: null, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  };
+
+  // NEW: Process shipments in concurrent batches
   const runMarginAnalysis = async () => {
     if (!project44Client || !selectedTargetGroup || !selectedTargetCarrier || !selectedCompetitorGroup) {
       setError('Please select target carrier group, target carrier, and competitor group');
@@ -397,140 +530,47 @@ export const MarginAnalysisTools: React.FC = () => {
     setResults([]);
     
     try {
-      setProcessingStatus('Starting margin analysis...');
-      
-      console.log(`🎯 Analyzing against competitor group: ${selectedCompetitorGroup}`);
-      console.log(`🎯 Selected competitor carriers: ${selectedCompetitorCarriers.length}`);
-      
+      console.log(`🧠 Starting Concurrent Smart Quoting RFQ processing: ${shipmentData.length} RFQs, ${BATCH_SIZE} concurrent requests`);
+
       const customerResults: {[key: string]: MarginAnalysisResult} = {};
-
-      // Process each shipment from the database
-      for (let i = 0; i < shipmentData.length; i++) {
-        const shipment = shipmentData[i];
-        const customerName = shipment["Customer"];
+      
+      // Process shipments in batches
+      const totalBatches = Math.ceil(shipmentData.length / BATCH_SIZE);
+      
+      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+        const batchStart = batchIndex * BATCH_SIZE;
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, shipmentData.length);
+        const batchShipments = shipmentData.slice(batchStart, batchEnd);
         
-        setProcessingStatus(`Processing shipment ${i + 1} of ${shipmentData.length} for ${customerName}...`);
+        setProcessingStatus(`Processing batch ${batchIndex + 1} of ${totalBatches} (${batchShipments.length} shipments concurrently)...`);
+        console.log(`🚀 Processing batch ${batchIndex + 1}/${totalBatches}: shipments ${batchStart + 1}-${batchEnd}`);
         
-        console.log(`📦 Processing shipment: ${shipment["Zip"]} → ${shipment["Zip_1"]} for ${customerName}`);
-
-        // Convert shipment to RFQ format
-        const rfqData = convertShipmentToRFQ(shipment);
+        // Process all shipments in this batch concurrently
+        const batchPromises = batchShipments.map((shipment, index) => 
+          processShipment(shipment, batchStart + index)
+        );
         
-        // Skip if essential data is missing
-        if (!rfqData.fromZip || !rfqData.toZip || rfqData.grossWeight === 0) {
-          console.warn(`⚠️ Skipping shipment ${i + 1} - missing essential data`);
-          continue;
-        }
-
-        try {
-          // STEP 1: Get target carrier rate
-          setProcessingStatus(`Getting target carrier rate for shipment ${i + 1}...`);
-          const targetRates = await project44Client.getQuotes(rfqData, [selectedTargetCarrier], false, false, false);
-          
-          if (targetRates.length === 0) {
-            console.warn(`⚠️ No rate from target carrier ${selectedTargetCarrier} for shipment ${i + 1}`);
-            continue;
-          }
-
-          const targetRate = targetRates[0].baseRate + targetRates[0].fuelSurcharge + targetRates[0].premiumsAndDiscounts;
-          console.log(`🎯 STEP 1 - Target carrier rate: ${formatCurrency(targetRate)}`);
-
-          // STEP 2: Get competitor rates
-          setProcessingStatus(`Getting competitor rates for shipment ${i + 1}...`);
-          
-          let competitorQuotes;
-          
-          if (selectedCompetitorCarriers.length === 0) {
-            // Use entire group
-            console.log(`📊 Getting quotes for entire group ${selectedCompetitorGroup}`);
-            competitorQuotes = await project44Client.getQuotesForAccountGroup(
-              rfqData, 
-              selectedCompetitorGroup, 
-              false, 
-              false, 
-              false
-            );
-          } else {
-            // Use specific carriers
-            console.log(`📊 Getting quotes for ${selectedCompetitorCarriers.length} specific carriers in group ${selectedCompetitorGroup}`);
-            
-            competitorQuotes = await project44Client.getQuotes(
-              rfqData, 
-              selectedCompetitorCarriers, 
-              false, 
-              false, 
-              false
-            );
+        const batchResults = await Promise.all(batchPromises);
+        
+        // Process results from this batch
+        batchResults.forEach(({ customerName, shipmentResult, error }) => {
+          if (error) {
+            console.warn(`⚠️ Shipment processing error: ${error}`);
+            return;
           }
           
-          console.log(`📊 STEP 2 - Got ${competitorQuotes.length} competitor quotes`);
-          
-          if (competitorQuotes.length === 0) {
-            console.warn(`⚠️ No competitor quotes for shipment ${i + 1}`);
-            continue;
+          if (!shipmentResult) {
+            return; // Skip shipments with no valid results
           }
           
-          // STEP 3: Remove invalid competitor costs (already done by API filtering)
-          const competitorRates = competitorQuotes.map(quote => {
-            const rate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
-            const carrierCode = quote.carrierCode || quote.carrier.name;
-            
-            // Get the specific customer margin for this carrier
-            const margin = getCustomerMarginForCarrier(customerName, carrierCode);
-            
-            // Calculate customer price using correct formula: cost / (1 - margin)
-            const customerPrice = rate / (1 - margin / 100);
-            
-            return {
-              carrierId: carrierCode,
-              carrierName: quote.carrier.name,
-              rate: rate,
-              margin: margin,
-              customerPrice: customerPrice
-            };
-          });
-          
-          console.log(`📊 STEP 3 - ${competitorRates.length} valid competitor rates`);
-          
-          // STEP 4: Remove outliers using the specified method
-          const competitorCosts = competitorRates.map(cr => cr.rate);
-          const costsWithoutOutliers = removeHighEndOutliers(competitorCosts, targetRate);
-          
-          // Filter competitor rates to only include those without outliers
-          const competitorRatesWithoutOutliers = competitorRates.filter(cr => 
-            costsWithoutOutliers.includes(cr.rate)
-          );
-          
-          console.log(`📊 STEP 4 - Removed ${competitorRates.length - competitorRatesWithoutOutliers.length} high-end outliers`);
-          
-          if (competitorRatesWithoutOutliers.length === 0) {
-            console.warn(`⚠️ No competitor rates remaining after outlier removal for shipment ${i + 1}`);
-            continue;
-          }
-          
-          // STEP 5: Calculate average competitor cost and price
-          const averageCompetitorCostWithoutOutliers = costsWithoutOutliers.reduce((sum, cost) => sum + cost, 0) / costsWithoutOutliers.length;
-          const averageCompetitorPriceWithoutOutliers = competitorRatesWithoutOutliers.reduce((sum, cr) => sum + cr.customerPrice, 0) / competitorRatesWithoutOutliers.length;
-          
-          console.log(`📊 STEP 5 - Average competitor cost: ${formatCurrency(averageCompetitorCostWithoutOutliers)}, Average competitor price: ${formatCurrency(averageCompetitorPriceWithoutOutliers)}`);
-          
-          // Create shipment result
-          const shipmentResult: ShipmentResult = {
-            targetCarrierRate: targetRate,
-            competitorRates: competitorRates,
-            competitorRatesWithoutOutliers: competitorRatesWithoutOutliers,
-            averageCompetitorCostWithoutOutliers: averageCompetitorCostWithoutOutliers,
-            averageCompetitorPriceWithoutOutliers: averageCompetitorPriceWithoutOutliers
-          };
-          
-          // STEP 6: Add to or update customer results
+          // Add to or update customer results
           if (!customerResults[customerName]) {
             customerResults[customerName] = {
               customerName,
               shipmentResults: [shipmentResult],
-              totalTargetCost: targetRate,
-              totalCompetitorCost: averageCompetitorCostWithoutOutliers,
-              totalTargetPrice: averageCompetitorPriceWithoutOutliers,
+              totalTargetCost: shipmentResult.targetCarrierRate,
+              totalCompetitorCost: shipmentResult.averageCompetitorCostWithoutOutliers,
+              totalTargetPrice: shipmentResult.averageCompetitorPriceWithoutOutliers,
               recommendedMargin: 0, // Will be calculated later
               shipmentCount: 1
             };
@@ -538,15 +578,20 @@ export const MarginAnalysisTools: React.FC = () => {
             // Add to existing customer
             const existing = customerResults[customerName];
             existing.shipmentResults.push(shipmentResult);
-            existing.totalTargetCost += targetRate;
-            existing.totalCompetitorCost += averageCompetitorCostWithoutOutliers;
-            existing.totalTargetPrice += averageCompetitorPriceWithoutOutliers;
+            existing.totalTargetCost += shipmentResult.targetCarrierRate;
+            existing.totalCompetitorCost += shipmentResult.averageCompetitorCostWithoutOutliers;
+            existing.totalTargetPrice += shipmentResult.averageCompetitorPriceWithoutOutliers;
             existing.shipmentCount++;
           }
-          
-        } catch (error) {
-          console.warn(`⚠️ Failed to get rates for shipment ${i + 1}:`, error);
-          // Continue with other shipments
+        });
+        
+        console.log(`✅ Completed batch ${batchIndex + 1}/${totalBatches}`);
+        
+        // Add delay between batches to respect rate limits (except for the last batch)
+        if (batchIndex < totalBatches - 1) {
+          setProcessingStatus(`Waiting ${BATCH_DELAY/1000} seconds before next batch to respect rate limits...`);
+          console.log(`⏱️ Waiting ${BATCH_DELAY/1000} seconds before next batch...`);
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
         }
       }
 
@@ -574,10 +619,10 @@ export const MarginAnalysisTools: React.FC = () => {
       if (finalResults.length === 0) {
         setProcessingStatus('Analysis complete, but no valid results were found.');
       } else {
-        setProcessingStatus(`Analysis complete! Processed ${finalResults.length} customers with competitor data.`);
+        setProcessingStatus(`🚀 Concurrent analysis complete! Processed ${finalResults.length} customers with competitor data using ${BATCH_SIZE} concurrent requests per batch.`);
       }
       
-      console.log(`✅ Margin analysis complete: ${finalResults.length} results`);
+      console.log(`✅ Concurrent margin analysis complete: ${finalResults.length} results`);
       
     } catch (error) {
       console.error('❌ Margin analysis failed:', error);
@@ -618,7 +663,7 @@ export const MarginAnalysisTools: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `margin-analysis-${selectedCustomer || 'all-customers'}-${startDate}-to-${endDate}.csv`;
+    link.download = `concurrent-margin-analysis-${selectedCustomer || 'all-customers'}-${startDate}-to-${endDate}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -643,10 +688,40 @@ export const MarginAnalysisTools: React.FC = () => {
             <Calculator className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Fixed Carrier Margin Discovery</h1>
+            <h1 className="text-xl font-semibold text-gray-900">Concurrent Margin Discovery</h1>
             <p className="text-sm text-gray-600">
-              Corrected calculation: Per-shipment processing → Per-customer totals → Final margin: ((Sum Price - Sum Cost) / Sum Price) * 100
+              High-speed concurrent processing: {BATCH_SIZE} requests per batch, {BATCH_DELAY/1000}s between batches (600 req/min limit)
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Performance Info */}
+      <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4">
+        <div className="flex items-start space-x-3">
+          <Shield className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-green-800">
+            <p className="font-medium mb-2">🚀 Concurrent Processing Optimization:</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              <div>
+                <strong>Batch Size:</strong> {BATCH_SIZE} concurrent requests
+              </div>
+              <div>
+                <strong>Rate Limit:</strong> 600 requests/minute (P44 limit)
+              </div>
+              <div>
+                <strong>Batch Delay:</strong> {BATCH_DELAY/1000} seconds between batches
+              </div>
+              <div>
+                <strong>Speed Improvement:</strong> ~{BATCH_SIZE}x faster than sequential
+              </div>
+              <div>
+                <strong>Estimated Time:</strong> {shipmentData.length > 0 ? `~${Math.ceil((shipmentData.length / BATCH_SIZE) * (BATCH_DELAY/1000) / 60)} minutes` : 'Load data first'}
+              </div>
+              <div>
+                <strong>Memory Efficient:</strong> Processes in controlled batches
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -923,7 +998,7 @@ export const MarginAnalysisTools: React.FC = () => {
             <div className="flex items-start space-x-2">
               <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-blue-800">
-                <p className="font-medium mb-2">Corrected Calculation Method:</p>
+                <p className="font-medium mb-2">🚀 Concurrent Processing Configuration:</p>
                 <div className="space-y-2 text-xs">
                   <div><strong>Per Shipment:</strong></div>
                   <div>1. Get Target Rate</div>
@@ -945,6 +1020,8 @@ export const MarginAnalysisTools: React.FC = () => {
                       <strong>{selectedCompetitorCarriers.length} specific carriers</strong>
                     )} from {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</div>
                     <div>Shipments: <strong>{shipmentData.length}</strong> from {startDate} to {endDate}</div>
+                    <div>Concurrent Processing: <strong>{BATCH_SIZE} requests per batch</strong></div>
+                    <div>Estimated Time: <strong>~{Math.ceil((shipmentData.length / BATCH_SIZE) * (BATCH_DELAY/1000) / 60)} minutes</strong></div>
                     {selectedCustomer && <div>Customer: <strong>{selectedCustomer}</strong></div>}
                   </div>
                 </div>
@@ -965,7 +1042,7 @@ export const MarginAnalysisTools: React.FC = () => {
             ) : (
               <Play className="h-5 w-5" />
             )}
-            <span>{isLoading ? 'Analyzing...' : 'Run Corrected Margin Analysis'}</span>
+            <span>{isLoading ? 'Processing Concurrently...' : 'Run Concurrent Margin Analysis'}</span>
           </button>
           
           {shipmentData.length === 0 && (
@@ -982,7 +1059,7 @@ export const MarginAnalysisTools: React.FC = () => {
           <div className="flex items-center space-x-3">
             {isLoading && <Loader className="h-5 w-5 animate-spin text-blue-500" />}
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Processing Status</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Concurrent Processing Status</h3>
               <p className="text-sm text-gray-600">{processingStatus}</p>
             </div>
           </div>
@@ -1004,9 +1081,9 @@ export const MarginAnalysisTools: React.FC = () => {
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
             <div>
-              <h3 className="text-lg font-semibold text-gray-800">Corrected Margin Analysis Results</h3>
+              <h3 className="text-lg font-semibold text-gray-800">Concurrent Margin Analysis Results</h3>
               <p className="text-sm text-gray-600 mt-1">
-                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed using corrected calculation: ((Sum Price - Sum Cost) / Sum Price) × 100
+                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed using concurrent processing: ((Sum Price - Sum Cost) / Sum Price) × 100
               </p>
             </div>
             <button
