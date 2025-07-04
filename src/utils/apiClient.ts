@@ -1280,9 +1280,13 @@ export async function processRFQBatch(
   // Process each RFQ
   for (let i = 0; i < rfqs.length; i++) {
     const rfq = rfqs[i];
+    // Ensure rowIndex is set for proper tracking
+    if (rfq.rowIndex === undefined) {
+      rfq.rowIndex = i;
+    }
     try {
       onProgress?.(
-        (processedCount / rfqs.length) * 100,
+        Math.floor((i / rfqs.length) * 100),
         `Processing RFQ ${processedCount + 1} of ${rfqs.length}: ${rfq.fromZip} → ${rfq.toZip}`
       );
       
@@ -1342,7 +1346,9 @@ export async function processRFQBatch(
       }
       
       allResults[i] = quotes;
-      onQuoteReceived?.(i, quotes);
+      if (onQuoteReceived) {
+        onQuoteReceived(rfq.rowIndex || i, quotes);
+      }
       
       console.log(`✅ Processed RFQ ${i}: ${quotes.length} quotes received`);
       
@@ -1350,6 +1356,8 @@ export async function processRFQBatch(
       console.error(`❌ Failed to process RFQ ${i}:`, error);
       allResults[i] = [];
     }
+    
+    processedCount++;
     
     processedCount++;
   }
