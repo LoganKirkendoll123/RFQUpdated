@@ -125,6 +125,43 @@ export const CarrierManagement: React.FC = () => {
     setError('');
 
     try {
+      // First check if carrier is referenced in shipments
+      const { data: shipments, error: checkError } = await supabase
+        .from('Shipments')
+        .select('count')
+        .eq('carrier_id', carrier.id)
+        .single();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        // PGRST116 is "no rows returned" which is fine
+        throw checkError;
+      }
+
+      // If shipments exist, show specific error
+      if (shipments && shipments.count > 0) {
+        setError(`Cannot delete carrier "${carrier.name}" because it is linked to ${shipments.count} existing shipment(s). Please remove or reassign all shipments for this carrier before deleting.`);
+        setLoading(false);
+        return;
+      }
+
+      // Also check CustomerCarriers table
+      const { data: customerCarriers, error: ccCheckError } = await supabase
+        .from('CustomerCarriers')
+        .select('count')
+        .eq('carrier_id', carrier.id)
+        .single();
+
+      if (ccCheckError && ccCheckError.code !== 'PGRST116') {
+        throw ccCheckError;
+      }
+
+      if (customerCarriers && customerCarriers.count > 0) {
+        setError(`Cannot delete carrier "${carrier.name}" because it is linked to ${customerCarriers.count} customer carrier relationship(s). Please remove these relationships before deleting.`);
+        setLoading(false);
+        return;
+      }
+
+      // Proceed with deletion if no references found
       const { error } = await supabase
         .from('carriers')
         .delete()
@@ -136,7 +173,13 @@ export const CarrierManagement: React.FC = () => {
       if (err instanceof Error) {
         // Check if it's a foreign key constraint violation
         if (err.message.includes('23503') || err.message.includes('violates foreign key constraint')) {
-          setError(`Cannot delete carrier "${carrier.name}" because it is linked to existing shipments. Please remove or reassign all shipments for this carrier before deleting.`);
+          if (err.message.includes('Shipments')) {
+            setError(`Cannot delete carrier "${carrier.name}" because it is linked to existing shipments. Please remove or reassign all shipments for this carrier before deleting.`);
+          } else if (err.message.includes('CustomerCarriers')) {
+            setError(`Cannot delete carrier "${carrier.name}" because it is linked to customer carrier relationships. Please remove these relationships before deleting.`);
+          } else {
+            setError(`Cannot delete carrier "${carrier.name}" because it is still referenced by other records. Please remove all references before deleting.`);
+          }
         } else {
           setError(err.message);
         }
