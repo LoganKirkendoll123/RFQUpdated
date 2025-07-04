@@ -113,15 +113,44 @@ export const CustomerCarrierManagement: React.FC = () => {
       // Then get all customer carriers for this customer
       const { data, error } = await supabase
         .from('CustomerCarriers')
-        .select(`
-          *,
-          customer:customer_id(id, name),
-          carrier:carrier_id(id, name, scac)
-        `)
+        .select('*')
         .eq('InternalName', customerName);
 
       if (error) throw error;
-      setCustomerCarriers(data || []);
+      
+      // Manually join with customers and carriers data
+      const enrichedData = await Promise.all((data || []).map(async (cc) => {
+        let customer = null;
+        let carrier = null;
+        
+        // Get customer data if customer_id exists
+        if (cc.customer_id) {
+          const { data: customerData } = await supabase
+            .from('customers')
+            .select('id, name')
+            .eq('id', cc.customer_id)
+            .single();
+          customer = customerData;
+        }
+        
+        // Get carrier data if carrier_id exists
+        if (cc.carrier_id) {
+          const { data: carrierData } = await supabase
+            .from('carriers')
+            .select('id, name, scac')
+            .eq('id', cc.carrier_id)
+            .single();
+          carrier = carrierData;
+        }
+        
+        return {
+          ...cc,
+          customer,
+          carrier
+        };
+      }));
+      
+      setCustomerCarriers(enrichedData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load customer carriers');
     } finally {
