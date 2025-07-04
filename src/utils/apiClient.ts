@@ -746,7 +746,7 @@ export class Project44APIClient {
           allowUnacceptedAccessorials: true,
           fetchAllGuaranteed: true,
           fetchAllInsideDelivery: false,
-          fetchAllServiceLevels: yes
+          fetchAllServiceLevels: true
         },
         enableUnitConversion: rfq.enableUnitConversion ?? true,
         fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
@@ -1020,19 +1020,28 @@ export class Project44APIClient {
   private buildAccessorialServices(rfq: RFQRow, isReeferMode: boolean = false): AccessorialService[] {
     const services: AccessorialService[] = [];
     
-    // Add user-specified accessorials
+    // Add user-specified accessorials, filtering out any reefer-specific ones for Project44
     if (rfq.accessorial && rfq.accessorial.length > 0) {
-      rfq.accessorial.forEach(code => {
-        // Skip reefer-specific accessorials for Project44 as they're not supported
-        if (!['REEFER', 'FROZEN_PROTECT'].includes(code)) {
-          services.push({ code });
-        }
+      const reeferAccessorials = ['REEFER', 'TEMP_CONTROLLED', 'FROZEN_PROTECT', 'TEMP_PROTECT'];
+      
+      // Filter out reefer-specific accessorials when not using FreshX
+      const filteredAccessorials = isReeferMode 
+        ? rfq.accessorial 
+        : rfq.accessorial.filter(code => !reeferAccessorials.includes(code));
+      
+      filteredAccessorials.forEach(code => {
+        services.push({ code });
       });
     }
 
-    // Note: Do not add reefer-specific accessorials for Project44
-    // Project44 does not support REEFER, FROZEN_PROTECT accessorials
-    // These shipments should be routed to FreshX instead
+    // Add temperature-controlled accessorials for reefer mode
+    // NOTE: We're not adding any reefer-specific accessorials for Project44
+    // as they're not supported. These should only be used with FreshX.
+    if (isReeferMode && rfq.temperature && ['CHILLED', 'FROZEN'].includes(rfq.temperature) && false) {
+      // This code is intentionally disabled with the "false" condition
+      // We're keeping it for reference but ensuring it never executes
+      console.log('Reefer accessorials are only supported by FreshX, not Project44');
+    }
 
     return services;
   }
@@ -1290,7 +1299,8 @@ export async function processRFQBatch(
       const quotes: Quote[] = [];
       
       // Determine if this is a reefer shipment - check both isReefer flag and temperature
-      const isReeferShipment = rfq.isReefer || (rfq.temperature && ['CHILLED', 'FROZEN'].includes(rfq.temperature));
+      const isReeferShipment = rfq.isReefer === true || 
+                              (rfq.temperature && ['CHILLED', 'FROZEN'].includes(rfq.temperature));
       
       // Smart routing: Use FreshX for reefer shipments
       if (isReeferShipment && freshxClient) {
@@ -1298,7 +1308,7 @@ export async function processRFQBatch(
         try {
           const freshxQuotes = await freshxClient.getQuotes(rfq);
           quotes.push(...freshxQuotes);
-        } catch (error) {
+        } catch (error: any) {
           console.error('❌ FreshX quotes failed:', error);
         }
       }
@@ -1319,7 +1329,7 @@ export async function processRFQBatch(
               selectedCarrierIds,
               isVolumeMode,
               isFTLMode,
-              false // Always pass false for isReeferMode to avoid unsupported accessorials
+              false  // Always set isReeferMode to false for Project44 to avoid unsupported accessorials
             );
             quotes.push(...project44Quotes);
           }
@@ -1356,8 +1366,6 @@ export async function processRFQBatch(
       console.error(`❌ Failed to process RFQ ${i}:`, error);
       allResults[i] = [];
     }
-    
-    processedCount++;
     
     processedCount++;
   }
