@@ -499,7 +499,7 @@ export class Project44APIClient {
           accounts: selectedCarrierIds
         };
         console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
-      }
+      
     
 
     console.log('📤 Sending comprehensive request payload:', JSON.stringify(requestPayload, null, 2));
