@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Check, Truck, Loader, Shield, Award, TrendingUp, Users } from 'lucide-react';
+import { Check, Truck, Loader, Shield, Award, TrendingUp, Users, RefreshCw } from 'lucide-react';
 import { CarrierGroup } from '../utils/apiClient';
+import { getCarriers } from '../utils/database';
 
 interface CarrierSelectionProps {
   carrierGroups: CarrierGroup[];
@@ -8,6 +9,7 @@ interface CarrierSelectionProps {
   onToggleCarrier: (carrierId: string, selected: boolean) => void;
   onSelectAll: (selected: boolean) => void;
   onSelectAllInGroup: (groupCode: string, selected: boolean) => void;
+  onRefreshCarriers?: () => void;
   isLoading: boolean;
 }
 
@@ -17,6 +19,7 @@ export const CarrierSelection: React.FC<CarrierSelectionProps> = ({
   onToggleCarrier,
   onSelectAll,
   onSelectAllInGroup,
+  onRefreshCarriers,
   isLoading
 }) => {
   const [activeTab, setActiveTab] = useState('Default');
@@ -121,7 +124,7 @@ export const CarrierSelection: React.FC<CarrierSelectionProps> = ({
           <div className="flex items-center space-x-4">
             <button
               onClick={() => onSelectAll(true)}
-              className="px-3 py-1.5 text-sm rounded transition-colors bg-gray-100 text-gray-700 hover:bg-gray-200"
+              className="px-3 py-1.5 text-sm rounded transition-colors bg-blue-100 text-blue-700 hover:bg-blue-200"
             >
               Select All
             </button>
@@ -135,6 +138,15 @@ export const CarrierSelection: React.FC<CarrierSelectionProps> = ({
               Clear All
             </button>
           </div>
+          {onRefreshCarriers && (
+            <button
+              onClick={onRefreshCarriers}
+              className="ml-4 px-3 py-1.5 text-sm rounded transition-colors bg-green-100 text-green-700 hover:bg-green-200 flex items-center space-x-1"
+            >
+              <RefreshCw className="h-3 w-3" />
+              <span>Refresh</span>
+            </button>
+          )}
         </div>
 
         {/* Group Tabs */}

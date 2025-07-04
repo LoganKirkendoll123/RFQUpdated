@@ -1,4 +1,5 @@
 import { 
+  getCarriers,
   RFQRow, 
   Quote, 
   Project44OAuthConfig, 
@@ -39,10 +40,72 @@ export class Project44APIClient {
   private config: Project44OAuthConfig;
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
-  private carrierGroups: CarrierGroup[] = []; // Store carrier groups for lookup
+  private carrierGroups: CarrierGroup[] = [];
 
   constructor(config: Project44OAuthConfig) {
     this.config = config;
+  }
+
+  // Load carriers from database instead of API
+  async loadCarriersFromDatabase(): Promise<CarrierGroup[]> {
+    try {
+      console.log('🔍 Loading carriers from database...');
+      
+      // Get carriers from database
+      const carriers = await getCarriers();
+      
+      if (!carriers || carriers.length === 0) {
+        console.log('⚠️ No carriers found in database, falling back to API');
+        return this.getAvailableCarriersByGroup();
+      }
+      
+      console.log(`✅ Loaded ${carriers.length} carriers from database`);
+      
+      // Group carriers by p44_group
+      const groupMap = new Map<string, CarrierGroup>();
+      
+      carriers.forEach(carrier => {
+        if (!carrier.is_active) return; // Skip inactive carriers
+        
+        const groupCode = carrier.p44_group || 'Default';
+        const groupName = carrier.p44_group ? `${carrier.p44_group} Group` : 'Default Group';
+        
+        if (!groupMap.has(groupCode)) {
+          groupMap.set(groupCode, {
+            groupCode,
+            groupName,
+            carriers: []
+          });
+        }
+        
+        groupMap.get(groupCode)!.carriers.push({
+          id: carrier.account_code,
+          name: carrier.display_name || carrier.name,
+          scac: carrier.scac,
+          mcNumber: carrier.mc_number,
+          dotNumber: carrier.dot_number,
+          accountCode: carrier.account_code
+        });
+      });
+      
+      // Convert map to array and sort groups
+      const carrierGroups = Array.from(groupMap.values())
+        .sort((a, b) => a.groupName.localeCompare(b.groupName));
+      
+      // Sort carriers within each group
+      carrierGroups.forEach(group => {
+        group.carriers.sort((a, b) => a.name.localeCompare(b.name));
+      });
+      
+      // Store carrier groups for lookup
+      this.carrierGroups = carrierGroups;
+      
+      return carrierGroups;
+    } catch (error) {
+      console.error('❌ Error loading carriers from database:', error);
+      console.log('🔄 Falling back to API carrier loading...');
+      return this.getAvailableCarriersByGroup();
+    }
   }
 
   private async getAccessToken(): Promise<string> {
@@ -113,6 +176,19 @@ export class Project44APIClient {
 
   async getAvailableCarriersByGroup(isVolumeMode: boolean = false, isFTLMode: boolean = false): Promise<CarrierGroup[]> {
     const token = await this.getAccessToken();
+    
+    // Try to load carriers from database first
+    try {
+      const dbCarriers = await this.loadCarriersFromDatabase();
+      if (dbCarriers.length > 0) {
+        console.log(`✅ Using ${dbCarriers.length} carrier groups from database`);
+        return dbCarriers;
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to load carriers from database, falling back to API:', error);
+    }
+    
+    // Fall back to API if database loading fails
     
     const modeDescription = isVolumeMode ? 'Volume LTL (VLTL)' : isFTLMode ? 'Full Truckload' : 'Standard LTL';
     console.log(`🚛 Loading carriers for ${modeDescription}...`);

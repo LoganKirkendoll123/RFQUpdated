@@ -22,7 +22,9 @@ interface Carrier {
   scac?: string;
   mc_number?: string;
   dot_number?: string;
-  account_code?: string;
+  account_code: string;
+  p44_group?: string;
+  display_name?: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -40,7 +42,9 @@ export const CarrierManagement: React.FC = () => {
     scac: '',
     mc_number: '',
     dot_number: '',
-    account_code: '',
+    account_code: '', 
+    p44_group: '',
+    display_name: '',
     is_active: true
   });
 
@@ -243,6 +247,22 @@ export const CarrierManagement: React.FC = () => {
             />
           </div>
 
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Display Name
+            </label>
+            <input
+              type="text"
+              value={formData.display_name || ''}
+              onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              placeholder="User-friendly display name"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              If left blank, the carrier name will be used
+            </p>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               SCAC Code
@@ -293,6 +313,19 @@ export const CarrierManagement: React.FC = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
               placeholder="P44 carrier code"
               required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              P44 Group
+            </label>
+            <input
+              type="text"
+              value={formData.p44_group || ''}
+              onChange={(e) => setFormData({ ...formData, p44_group: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              placeholder="e.g., Default"
             />
           </div>
 
@@ -406,8 +439,15 @@ export const CarrierManagement: React.FC = () => {
                       <div className="bg-green-100 p-2 rounded-lg">
                         <Truck className="h-4 w-4 text-green-600" />
                       </div>
-                      <div>
-                        <div className="font-medium text-gray-900">{carrier.name}</div>
+                      <div className="min-w-0">
+                        <div className="font-medium text-gray-900 truncate" title={carrier.display_name || carrier.name}>
+                          {carrier.display_name || carrier.name}
+                        </div>
+                        {carrier.display_name && carrier.name !== carrier.display_name && (
+                          <div className="text-xs text-gray-500 truncate" title={carrier.name}>
+                            {carrier.name}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -435,6 +475,9 @@ export const CarrierManagement: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600">
                     {carrier.account_code || '—'}
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-600">
+                    {carrier.p44_group || '—'}
                   </td>
                   <td className="px-6 py-4">
                     {carrier.is_active ? (
