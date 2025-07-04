@@ -1351,7 +1351,7 @@ export async function processRFQBatch(
       // Apply pricing if we have settings and a selected customer
       if (quotes.length > 0 && pricingSettings && selectedCustomer) {
         try {
-          const { calculatePricing } = await import('./pricingCalculator');
+          const { calculatePricing } = await import('./utils/pricingCalculator');
           
           // Apply pricing to each quote
           for (const quote of quotes) {
