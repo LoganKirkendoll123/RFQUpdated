@@ -1020,9 +1020,16 @@ export class Project44APIClient {
   private buildAccessorialServices(rfq: RFQRow, isReeferMode: boolean = false): AccessorialService[] {
     const services: AccessorialService[] = [];
     
-    // Add user-specified accessorials, filtering out any reefer-specific ones for Project44
+    // Add user-specified accessorials, filtering out reefer-specific ones if not using FreshX
     if (rfq.accessorial && rfq.accessorial.length > 0) {
-      const reeferAccessorials = ['REEFER', 'TEMP_CONTROLLED', 'FROZEN_PROTECT', 'TEMP_PROTECT'];
+      // Filter out reefer-specific accessorials when not using FreshX
+      const filteredAccessorials = isReeferMode 
+        ? rfq.accessorial 
+        : rfq.accessorial.filter(code => 
+            !['REEFER', 'TEMP_CONTROLLED', 'FROZEN_PROTECT', 'TEMP_PROTECT'].includes(code)
+          );
+      
+      filteredAccessorials.forEach(code => {
       
       // Filter out reefer-specific accessorials when not using FreshX
       const filteredAccessorials = isReeferMode 
@@ -1219,18 +1226,8 @@ export class FreshXAPIClient {
       batchResults.forEach((result, index) => {
         const rfqIndex = batch[index].rowIndex;
         if (result.status === 'fulfilled') {
-          results[rfqIndex] = result.value;
-        } else {
-          console.error(`❌ Failed to get FreshX quotes for RFQ ${rfqIndex}:`, result.reason);
-          results[rfqIndex] = [];
-        }
-      });
-      
-      // Add delay between batches
-      if (i + batchSize < rfqs.length) {
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
-    }
+    // NOTE: We no longer automatically add reefer-specific accessorials
+    // Project44 doesn't support them, and FreshX handles them differently
     
     return results;
   }
@@ -1240,7 +1237,8 @@ export class FreshXAPIClient {
 export async function processRFQBatch(
   rfqs: RFQRow[],
   onProgress?: (progress: number, status: string) => void,
-  onQuoteReceived?: (rfqIndex: number, quotes: Quote[]) => void
+  onQuoteReceived?: (rfqIndex: number, quotes: Quote[]) => void,
+  validateCredentials: boolean = true
 ): Promise<{ [index: number]: Quote[] }> {
   console.log(`🚀 Starting batch processing for ${rfqs.length} RFQs`);
   
@@ -1261,7 +1259,6 @@ export async function processRFQBatch(
   const selectedModes = loadSelectedModes() || {};
   const selectedCustomer = loadSelectedCustomer();
   
-  // Initialize API clients
   let project44Client: Project44APIClient | null = null;
   let freshxClient: FreshXAPIClient | null = null;
   
