@@ -496,7 +496,7 @@ export class Project44APIClient {
       deliveryWindow: this.buildDeliveryWindow(rfq),
       apiConfiguration: {
         accessorialServiceConfiguration: {
-          allowUnacceptedAccessorials: false,
+          allowUnacceptedAccessorials: true,
           fetchAllGuaranteed: false,
           fetchAllInsideDelivery: false,
           fetchAllServiceLevels: false
