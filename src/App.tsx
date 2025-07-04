@@ -204,12 +204,12 @@ function App() {
     setIsLoadingCarriers(true);
     setCarriersLoaded(false);
     try {
-      console.log('🚛 Loading carriers for smart quoting...');
-      // Load all carriers (both standard and volume LTL capable)
-      const groups = await project44Client.getAvailableCarriersByGroup(false, false);
+      console.log('🚛 Loading carriers from database for smart quoting...');
+      // Load carriers from database first
+      const groups = await project44Client.loadCarriersFromDatabase();
       setCarrierGroups(groups);
       setCarriersLoaded(true);
-      console.log(`✅ Loaded ${groups.length} carrier groups for smart quoting`);
+      console.log(`✅ Loaded ${groups.length} carrier groups from database for smart quoting`);
     } catch (error) {
       console.error('❌ Failed to load carriers:', error);
       setCarrierGroups([]);
@@ -855,6 +855,7 @@ function App() {
                       onToggleCarrier={handleCarrierToggle}
                       onSelectAll={handleSelectAll}
                       onSelectAllInGroup={handleSelectAllInGroup}
+                      onRefreshCarriers={loadCarriers}
                       isLoading={isLoadingCarriers}
                     />
                   )}

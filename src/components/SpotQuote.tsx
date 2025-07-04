@@ -763,6 +763,7 @@ export const SpotQuote: React.FC<SpotQuoteProps> = ({
                   onToggleCarrier={handleCarrierToggle}
                   onSelectAll={handleSelectAll}
                   onSelectAllInGroup={handleSelectAllInGroup}
+                  onRefreshCarriers={() => loadCarriers()} 
                   isLoading={isLoadingCarriers}
                 />
               </div>
