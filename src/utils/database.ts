@@ -287,16 +287,18 @@ export const populateCustomersAndCarriersFromExistingData = async (): Promise<{
     // Create customers
     for (const customerName of uniqueCustomers) {
       try {
-        const { error: insertError } = await supabase
+        const { error: upsertError } = await supabase
           .from('customers')
-          .insert([{
+          .upsert([{
             name: customerName,
             is_active: true
-          }]);
+          }], {
+            onConflict: 'name'
+          });
         
-        if (insertError && !insertError.message.includes('duplicate key')) {
-          console.error(`Error creating customer ${customerName}:`, insertError);
-        } else if (!insertError) {
+        if (upsertError) {
+          console.error(`Error upserting customer ${customerName}:`, upsertError);
+        } else {
           customersCreated++;
         }
       } catch (err) {
@@ -307,18 +309,20 @@ export const populateCustomersAndCarriersFromExistingData = async (): Promise<{
     // Create carriers
     for (const carrierCode of uniqueCarriers) {
       try {
-        const { error: insertError } = await supabase
+        const { error: upsertError } = await supabase
           .from('carriers')
-          .insert([{
+          .upsert([{
             name: carrierCode,
             scac: carrierCode.length === 4 ? carrierCode : undefined,
             account_code: carrierCode,
             is_active: true
-          }]);
+          }], {
+            onConflict: 'account_code'
+          });
         
-        if (insertError && !insertError.message.includes('duplicate key')) {
-          console.error(`Error creating carrier ${carrierCode}:`, insertError);
-        } else if (!insertError) {
+        if (upsertError) {
+          console.error(`Error upserting carrier ${carrierCode}:`, upsertError);
+        } else {
           carriersCreated++;
         }
       } catch (err) {
