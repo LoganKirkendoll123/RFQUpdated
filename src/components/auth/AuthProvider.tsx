@@ -172,47 +172,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
 
-  // Create a user profile if it doesn't exist
-  const createUserProfile = async (userId: string) => {
-    try {
-      console.log('Creating new user profile for userId:', userId);
-      // Get user email from auth.users
-      const { data: userData } = await supabase.auth.getUser();
-      
-      if (!userData?.user?.email) {
-        console.error('Cannot create profile: user email not found');
-        return false;
-      }
-      
-      // Create a basic profile
-      const { data, error, status } = await supabase
-        .from('user_profiles')
-        .insert({
-          user_id: userId,
-          email: userData.user.email,
-          is_verified: true, // Auto-verify for now
-          is_active: true
-        })
-        .select()
-        .single();
-
-      console.log('Profile creation status:', status, 'Error:', error?.message);
-        
-      if (error) {
-        console.error('Error creating user profile:', error);
-        return false;
-      } else {
-        console.log('User profile created successfully:', data);
-        setProfile(data);
-        setLoading(false);
-        return true;
-      }
-    } catch (error) {
-      console.error('Error creating user profile:', error);
-      setLoading(false);
-      return false;
-    }
-  };
 
   const signIn = async (email: string, password: string) => {
     try {
