@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Truck, Upload, Database, Settings, BarChart3, Calculator, Users, FileText, Zap } from 'lucide-react';
 import FileUpload from './components/FileUpload';
-import ApiKeyInput from './components/ApiKeyInput';
+import { ApiKeyInput } from './components/ApiKeyInput';
 import ResultsTable from './components/ResultsTable';
 import ProcessingStatus from './components/ProcessingStatus';
 import SupabaseStatus from './components/SupabaseStatus';
