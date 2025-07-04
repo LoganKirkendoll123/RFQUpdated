@@ -1029,14 +1029,11 @@ export class Project44APIClient {
 
     // Add temperature-controlled accessorials for reefer mode
     if (isReeferMode && rfq.temperature && ['CHILLED', 'FROZEN'].includes(rfq.temperature)) {
-      services.push({ code: 'TEMP_CONTROLLED' });
       services.push({ code: 'REEFER' });
       
       // Add temperature-specific codes
       if (rfq.temperature === 'FROZEN') {
         services.push({ code: 'FROZEN_PROTECT' });
-      } else if (rfq.temperature === 'CHILLED') {
-        services.push({ code: 'TEMP_PROTECT' });
       }
     }
 
