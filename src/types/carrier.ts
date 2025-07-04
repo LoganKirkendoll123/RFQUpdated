@@ -4,6 +4,7 @@ export interface Carrier {
   scac?: string;
   mc_number?: string;
   dot_number?: string;
+  account_code?: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
