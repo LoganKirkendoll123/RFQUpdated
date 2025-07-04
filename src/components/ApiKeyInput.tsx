@@ -61,16 +61,6 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
       saveProject44Config(oauthConfig);
     }
     
-    // Save the config regardless of validation status
-    if (clientId.trim()) {
-      saveProject44Config(oauthConfig);
-    }
-    
-    // Save the config regardless of validation status
-    if (clientId.trim()) {
-      saveProject44Config(oauthConfig);
-    }
-    
     // Check if all required fields are filled
     if (!clientId.trim() || !clientSecret.trim()) {
       setValidationStatus('idle');
@@ -537,6 +527,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
       </div>
     );
   }
+
 
   return (
     <div className="w-full space-y-6">
