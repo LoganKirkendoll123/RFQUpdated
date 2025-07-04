@@ -344,7 +344,17 @@ function App() {
         {activeTab === 'settings' && (
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-medium text-gray-900 mb-4">API Settings</h2>
-            <ApiKeyInput />
+            <div className="space-y-8">
+              <div>
+                <h3 className="text-md font-medium text-gray-800 mb-4">Project44 OAuth Configuration</h3>
+                <ApiKeyInput isProject44={true} />
+              </div>
+              
+              <div className="border-t border-gray-200 pt-8">
+                <h3 className="text-md font-medium text-gray-800 mb-4">FreshX API Configuration</h3>
+                <ApiKeyInput placeholder="Enter your FreshX API key" />
+              </div>
+            </div>
           </div>
         )}
       </main>

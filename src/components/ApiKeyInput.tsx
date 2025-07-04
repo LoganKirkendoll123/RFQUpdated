@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Key, Eye, EyeOff, CheckCircle, XCircle, Loader, Shield, RefreshCw, AlertTriangle, Globe, HelpCircle, CheckSquare } from 'lucide-react';
 import { Project44OAuthConfig } from '../types';
 import { saveProject44Config, saveFreshXApiKey } from '../utils/credentialStorage';
+import { useLocalStorage } from '../hooks/useLocalStorage';
 
 interface ApiKeyInputProps {
   value?: string;
@@ -12,7 +13,7 @@ interface ApiKeyInputProps {
   onOAuthConfigChange?: (config: Project44OAuthConfig) => void;
 }
 
-export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ 
+export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
   value = '', 
   onChange = () => {}, 
   placeholder = "Enter your FreshX API key",
@@ -25,7 +26,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
   const [validationStatus, setValidationStatus] = useState<'idle' | 'valid' | 'invalid' | 'cors-error' | 'deployment-ready'>('idle');
   const [validationMessage, setValidationMessage] = useState('');
   const [detailedError, setDetailedError] = useState('');
-  const [oauthConfig, setOauthConfig] = useState<Project44OAuthConfig>({
+  const [oauthConfig, setOauthConfig] = useLocalStorage<Project44OAuthConfig>('project44_oauth_config', {
     oauthUrl: '/api/v4/oauth2/token',
     basicUser: '',
     basicPassword: '',
@@ -38,7 +39,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
 
   // Initialize oauthConfig with the value prop for clientId
   useEffect(() => {
-    if (isProject44 && value) {
+    if (isProject44 && value && !oauthConfig.clientId) {
       setOauthConfig(prev => ({
         ...prev,
         clientId: value
@@ -370,7 +371,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
 
   if (isProject44) {
     return (
-      <div className="w-full space-y-6">
+      <div className="w-full space-y-6" data-testid="project44-oauth-form">
         <div className="flex items-center justify-between mb-4">
           <label className="block text-sm font-medium text-gray-700">
             <Shield className="inline h-4 w-4 mr-1" />
@@ -393,7 +394,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
                 <label className="block text-sm font-medium text-gray-600 mb-2">
                   Client ID <span className="text-red-500">*</span>
                 </label>
-                <div className="relative">
+                <div className="relative" data-testid="client-id-input">
                   <input
                     type={showKey ? 'text' : 'password'}
                     value={oauthConfig.clientId}
@@ -417,7 +418,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
                 <label className="block text-sm font-medium text-gray-600 mb-2">
                   Client Secret <span className="text-red-500">*</span>
                 </label>
-                <div className="relative">
+                <div className="relative" data-testid="client-secret-input">
                   <input
                     type={showKey ? 'text' : 'password'}
                     value={oauthConfig.clientSecret}
@@ -440,7 +441,7 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
           {/* Test OAuth Button */}
           <div className="pt-4 border-t border-gray-200">
             <button
-              onClick={testOAuthConnection}
+              onClick={() => testOAuthConnection()}
               disabled={isValidating || !oauthConfig.clientId.trim() || !oauthConfig.clientSecret.trim()}
               className="w-full py-3 px-4 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
             >
@@ -458,14 +459,12 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
             </button>
           </div>
         </div>
-
         {validationMessage && (
           <div className={`mt-3 text-sm flex items-start space-x-2 ${getValidationMessageColor()}`}>
             {getValidationMessageIcon()}
             <span>{validationMessage}</span>
           </div>
         )}
-
         {/* Deployment Ready Status */}
         {(validationStatus === 'deployment-ready' || validationStatus === 'valid') && (
           <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -527,7 +526,6 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
       </div>
     );
   }
-
 
   return (
     <div className="w-full space-y-6">
