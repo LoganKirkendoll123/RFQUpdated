@@ -33,6 +33,7 @@ import { formatCurrency } from '../utils/pricingCalculator';
 import { MarginAnalysisTools } from './MarginAnalysisTools';
 import { CustomerManagement } from './CustomerManagement';
 import { CarrierManagement } from './CarrierManagement';
+import { populateCustomersAndCarriersFromExistingData } from '../utils/database';
 
 // Updated interfaces matching your exact database schema
 interface Shipment {
@@ -91,6 +92,13 @@ export const DatabaseToolbox: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers' | 'customers' | 'carriers' | 'margin-tools'>('shipments');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
+  
+  // Data population state
+  const [isPopulating, setIsPopulating] = useState(false);
+  const [populationResult, setPopulationResult] = useState<{
+    customersCreated: number;
+    carriersCreated: number;
+  } | null>(null);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -382,6 +390,19 @@ export const DatabaseToolbox: React.FC = () => {
     setFilterCarrier('');
     setDateFilter({ start: '', end: '' });
     setCurrentPage(1);
+  };
+
+  const handlePopulateData = async () => {
+    setIsPopulating(true);
+    setError('');
+    try {
+      const result = await populateCustomersAndCarriersFromExistingData();
+      setPopulationResult(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to populate data');
+    } finally {
+      setIsPopulating(false);
+    }
   };
 
   const parseNumeric = (value: string | null | undefined): number => {
@@ -821,7 +842,28 @@ export const DatabaseToolbox: React.FC = () => {
               Browse your freight data and analyze carrier margins - {totalCount} records found
             </p>
           </div>
+          <div className="flex-1"></div>
+          <button
+            onClick={handlePopulateData}
+            disabled={isPopulating}
+            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
+          >
+            {isPopulating ? (
+              <Loader className="h-4 w-4 animate-spin" />
+            ) : (
+              <Users className="h-4 w-4" />
+            )}
+            <span>{isPopulating ? 'Populating...' : 'Populate from Data'}</span>
+          </button>
         </div>
+        
+        {populationResult && (
+          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <div className="text-sm text-green-800">
+              ✅ Successfully created {populationResult.customersCreated} customers and {populationResult.carriersCreated} carriers from existing data
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tab Navigation */}
