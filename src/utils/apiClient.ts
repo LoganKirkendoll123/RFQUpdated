@@ -112,46 +112,6 @@ export class Project44APIClient {
     }
   }
 
-  // FIXED: Package type mapping for VLTL API compatibility
-  private mapPackageTypeForVLTL(packageType?: string): string {
-    if (!packageType) return 'PALLET';
-    
-    // Map common package types to VLTL-compatible values
-    // The VLTL API expects "PALLET" not "PLT"
-    const packageTypeMapping: { [key: string]: string } = {
-      'PLT': 'PALLET', // Fix: Map PLT to PALLET for VLTL
-      'PALLET': 'PALLET',
-      'BOX': 'BOX',
-      'CRATE': 'CRATE',
-      'CARTON': 'CARTON',
-      'CASE': 'CASE',
-      'DRUM': 'DRUM',
-      'PAIL': 'PAIL',
-      'TOTE': 'TOTE',
-      'TUBE': 'TUBE',
-      'ROLL': 'ROLL',
-      'REEL': 'REEL',
-      'PIECES': 'PIECES',
-      'SKID': 'SKID',
-      'BUNDLE': 'BUNDLE',
-      'BALE': 'BALE',
-      'BAG': 'BAG',
-      'BUCKET': 'BUCKET',
-      'CAN': 'CAN',
-      'COIL': 'COIL',
-      'CYLINDER': 'CYLINDER'
-    };
-    
-    const mapped = packageTypeMapping[packageType.toUpperCase()];
-    if (!mapped) {
-      console.warn(`⚠️ Unknown package type '${packageType}', defaulting to 'PALLET'`);
-      return 'PALLET';
-    }
-    
-    console.log(`📦 Mapped package type '${packageType}' to '${mapped}' for VLTL`);
-    return mapped;
-  }
-
   async getAvailableCarriersByGroup(isVolumeMode: boolean = false, isFTLMode: boolean = false): Promise<CarrierGroup[]> {
     const token = await this.getAccessToken();
     
@@ -531,7 +491,7 @@ export class Project44APIClient {
     const requestPayload: Project44RateQuoteRequest = {
       originAddress: this.buildAddress(rfq),
       destinationAddress: this.buildDestinationAddress(rfq),
-      lineItems: this.buildLineItems(rfq, isVolumeMode), // Pass isVolumeMode for package type mapping
+      lineItems: this.buildLineItems(rfq),
       accessorialServices: this.buildAccessorialServices(rfq, isReeferMode),
       pickupWindow: this.buildPickupWindow(rfq),
       deliveryWindow: this.buildDeliveryWindow(rfq),
@@ -559,7 +519,7 @@ export class Project44APIClient {
       requestPayload.totalLinearFeet = rfq.totalLinearFeet || this.calculateLinearFeet(rfq);
       console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
       
-      // Add enhanced handling units for VLTL
+      // Add enhanced handling units for VLTL (without handlingUnitType)
       requestPayload.enhancedHandlingUnits = this.buildEnhancedHandlingUnits(rfq);
     }
 
@@ -723,7 +683,7 @@ export class Project44APIClient {
     const requestPayload: Project44RateQuoteRequest = {
       originAddress: this.buildAddress(rfq),
       destinationAddress: this.buildDestinationAddress(rfq),
-      lineItems: this.buildLineItems(rfq, isVolumeMode), // Pass isVolumeMode for package type mapping
+      lineItems: this.buildLineItems(rfq),
       accessorialServices: this.buildAccessorialServices(rfq, isReeferMode),
       pickupWindow: this.buildPickupWindow(rfq),
       deliveryWindow: this.buildDeliveryWindow(rfq),
@@ -755,7 +715,7 @@ export class Project44APIClient {
       requestPayload.totalLinearFeet = rfq.totalLinearFeet || this.calculateLinearFeet(rfq);
       console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
       
-      // Add enhanced handling units for VLTL
+      // Add enhanced handling units for VLTL (without handlingUnitType)
       requestPayload.enhancedHandlingUnits = this.buildEnhancedHandlingUnits(rfq);
     }
 
@@ -859,7 +819,7 @@ export class Project44APIClient {
   private calculateLinearFeet(rfq: RFQRow): number {
     // Calculate linear feet based on pallets and dimensions
     // Standard pallet is 48" x 40", so length is typically 48"
-    const palletLength = rfq.packageLength || 48; // inches
+    const palletLength = 48; // inches - use standard pallet length
     const totalLinearInches = rfq.pallets * palletLength;
     const totalLinearFeet = Math.ceil(totalLinearInches / 12);
     
@@ -867,7 +827,7 @@ export class Project44APIClient {
     return totalLinearFeet;
   }
 
-  // NEW: Build enhanced handling units for VLTL
+  // NEW: Build enhanced handling units for VLTL (without handlingUnitType)
   private buildEnhancedHandlingUnits(rfq: RFQRow): EnhancedHandlingUnit[] {
     const handlingUnits: EnhancedHandlingUnit[] = [];
     
@@ -882,7 +842,7 @@ export class Project44APIClient {
             height: item.packageHeight
           },
           handlingUnitQuantity: item.totalPackages || 1,
-          handlingUnitType: this.mapPackageTypeForVLTL(item.packageType) as any,
+          // REMOVED: handlingUnitType to avoid package type validation errors
           weightPerHandlingUnit: item.totalWeight / (item.totalPackages || 1),
           stackable: item.stackable,
           freightClasses: [item.freightClass],
@@ -908,12 +868,12 @@ export class Project44APIClient {
       const handlingUnit: EnhancedHandlingUnit = {
         description: rfq.commodityDescription || 'General Freight',
         handlingUnitDimensions: {
-          length: rfq.packageLength || 48,
-          width: rfq.packageWidth || 40,
-          height: rfq.packageHeight || 48
+          length: 48, // Standard pallet length
+          width: 40,  // Standard pallet width
+          height: 48  // Standard pallet height
         },
         handlingUnitQuantity: rfq.pallets,
-        handlingUnitType: this.mapPackageTypeForVLTL(rfq.packageType) as any,
+        // REMOVED: handlingUnitType to avoid package type validation errors
         weightPerHandlingUnit: rfq.grossWeight / rfq.pallets,
         stackable: rfq.isStackable,
         freightClasses: [rfq.freightClass || '70'],
@@ -934,7 +894,7 @@ export class Project44APIClient {
       handlingUnits.push(handlingUnit);
     }
     
-    console.log(`📦 Built ${handlingUnits.length} enhanced handling units for VLTL:`, handlingUnits);
+    console.log(`📦 Built ${handlingUnits.length} enhanced handling units for VLTL (without handlingUnitType):`, handlingUnits);
     return handlingUnits;
   }
 
@@ -988,7 +948,7 @@ export class Project44APIClient {
     };
   }
 
-  private buildLineItems(rfq: RFQRow, isVolumeMode: boolean = false): LineItem[] {
+  private buildLineItems(rfq: RFQRow): LineItem[] {
     // If line items are provided, use them
     if (rfq.lineItems && rfq.lineItems.length > 0) {
       return rfq.lineItems.map(item => ({
@@ -1012,7 +972,7 @@ export class Project44APIClient {
         } : undefined,
         id: item.id,
         insuranceAmount: item.insuranceAmount,
-        packageType: isVolumeMode ? this.mapPackageTypeForVLTL(item.packageType) as any : item.packageType,
+        packageType: item.packageType,
         stackable: item.stackable,
         totalPackages: item.totalPackages,
         totalPieces: item.totalPieces,
@@ -1025,9 +985,9 @@ export class Project44APIClient {
     const lineItem: LineItem = {
       totalWeight: rfq.grossWeight,
       packageDimensions: {
-        length: rfq.packageLength || 48,
-        width: rfq.packageWidth || 40,
-        height: rfq.packageHeight || 48
+        length: 48, // Standard pallet length
+        width: 40,  // Standard pallet width
+        height: 48  // Standard pallet height
       },
       freightClass: rfq.freightClass || '70',
       description: rfq.commodityDescription,
@@ -1035,7 +995,7 @@ export class Project44APIClient {
       nmfcSubCode: rfq.nmfcSubCode,
       commodityType: rfq.commodityType,
       countryOfManufacture: rfq.countryOfManufacture,
-      packageType: isVolumeMode ? this.mapPackageTypeForVLTL(rfq.packageType) as any : rfq.packageType,
+      packageType: rfq.packageType,
       stackable: rfq.isStackable,
       totalPackages: rfq.totalPackages || rfq.pallets,
       totalPieces: rfq.totalPieces || rfq.pallets,
