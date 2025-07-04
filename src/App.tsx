@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { AuthProvider } from './contexts/AuthContext';
+import { AuthWrapper } from './components/auth/AuthWrapper';
 import { FileUpload } from './components/FileUpload';
 import { CarrierSelection } from './components/CarrierSelection';
 import { PricingSettingsComponent } from './components/PricingSettings';
@@ -69,6 +71,16 @@ interface SmartQuotingResult extends ProcessingResult {
 }
 
 function App() {
+  return (
+    <AuthProvider>
+      <AuthWrapper>
+        <MainApp />
+      </AuthWrapper>
+    </AuthProvider>
+  );
+}
+
+function MainApp() {
   // Core state
   const [rfqData, setRfqData] = useState<RFQRow[]>([]);
   const [results, setResults] = useState<SmartQuotingResult[]>([]);
