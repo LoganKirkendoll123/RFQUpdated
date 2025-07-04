@@ -1059,7 +1059,7 @@ export class FreshXAPIClient {
     console.log('📤 Sending FreshX request:', requestPayload);
 
     try {
-      const response = await fetch(apiUrl, {
+      const response = await fetch('https://api.getfreshx.com/v1/quotes', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
