@@ -277,7 +277,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       // Item 5 empty
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['INPU', 'INDEL', 'RESPU', 'RESDEL'].includes(acc.code) ? true : false
+        ['LGDEL', 'NOTIFY'].includes(acc.code) ? true : false
       )
     ],
     // Row 3: FreshX Reefer - Temperature-controlled with mixed items
@@ -317,7 +317,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       // Item 5 empty
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['SATPU', 'SATDEL', 'LTDDEL', 'CONPU', 'CONDEL'].includes(acc.code) ? true : false
+        ['LGDEL', 'NOTIFY'].includes(acc.code) ? true : false
       )
     ],
     // Row 5: High-value electronics with precise dimensions

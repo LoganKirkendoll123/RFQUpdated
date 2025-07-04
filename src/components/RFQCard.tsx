@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, MapPin, Package, Clock, Thermometer, XCircle, CheckCircle, Truck } from 'lucide-react';
+import { ChevronDown, ChevronUp, MapPin, Package, Clock, Thermometer, XCircle, CheckCircle, Truck, BarChart3, TrendingUp, TrendingDown } from 'lucide-react';
 import { ProcessingResult } from '../types';
 import { CarrierCards } from './CarrierCards';
 import { formatCurrency } from '../utils/pricingCalculator';
@@ -11,6 +11,7 @@ interface RFQCardProps {
 
 export const RFQCard: React.FC<RFQCardProps> = ({ result, onPriceUpdate }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [activeMode, setActiveMode] = useState<'volume' | 'standard' | 'all'>('all');
 
   const getStatusIcon = () => {
     switch (result.status) {
@@ -54,6 +55,56 @@ export const RFQCard: React.FC<RFQCardProps> = ({ result, onPriceUpdate }) => {
   }, {} as Record<string, typeof result.quotes>);
 
   const uniqueCarrierCount = Object.keys(carrierGroups).length;
+  
+  // Check if this is a dual-mode result (VLTL with both Volume and Standard quotes)
+  const isDualMode = (result as any).quotingDecision === 'project44-dual';
+  const hasVolumeQuotes = result.quotes.some(q => (q as any).quoteMode === 'volume');
+  const hasStandardQuotes = result.quotes.some(q => (q as any).quoteMode === 'standard');
+  
+  // Filter quotes based on active mode
+  const getFilteredQuotes = () => {
+    if (!isDualMode || activeMode === 'all') {
+      return result.quotes;
+    }
+    return result.quotes.filter(q => (q as any).quoteMode === activeMode);
+  };
+  
+  const filteredQuotes = getFilteredQuotes();
+  
+  // Get best quote from filtered quotes
+  const filteredBestQuote = filteredQuotes.length > 0 
+    ? filteredQuotes.reduce((best, current) => {
+        const bestPrice = (best as any).customerPrice || (best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts);
+        const currentPrice = (current as any).customerPrice || (current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts);
+        return currentPrice < bestPrice ? current : best;
+      })
+    : null;
+  
+  // Calculate mode comparison stats for dual mode
+  const getModeStats = () => {
+    if (!isDualMode) return null;
+    
+    const volumeQuotes = result.quotes.filter(q => (q as any).quoteMode === 'volume');
+    const standardQuotes = result.quotes.filter(q => (q as any).quoteMode === 'standard');
+    
+    const volumeBest = volumeQuotes.length > 0 ? Math.min(...volumeQuotes.map(q => 
+      (q as any).customerPrice || (q.baseRate + q.fuelSurcharge + q.premiumsAndDiscounts)
+    )) : null;
+    
+    const standardBest = standardQuotes.length > 0 ? Math.min(...standardQuotes.map(q => 
+      (q as any).customerPrice || (q.baseRate + q.fuelSurcharge + q.premiumsAndDiscounts)
+    )) : null;
+    
+    return {
+      volumeQuotes: volumeQuotes.length,
+      standardQuotes: standardQuotes.length,
+      volumeBest,
+      standardBest,
+      savings: volumeBest && standardBest ? standardBest - volumeBest : null
+    };
+  };
+  
+  const modeStats = getModeStats();
 
   return (
     <div className={`bg-white rounded-lg shadow-md border ${getStatusColor()} overflow-hidden`}>
@@ -65,6 +116,11 @@ export const RFQCard: React.FC<RFQCardProps> = ({ result, onPriceUpdate }) => {
             <div>
               <h3 className="text-lg font-semibold text-gray-900">
                 RFQ #{result.rowIndex + 1}
+                {isDualMode && (
+                  <span className="ml-2 text-sm bg-purple-100 text-purple-800 px-2 py-1 rounded-full">
+                    Dual Mode Comparison
+                  </span>
+                )}
               </h3>
               <div className="flex items-center space-x-4 text-sm text-gray-600 mt-1">
                 <div className="flex items-center space-x-1">
@@ -90,15 +146,17 @@ export const RFQCard: React.FC<RFQCardProps> = ({ result, onPriceUpdate }) => {
           </div>
           
           <div className="text-right">
-            {bestQuote ? (
+            {filteredBestQuote ? (
               <div>
                 <div className="text-2xl font-bold text-green-600">
-                  {formatCurrency((bestQuote as any).customerPrice || (bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts))}
+                  {formatCurrency((filteredBestQuote as any).customerPrice || (filteredBestQuote.baseRate + filteredBestQuote.fuelSurcharge + filteredBestQuote.premiumsAndDiscounts))}
                 </div>
-                <div className="text-sm text-gray-500">Best Price</div>
-                {(bestQuote as any).customerPrice && (
+                <div className="text-sm text-gray-500">
+                  {activeMode === 'all' ? 'Best Price' : `Best ${activeMode === 'volume' ? 'Volume LTL' : 'Standard LTL'}`}
+                </div>
+                {(filteredBestQuote as any).customerPrice && (
                   <div className="text-sm text-green-600">
-                    Profit: {formatCurrency((bestQuote as any).profit || 0)}
+                    Profit: {formatCurrency((filteredBestQuote as any).profit || 0)}
                   </div>
                 )}
               </div>
@@ -118,14 +176,104 @@ export const RFQCard: React.FC<RFQCardProps> = ({ result, onPriceUpdate }) => {
         )}
       </div>
 
+      {/* Dual Mode Controls and Stats */}
+      {isDualMode && (
+        <div className="p-4 bg-purple-50 border-b border-purple-200">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-2">
+              <BarChart3 className="h-4 w-4 text-purple-600" />
+              <span className="text-sm font-medium text-purple-900">Mode Comparison</span>
+            </div>
+            
+            {/* Mode Filter Buttons */}
+            <div className="flex items-center space-x-1 bg-white rounded-lg p-1">
+              <button
+                onClick={() => setActiveMode('all')}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                  activeMode === 'all' 
+                    ? 'bg-purple-600 text-white' 
+                    : 'text-purple-600 hover:bg-purple-100'
+                }`}
+              >
+                All Quotes
+              </button>
+              <button
+                onClick={() => setActiveMode('volume')}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                  activeMode === 'volume' 
+                    ? 'bg-purple-600 text-white' 
+                    : 'text-purple-600 hover:bg-purple-100'
+                }`}
+              >
+                Volume LTL ({modeStats?.volumeQuotes || 0})
+              </button>
+              <button
+                onClick={() => setActiveMode('standard')}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                  activeMode === 'standard' 
+                    ? 'bg-purple-600 text-white' 
+                    : 'text-purple-600 hover:bg-purple-100'
+                }`}
+              >
+                Standard LTL ({modeStats?.standardQuotes || 0})
+              </button>
+            </div>
+          </div>
+          
+          {/* Comparison Stats */}
+          {modeStats && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white rounded-lg p-3 border border-purple-200">
+                <div className="text-sm text-purple-600 mb-1">Volume LTL Best</div>
+                <div className="text-lg font-bold text-purple-900">
+                  {modeStats.volumeBest ? formatCurrency(modeStats.volumeBest) : 'No quotes'}
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg p-3 border border-purple-200">
+                <div className="text-sm text-purple-600 mb-1">Standard LTL Best</div>
+                <div className="text-lg font-bold text-purple-900">
+                  {modeStats.standardBest ? formatCurrency(modeStats.standardBest) : 'No quotes'}
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg p-3 border border-purple-200">
+                <div className="text-sm text-purple-600 mb-1 flex items-center space-x-1">
+                  {modeStats.savings && modeStats.savings > 0 ? (
+                    <TrendingDown className="h-3 w-3 text-green-600" />
+                  ) : modeStats.savings && modeStats.savings < 0 ? (
+                    <TrendingUp className="h-3 w-3 text-red-600" />
+                  ) : null}
+                  <span>Volume LTL Savings</span>
+                </div>
+                <div className={`text-lg font-bold ${
+                  modeStats.savings && modeStats.savings > 0 ? 'text-green-600' :
+                  modeStats.savings && modeStats.savings < 0 ? 'text-red-600' :
+                  'text-gray-500'
+                }`}>
+                  {modeStats.savings ? 
+                    (modeStats.savings > 0 ? `+${formatCurrency(modeStats.savings)}` : formatCurrency(modeStats.savings)) :
+                    'No comparison'
+                  }
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Quote Summary */}
-      {result.quotes.length > 0 && (
+      {filteredQuotes.length > 0 && (
         <div className="p-4 bg-gray-50 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <Truck className="h-4 w-4 text-blue-500" />
               <span className="text-sm font-medium text-gray-700">
-                {result.quotes.length} quote{result.quotes.length !== 1 ? 's' : ''} from {uniqueCarrierCount} carrier{uniqueCarrierCount !== 1 ? 's' : ''}
+                {filteredQuotes.length} quote{filteredQuotes.length !== 1 ? 's' : ''} 
+                {isDualMode && activeMode !== 'all' && (
+                  <span className="text-purple-600"> ({activeMode === 'volume' ? 'Volume LTL' : 'Standard LTL'})</span>
+                )}
+                {!isDualMode || activeMode === 'all' ? ` from ${uniqueCarrierCount} carrier${uniqueCarrierCount !== 1 ? 's' : ''}` : ''}
               </span>
             </div>
             <button
@@ -144,10 +292,10 @@ export const RFQCard: React.FC<RFQCardProps> = ({ result, onPriceUpdate }) => {
       )}
 
       {/* Expanded Carrier Details */}
-      {isExpanded && result.quotes.length > 0 && (
+      {isExpanded && filteredQuotes.length > 0 && (
         <div className="p-6">
           <CarrierCards
-            quotes={result.quotes as any}
+            quotes={filteredQuotes as any}
             onPriceUpdate={onPriceUpdate}
             shipmentInfo={{
               fromZip: result.originalData.fromZip,

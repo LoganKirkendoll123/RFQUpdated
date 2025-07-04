@@ -334,6 +334,12 @@ export interface ProcessingResult {
   pricingOverrides?: { [quoteId: number]: number };
 }
 
+// Enhanced result type for smart quoting
+interface SmartQuotingResult extends ProcessingResult {
+  quotingDecision: 'freshx' | 'project44-standard' | 'project44-volume' | 'project44-dual';
+  quotingReason: string;
+}
+
 // Project44 OAuth Configuration
 export interface Project44OAuthConfig {
   oauthUrl: string;
