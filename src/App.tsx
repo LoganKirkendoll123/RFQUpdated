@@ -5,7 +5,7 @@ import { ApiKeyInput } from './components/ApiKeyInput';
 import ResultsTable from './components/ResultsTable';
 import ProcessingStatus from './components/ProcessingStatus';
 import SupabaseStatus from './components/SupabaseStatus';
-import DatabaseManager from './components/DatabaseManager';
+import { DatabaseManager } from './components/DatabaseManager';
 import PricingSettings from './components/PricingSettings';
 import { Analytics } from './components/Analytics';
 import SpotQuote from './components/SpotQuote';
