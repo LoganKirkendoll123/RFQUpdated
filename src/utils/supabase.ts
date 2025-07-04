@@ -44,8 +44,9 @@ export const checkSupabaseConnection = async () => {
       return { connected: false, error: 'Supabase credentials not configured' };
     }
 
-    const { data, error } = await supabase.from('_supabase_migrations').select('version').limit(1);
-    if (error && error.code !== 'PGRST116') { // PGRST116 is "table not found" which is expected
+    // Test connection by querying a user-accessible table
+    const { error } = await supabase.from('Shipments').select('count', { count: 'exact', head: true });
+    if (error) {
       throw error;
     }
     return { connected: true, error: null };
