@@ -49,28 +49,6 @@ export default defineConfig({
             }
           });
         }
-      },
-      '/api/freshx': {
-        target: 'https://api.getfreshx.com',
-        changeOrigin: true,
-        secure: true,
-        rewrite: (path) => path.replace(/^\/api\/freshx/, ''),
-        headers: {
-          'Host': 'api.getfreshx.com'
-        },
-        configure: (proxy, _options) => {
-          proxy.on('proxyReq', (proxyReq, _req, _res) => {
-            // Remove Origin header to bypass CORS restrictions
-            proxyReq.removeHeader('origin');
-          });
-          proxy.on('error', (err, _req, res) => {
-            console.error('Proxy error for /api/freshx:', err.message);
-            if (!res.headersSent) {
-              res.writeHead(500, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: 'Proxy error occurred' }));
-            }
-          });
-        }
       }
     }
   }

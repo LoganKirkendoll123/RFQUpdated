@@ -3,11 +3,6 @@
   command = "npm run build"
 
 [functions]
-  directory = "netlify/functions"
-  node_bundler = "esbuild"
-  external_node_modules = ["node-fetch"]
-
-[[redirects]]
   from = "/api/project44/*"
   to = "/.netlify/functions/project44-proxy"
   status = 200
@@ -42,7 +37,4 @@
   timeout = 60
 
 [functions.project44-oauth-proxy]
-  timeout = 60
-
-[functions.freshx-proxy]
   timeout = 60

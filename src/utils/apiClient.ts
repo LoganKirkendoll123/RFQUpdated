@@ -1027,10 +1027,8 @@ export class FreshXAPIClient {
       commodity: rfq.commodity
     });
 
-    const isDev = import.meta.env.DEV;
-    const apiUrl = isDev 
-      ? '/api/freshx/v1/quotes'
-      : '/.netlify/functions/freshx-proxy/v1/quotes';
+    // Direct call to FreshX API - no proxy needed
+    const apiUrl = 'https://api.getfreshx.com/v1/quotes';
 
     // Build the FreshX request payload
     const requestPayload = {
@@ -1053,7 +1051,8 @@ export class FreshXAPIClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': this.apiKey
+          'x-api-key': this.apiKey,
+          'Accept': 'application/json'
         },
         body: JSON.stringify(requestPayload)
       });

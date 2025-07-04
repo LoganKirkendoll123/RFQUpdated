@@ -215,15 +215,15 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
         return;
       } else {
         // For FreshX, test the API key
-        const apiUrl = isDev 
-          ? '/api/freshx/v1/health'
-          : '/.netlify/functions/freshx-proxy/v1/health';
+        // Direct call to FreshX API - no proxy needed
+        const apiUrl = 'https://api.getfreshx.com/v1/health';
 
         const response = await fetch(apiUrl, {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
+            'x-api-key': apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
           }
         });
 
