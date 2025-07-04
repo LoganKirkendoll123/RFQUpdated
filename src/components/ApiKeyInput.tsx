@@ -434,15 +434,6 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
                     {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowKey(!showKey)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-2">
@@ -585,46 +576,8 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
             {showKey ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-          <div className="pt-4 border-t border-gray-200">
-            <button
-              onClick={testOAuthConnection}
-              disabled={isValidating || !oauthConfig.clientId.trim() || !oauthConfig.clientSecret.trim()}
-              className="w-full py-3 px-4 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
-            >
-              {isValidating ? (
-                <>
-                  <Loader className="h-5 w-5 animate-spin" />
-                  <span>Testing OAuth...</span>
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="h-5 w-5" />
-                  <span>Test OAuth Connection</span>
-                </>
-              )}
-            </button>
-          </div>
-        </button>
-      </div>
-
-      <div className="pt-4 border-t border-gray-200">
-        <button
-          onClick={() => validateApiKey(value)}
-          disabled={isValidating || !value || value.length < 10}
-          className="w-full py-3 px-4 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
-        >
-          {isValidating ? (
-            <>
-              <Loader className="h-5 w-5 animate-spin" />
-              <span>Testing API Key...</span>
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-5 w-5" />
-              <span>Test FreshX API Key</span>
-            </>
-          )}
-        </button>
+          </button>
+        </div>
       </div>
 
       {validationMessage && (
