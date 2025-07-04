@@ -148,6 +148,7 @@ export const CarrierManager: React.FC = () => {
       scac: editingCarrier?.scac || '',
       mc_number: editingCarrier?.mc_number || '',
       dot_number: editingCarrier?.dot_number || '',
+      account_code: editingCarrier?.account_code || '',
       is_active: editingCarrier?.is_active ?? true
     });
 
@@ -180,6 +181,16 @@ export const CarrierManager: React.FC = () => {
               />
             </div>
             
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">P44 Account Code</label>
+              <input
+                type="text"
+                value={formData.account_code}
+                onChange={(e) => setFormData({ ...formData, account_code: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">MC Number</label>
               <input
@@ -335,6 +346,12 @@ export const CarrierManager: React.FC = () => {
                           <div className="flex items-center space-x-1 text-xs text-gray-500">
                             <Award className="h-3 w-3" />
                             <span>SCAC: {carrier.scac}</span>
+                          </div>
+                        )}
+                        {carrier.account_code && (
+                          <div className="flex items-center space-x-1 text-xs text-gray-500">
+                            <Shield className="h-3 w-3" />
+                            <span>P44 Code: {carrier.account_code}</span>
                           </div>
                         )}
                         {carrier.mc_number && (
