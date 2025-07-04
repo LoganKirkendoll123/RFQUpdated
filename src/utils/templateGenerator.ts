@@ -240,7 +240,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   
   // Comprehensive sample data - using ONLY itemized dimensions
   const sampleData = [
-    // Row 1: Standard LTL - Single item shipment
+    // Test Case 1: Standard LTL - Small dry goods shipment (isReefer=FALSE, <10 pallets, <15K lbs)
     [
       '2025-02-15', '60607', '30033', 3, 2500, false, false,
       'AMBIENT', '', false, '70', '', '', 'General Freight', '', 'PLT', 3, 3, 'IN', 'LB', 5000, 0, '', 'US',
@@ -260,7 +260,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
         ['LGDEL', 'APPTDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 2: Volume LTL - Multiple items with different dimensions
+    // Test Case 2: Volume LTL - Large dry goods shipment (isReefer=FALSE, 10+ pallets, 15K+ lbs)
     [
       '2025-02-16', '90210', '10001', 12, 18000, true, false,
       'AMBIENT', '', false, '85', '123456', '01', 'Mixed Electronics', 'ELECTRONICS', 'PLT', 12, 24, 'IN', 'LB', 25000, 2500, 'HTS123456', 'US',
@@ -280,7 +280,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
         ['INPU', 'INDEL', 'RESPU', 'RESDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 3: FreshX Reefer - Temperature-controlled with mixed items
+    // Test Case 3: FreshX Reefer - Temperature-controlled shipment (isReefer=TRUE)
     [
       '2025-02-17', '10001', '90210', 5, 4500, false, true,
       'CHILLED', 'FOODSTUFFS', true, '70', '654321', '02', 'Mixed Food Products', 'FOOD', 'CARTON', 50, 100, 'IN', 'LB', 15000, 1500, 'FOOD789', 'US',
@@ -300,44 +300,23 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
         ['LGPU', 'LGDEL', 'NOTIFY', 'APPTPU', 'APPTDEL'].includes(acc.code) ? true : false
       )
     ],
-    // Row 4: Construction materials with varying sizes
+    // Test Case 4: Volume LTL Edge Case - Heavy weight triggers VLTL (isReefer=FALSE, 8 pallets but 15K+ lbs)
     [
-      '2025-02-18', '77001', '30309', 8, 12000, true, false,
-      'AMBIENT', '', false, '125', '789012', '03', 'Construction Materials', 'CONSTRUCTION', 'PLT', 8, 16, 'IN', 'LB', 20000, 2000, 'CONST123', 'US',
+      '2025-02-18', '77001', '30309', 8, 16500, true, false,
+      'AMBIENT', '', false, '125', '789012', '03', 'Heavy Steel Products', 'STEEL', 'PLT', 8, 16, 'IN', 'LB', 30000, 3000, 'STEEL123', 'US',
       false, '', '', '', '', '', '', '',
       '2025-02-19', '07:00', '19:00', '06:00', '18:00',
-      '1000 Construction Ave', 'Houston', 'TX', 'US', '2000 Builder Blvd', 'Atlanta', 'GA', 'US',
-      'Build Manager', '555-BUILD-123', 'build@construction.com', 'Construction Co', 'Site Supervisor', '555-SITE-456', 'site@builder.com', 'Builder Inc',
-      'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 40, 22,
-      // Different construction materials
-      'Steel Beams', 6000, '125', 120, 8, 8, 'PLT', 2, true, '789012', 12000,
-      'Concrete Blocks', 4000, '150', 48, 40, 24, 'PLT', 3, true, '890123', 6000,
-      'Insulation', 1000, '85', 96, 24, 12, 'ROLL', 10, false, '901234', 1500,
-      'Hardware', 1000, '100', 24, 18, 18, 'BOX', 20, true, '012345', 500,
+      '1000 Steel Mill Rd', 'Houston', 'TX', 'US', '2000 Manufacturing Blvd', 'Atlanta', 'GA', 'US',
+      'Steel Manager', '555-STEEL-123', 'steel@mill.com', 'Steel Mill Co', 'Plant Supervisor', '555-PLANT-456', 'plant@manufacturing.com', 'Manufacturing Inc',
+      'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 40, 24,
+      // Heavy steel products that trigger VLTL due to weight
+      'Steel Coils', 8000, '125', 72, 48, 48, 'PLT', 3, true, '789012', 18000,
+      'Steel Plates', 6000, '150', 96, 48, 12, 'PLT', 2, true, '890123', 9000,
+      'Steel Bars', 2500, '125', 144, 6, 6, 'BUNDLE', 25, true, '901234', 3000,
       // Item 5 empty
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['SATPU', 'SATDEL', 'LTDDEL', 'CONPU', 'CONDEL'].includes(acc.code) ? true : false
-      )
-    ],
-    // Row 5: High-value electronics with precise dimensions
-    [
-      '2025-02-19', '94102', '02101', 4, 3200, false, false,
-      'AMBIENT', '', false, '50', '345678', '04', 'Precision Electronics', 'ELECTRONICS', 'BOX', 20, 40, 'IN', 'LB', 100000, 10000, 'ELEC789', 'US',
-      false, '', '', '', '', '', '', '',
-      '', '', '', '', '',
-      '500 Tech Way', 'San Francisco', 'CA', 'US', '100 Innovation Dr', 'Boston', 'MA', 'US',
-      'Tech Shipper', '555-TECH-456', 'tech@silicon.com', 'Silicon Valley Tech', 'Innovation Receiver', '555-INNOV-789', 'receive@innovation.com', 'Innovation Labs',
-      'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 30, 0,
-      // Precision electronics with exact dimensions
-      'Server Equipment', 1500, '50', 36, 24, 72, 'CRATE', 2, false, '345678', 50000,
-      'Network Switches', 800, '60', 24, 18, 12, 'BOX', 8, true, '456789', 25000,
-      'Cables & Accessories', 400, '70', 18, 12, 6, 'CARTON', 15, true, '567890', 15000,
-      'Monitors', 500, '65', 30, 20, 8, 'BOX', 5, false, '678901', 10000,
-      // Item 5 empty
-      '', '', '', '', '', '', '', '', '', '', '',
-      ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['LGDEL', 'RESDEL', 'NOTIFY'].includes(acc.code) ? true : false
+        ['SATPU', 'SATDEL', 'LTDDEL', 'INPU', 'INDEL'].includes(acc.code) ? true : false
       )
     ]
   ];
@@ -437,11 +416,15 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   // Create smart routing guide sheet
   const routingHeaders = ['Scenario', 'isReefer', 'Temperature', 'Pallets', 'Weight (lbs)', 'Expected Routing', 'Reasoning'];
   const routingData = [
-    ['Standard LTL', 'FALSE', 'AMBIENT or blank', '1-9', '1-14,999', 'Project44 Standard LTL only', 'Small dry goods shipments'],
-    ['Volume LTL', 'FALSE', 'AMBIENT or blank', '10-25', '15,000+', 'Project44 Volume LTL only', 'Large dry goods shipments'],
-    ['FreshX Reefer', 'TRUE', 'CHILLED or FROZEN', 'Any', 'Any', 'FreshX Reefer network', 'Temperature-controlled goods marked as reefer'],
-    ['Project44 Standard', 'FALSE', 'CHILLED or FROZEN', 'Any', 'Any', 'Project44 Standard LTL', 'Temperature-controlled but not marked as reefer'],
-    ['Mixed Items', 'FALSE', 'AMBIENT', '5-15', '8,000-20,000', 'Project44 LTL or VLTL', 'Multiple items with different dimensions']
+    ['Test Case 1: Standard LTL', 'FALSE', 'AMBIENT', '3', '2,500', 'Project44 Standard LTL', 'Small dry goods: <10 pallets AND <15K lbs'],
+    ['Test Case 2: Volume LTL (Pallets)', 'FALSE', 'AMBIENT', '12', '18,000', 'Project44 Volume LTL', 'Large shipment: 10+ pallets triggers VLTL'],
+    ['Test Case 3: FreshX Reefer', 'TRUE', 'CHILLED', '5', '4,500', 'FreshX Reefer Network', 'isReefer=TRUE routes to specialized reefer network'],
+    ['Test Case 4: Volume LTL (Weight)', 'FALSE', 'AMBIENT', '8', '16,500', 'Project44 Volume LTL', 'Heavy shipment: 15K+ lbs triggers VLTL even with <10 pallets'],
+    ['', '', '', '', '', '', ''],
+    ['Smart Routing Rules:', '', '', '', '', '', ''],
+    ['Rule 1: isReefer Check', 'TRUE', 'Any', 'Any', 'Any', 'FreshX Reefer', 'Primary routing control - overrides all other rules'],
+    ['Rule 2: Standard LTL', 'FALSE', 'Any', '1-9', '1-14,999', 'Project44 Standard LTL', 'Small shipments that don\'t meet VLTL criteria'],
+    ['Rule 3: Volume LTL', 'FALSE', 'Any', '10+ OR', '15,000+', 'Project44 Volume LTL', 'Large shipments by pallet count OR weight']
   ];
   
   const routingWsData = [routingHeaders, ...routingData];
@@ -478,9 +461,29 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     [''],
     ['🧠 SMART ROUTING WITH ITEMIZED-ONLY APPROACH'],
     ['This template uses ONLY itemized fields for all dimensions - no legacy fields:'],
-    ['• isReefer = TRUE → Routes to FreshX reefer network'],
-    ['• isReefer = FALSE → Routes to Project44 networks (LTL/VLTL based on size)'],
+    ['• isReefer = TRUE → Routes to FreshX reefer network (regardless of size/weight)'],
+    ['• isReefer = FALSE → Routes to Project44 networks:'],
+    ['  - Standard LTL: <10 pallets AND <15,000 lbs'],
+    ['  - Volume LTL: 10+ pallets OR 15,000+ lbs'],
     ['• ALL dimensions use item1_, item2_, etc. format for consistency'],
+    [''],
+    ['🎯 TEST CASES INCLUDED:'],
+    [''],
+    ['Test Case 1: Standard LTL'],
+    ['• isReefer = FALSE, 3 pallets, 2,500 lbs → Project44 Standard LTL'],
+    ['• Small dry goods shipment with standard dimensions'],
+    [''],
+    ['Test Case 2: Volume LTL (Pallet Count)'],
+    ['• isReefer = FALSE, 12 pallets, 18,000 lbs → Project44 Volume LTL'],
+    ['• Large shipment triggered by pallet count (10+)'],
+    [''],
+    ['Test Case 3: FreshX Reefer'],
+    ['• isReefer = TRUE, 5 pallets, 4,500 lbs → FreshX Reefer Network'],
+    ['• Temperature-controlled shipment routed to specialized network'],
+    [''],
+    ['Test Case 4: Volume LTL (Weight)'],
+    ['• isReefer = FALSE, 8 pallets, 16,500 lbs → Project44 Volume LTL'],
+    ['• Heavy shipment triggered by weight (15,000+ lbs) despite <10 pallets'],
     [''],
     ['📦 ITEMIZED-ONLY STRUCTURE:'],
     [''],
@@ -560,12 +563,14 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['• If validation fails, you\'ll get a clear error message'],
     [''],
     ['🔄 PROCESSING WORKFLOW:'],
-    ['1. Upload this itemized-only file to Smart Routing Processor'],
+    ['1. Upload this file to Smart Routing Processor'],
     ['2. System validates all item fields and dimensions'],
-    ['3. Routes to FreshX (if isReefer=TRUE) or Project44 (if isReefer=FALSE)'],
-    ['4. For Project44: Uses ALL item data for precise cubic calculations'],
-    ['5. Each item contributes to total linear feet and cubic volume'],
-    ['6. Returns detailed quotes with full Project44 API response data'],
+    ['3. Smart routing classification:'],
+    ['   • Check isReefer field first (primary control)'],
+    ['   • If FALSE: Check pallets (10+) OR weight (15K+) for LTL vs VLTL'],
+    ['   • If TRUE: Route to FreshX regardless of size/weight'],
+    ['4. Process quotes through appropriate network'],
+    ['5. Return detailed pricing with routing decision explanation'],
     [''],
     ['💡 BEST PRACTICES:'],
     ['• Always use itemized fields (item1_, item2_, etc.) for dimensions'],
@@ -588,14 +593,24 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['• Mixed freight classes may affect overall pricing'],
     [''],
     ['🎯 EXPECTED RESULTS:'],
-    ['Each itemized shipment will be processed with:'],
-    ['• Accurate cubic calculations based on actual item dimensions'],
-    ['• Proper freight class handling for mixed-class shipments'],
-    ['• Optimized loading and space utilization'],
-    ['• Detailed breakdown of charges per item when available'],
-    ['• Enhanced carrier selection based on item-specific requirements'],
-    ['• Improved transit time estimates considering all items'],
-    ['• Consistent field structure across all shipment types']
+    ['Test Case 1 (Standard LTL): 3 pallets, 2,500 lbs, isReefer=FALSE'],
+    ['→ Routes to Project44 Standard LTL network'],
+    ['→ Reason: Small shipment (<10 pallets AND <15K lbs)'],
+    [''],
+    ['Test Case 2 (Volume LTL): 12 pallets, 18,000 lbs, isReefer=FALSE'],
+    ['→ Routes to Project44 Volume LTL network'],
+    ['→ Reason: Large shipment (10+ pallets triggers VLTL)'],
+    [''],
+    ['Test Case 3 (FreshX Reefer): 5 pallets, 4,500 lbs, isReefer=TRUE'],
+    ['→ Routes to FreshX Reefer network'],
+    ['→ Reason: isReefer=TRUE overrides size/weight considerations'],
+    [''],
+    ['Test Case 4 (Volume LTL): 8 pallets, 16,500 lbs, isReefer=FALSE'],
+    ['→ Routes to Project44 Volume LTL network'],
+    ['→ Reason: Heavy shipment (15K+ lbs triggers VLTL even with <10 pallets)'],
+    [''],
+    ['Each test validates different routing logic paths and ensures'],
+    ['comprehensive coverage of all smart routing scenarios.']
   ];
   
   const instructionsWs = XLSX.utils.aoa_to_sheet(instructionsData);
