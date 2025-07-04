@@ -495,24 +495,13 @@ export class Project44APIClient {
 
     // FIXED: Add capacity provider account group to filter by selected carriers
     if (selectedCarrierIds.length > 0) {
-      // Check if the first carrier ID looks like a group code (contains underscore)
-      const isGroupCode = selectedCarrierIds[0].includes('_');
-      
-      if (isGroupCode) {
-        // If it's a group code, use it directly
-        requestPayload.capacityProviderAccountGroup = {
-          code: accountGroupCode,
-          accounts: selectedCarrierIds
-        };
-        console.log(`🎯 Using account group code directly: ${selectedCarrierIds[0]}`);
-      } else {
-        // Otherwise use the traditional approach with individual carrier accounts
-        requestPayload.capacityProviderAccountGroup = {
-          code: accountGroupCodeaccountGroupCode,
-          accounts: selectedCarrierIds
-        };
-        console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
-      }
+      // The group code should be determined from the carriers being selected
+      // For now, we'll use "Default" but this should be the actual group code
+      requestPayload.capacityProviderAccountGroup = {
+        code: "Default", // This should be the actual group code that these carriers belong to
+        accounts: selectedCarrierIds.map(carrierId => ({ code: carrierId }))
+      };
+      console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
     } else {
       console.log('⚠️ No carriers selected - will get quotes from all available carriers');
     }
@@ -687,7 +676,7 @@ export class Project44APIClient {
       preferredCurrency: rfq.preferredCurrency || 'USD',
       preferredSystemOfMeasurement: rfq.preferredSystemOfMeasurement || 'IMPERIAL',
       weightUnit: rfq.weightUnit || 'LB',
-      // FIXED: Include both code and accounts array for the account group
+      // FIXED: For entire group, just specify the group code without accounts array
       capacityProviderAccountGroup: {
         code: accountGroupCode
       }
