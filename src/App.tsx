@@ -73,8 +73,6 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
     }
   };
 
-  
-
   const loadCustomersFromHistory = async () => {
     setLoadingHistory(true);
     setError('');
