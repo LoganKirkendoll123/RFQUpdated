@@ -8,7 +8,6 @@ const STORAGE_KEYS = {
   PRICING_SETTINGS: 'pricing_settings',
   SELECTED_MODES: 'selected_modes',
   SELECTED_CUSTOMER: 'selected_customer'
-  SELECTED_CUSTOMER: 'selected_customer'
 };
 
 // Save Project44 configuration to local storage
