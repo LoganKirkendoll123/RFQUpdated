@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { User, LogOut, Settings, Shield, ChevronDown, Clock } from 'lucide-react';
 import { useAuth } from './AuthProvider';
-const UserMenu = () => {
-  const { user, profile, signOut } = useAuth();
 import { supabase } from '../../utils/supabase';
+
+export const UserMenu: React.FC = () => {
+  const { user, profile, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [sessionCount, setSessionCount] = useState(0);
   
@@ -125,5 +126,3 @@ import { supabase } from '../../utils/supabase';
     </div>
   );
 };
-
-export default UserMenu;
