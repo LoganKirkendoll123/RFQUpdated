@@ -134,30 +134,6 @@ export const loadSelectedModes = (): any | null => {
   }
 };
 
-// Save selected customer to local storage
-export const saveSelectedCustomer = (customer: any): void => {
-  try {
-    localStorage.setItem(STORAGE_KEYS.SELECTED_CUSTOMER, JSON.stringify(customer));
-    console.log('✅ Selected customer saved to local storage');
-  } catch (error) {
-    console.error('❌ Failed to save selected customer:', error);
-  }
-};
-
-// Load selected customer from local storage
-export const loadSelectedCustomer = (): any | null => {
-  try {
-    const storedCustomer = localStorage.getItem(STORAGE_KEYS.SELECTED_CUSTOMER);
-    if (!storedCustomer) return null;
-    
-    const customer = JSON.parse(storedCustomer);
-    console.log('✅ Selected customer loaded from local storage');
-    return customer;
-  } catch (error) {
-    console.error('❌ Failed to load selected customer:', error);
-    return null;
-  }
-};
 
 // Get stored credentials in a unified format
 export const getStoredCredentials = () => {
