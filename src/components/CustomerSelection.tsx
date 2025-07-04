@@ -43,7 +43,6 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
           .from('CustomerCarriers')
           .select('InternalName')
           .not('InternalName', 'is', null)
-          .order('InternalName')
       );
 
       if (error) {
@@ -51,7 +50,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
       }
 
       // Get unique customer names
-      const uniqueCustomers = [...new Set(data?.map(d => d.InternalName).filter(Boolean))];
+      const uniqueCustomers = [...new Set(data?.map(d => d.InternalName).filter(Boolean))].sort();
       setCustomers(uniqueCustomers);
       setFilteredCustomers(uniqueCustomers);
       console.log(`✅ Loaded ${uniqueCustomers.length} customers from CustomerCarriers`);
