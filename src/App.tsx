@@ -435,44 +435,75 @@ function App() {
   const exportResults = () => {
     if (results.length === 0) return;
 
-    const exportData = results.flatMap(result => 
-      result.quotes.map(quote => {
-        const smartResult = result as any;
+    const exportData = results.flatMap(result => {
+      const smartResult = result as any;
+      
+      return result.quotes.map(quote => {
+        const quoteWithPricing = quote as QuoteWithPricing;
         const quoteWithMode = quote as any;
         
         return {
-        'RFQ #': result.rowIndex + 1,
-        'Quoting Decision': smartResult.quotingDecision?.toUpperCase() || 'STANDARD',
-        'Quoting Reason': smartResult.quotingReason || 'Standard LTL processing',
-        'Quote Mode': quoteWithMode.quoteModeLabel || 'Standard LTL',
-        'From Zip': result.originalData.fromZip,
-        'To Zip': result.originalData.toZip,
-        'Pallets': result.originalData.pallets,
-        'Weight': result.originalData.grossWeight,
-        'isReefer': result.originalData.isReefer ? 'TRUE' : 'FALSE',
-        'Temperature': result.originalData.temperature || '',
-        'Pickup Date': result.originalData.fromDate,
-        'Carrier': quote.carrier.name,
-        'SCAC': quote.carrier.scac || '',
-        'MC Number': quote.carrier.mcNumber || '',
-        'Service Level': quote.serviceLevel?.description || '',
-        'Transit Days': quote.transitDays || '',
-        'Base Rate': quote.baseRate,
-        'Fuel Surcharge': quote.fuelSurcharge,
-        'Accessorials': quote.premiumsAndDiscounts,
-        'Carrier Total': (quote as QuoteWithPricing).carrierTotalRate,
-        'Customer Price': (quote as QuoteWithPricing).customerPrice,
-        'Profit': (quote as QuoteWithPricing).profit,
-        'Status': result.status,
-        'Error': result.error || ''
-      };
-      })
-    );
+          'RFQ Number': result.rowIndex + 1,
+          'Routing Decision': smartResult.quotingDecision?.replace('project44-', '').toUpperCase() || 'STANDARD',
+          'Quote Type': quoteWithMode.quoteModeLabel || 'Standard LTL',
+          'Routing Reason': smartResult.quotingReason || 'Standard LTL processing',
+          'Origin ZIP': result.originalData.fromZip,
+          'Destination ZIP': result.originalData.toZip,
+          'Pallets': result.originalData.pallets,
+          'Weight (lbs)': result.originalData.grossWeight,
+          'Is Reefer': result.originalData.isReefer ? 'TRUE' : 'FALSE',
+          'Temperature': result.originalData.temperature || 'AMBIENT',
+          'Pickup Date': result.originalData.fromDate,
+          'Carrier Name': quote.carrier.name,
+          'Carrier SCAC': quote.carrier.scac || '',
+          'Carrier MC': quote.carrier.mcNumber || '',
+          'Service Level': quote.serviceLevel?.description || quote.serviceLevel?.code || '',
+          'Transit Days': quote.transitDays || '',
+          'Carrier Rate': quoteWithPricing.carrierTotalRate || 0,
+          'Customer Price': quoteWithPricing.customerPrice || 0,
+          'Profit Margin': quoteWithPricing.profit || 0,
+          'Profit %': quoteWithPricing.carrierTotalRate > 0 ? 
+            ((quoteWithPricing.profit / quoteWithPricing.carrierTotalRate) * 100).toFixed(1) + '%' : '0%',
+          'Processing Status': result.status.toUpperCase(),
+          'Error Message': result.error || ''
+        };
+      });
+    });
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Smart Quoting Results');
-    XLSX.writeFile(wb, `smart-quoting-results-${new Date().toISOString().split('T')[0]}.xlsx`);
+    
+    // Set column widths for better readability
+    const colWidths = [
+      { wch: 12 }, // RFQ Number
+      { wch: 15 }, // Routing Decision
+      { wch: 15 }, // Quote Type
+      { wch: 40 }, // Routing Reason
+      { wch: 12 }, // Origin ZIP
+      { wch: 12 }, // Destination ZIP
+      { wch: 10 }, // Pallets
+      { wch: 12 }, // Weight
+      { wch: 10 }, // Is Reefer
+      { wch: 12 }, // Temperature
+      { wch: 12 }, // Pickup Date
+      { wch: 25 }, // Carrier Name
+      { wch: 12 }, // Carrier SCAC
+      { wch: 12 }, // Carrier MC
+      { wch: 20 }, // Service Level
+      { wch: 12 }, // Transit Days
+      { wch: 15 }, // Carrier Rate
+      { wch: 15 }, // Customer Price
+      { wch: 15 }, // Profit Margin
+      { wch: 10 }, // Profit %
+      { wch: 15 }, // Processing Status
+      { wch: 30 }  // Error Message
+    ];
+    
+    ws['!cols'] = colWidths;
+    
+    const fileName = `freight-quotes-${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
   };
 
   const exportAnalytics = () => {
