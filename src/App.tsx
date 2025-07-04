@@ -66,6 +66,12 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
+// Enhanced result type for smart quoting
+interface SmartQuotingResult extends ProcessingResult {
+  quotingDecision: 'freshx' | 'project44-standard' | 'project44-volume' | 'project44-dual';
+  quotingReason: string;
+}
+
 // Main App Component (now wrapped with auth)
 const AppContent: React.FC = () => {
   const { profile } = useAuth();
