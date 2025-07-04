@@ -35,6 +35,56 @@ export interface CarrierGroup {
   }>;
 }
 
+// FreshX API response interface
+interface FreshXQuoteResponse {
+  quoteId: number;
+  baseRate: number;
+  fuelSurcharge: number;
+  accessorial: any[];
+  premiumsAndDiscounts: number;
+  readyByDate: string;
+  estimatedDeliveryDate: string;
+  temperature: string;
+  weight: number;
+  pallets: number;
+  commodity: string;
+  stackable: boolean;
+  foodGrade: boolean;
+  pickupFacility: string;
+  dropoffFacility: string;
+  submittedBy: string;
+  submissionDatetime: string;
+  pickup: {
+    city: string;
+    state: string;
+    zip: string;
+  };
+  dropoff: {
+    city: string;
+    state: string;
+    zip: string;
+  };
+  carrier: {
+    name: string;
+    mcNumber: string;
+    logo: string;
+  };
+}
+
+// FreshX API request interface
+interface FreshXQuoteRequest {
+  fromDate: string;
+  fromZip: string;
+  toZip: string;
+  pallets: number;
+  grossWeight: string;
+  temperature: 'AMBIENT' | 'CHILLED' | 'FROZEN';
+  commodity: 'ALCOHOL' | 'FOODSTUFFS' | 'FRESH_SEAFOOD' | 'FROZEN_SEAFOOD' | 'ICE_CREAM' | 'PRODUCE';
+  isFoodGrade: boolean;
+  isStackable: boolean;
+  accessorial: string[];
+}
+
 export class Project44APIClient {
   private config: Project44OAuthConfig;
   private accessToken: string | null = null;
@@ -1021,9 +1071,178 @@ export class FreshXAPIClient {
       commodity: rfq.commodity
     });
 
-    // For demo purposes, generate realistic mock data since FreshX API may not be available
-    // In production, this would call the actual FreshX API
-    console.log('📝 Generating realistic FreshX mock data for demo...');
+    // Build the FreshX API request
+    const freshxRequest: FreshXQuoteRequest = {
+      fromDate: rfq.fromDate,
+      fromZip: rfq.fromZip,
+      toZip: rfq.toZip,
+      pallets: rfq.pallets,
+      grossWeight: rfq.grossWeight.toString(),
+      temperature: rfq.temperature || 'AMBIENT',
+      commodity: rfq.commodity || 'FOODSTUFFS',
+      isFoodGrade: rfq.isFoodGrade || false,
+      isStackable: rfq.isStackable,
+      accessorial: this.mapAccessorialCodes(rfq.accessorial || [])
+    };
+
+    console.log('📤 Sending FreshX API request:', freshxRequest);
+
+    try {
+      // Use the appropriate endpoint based on environment
+      const isDev = import.meta.env.DEV;
+      const apiUrl = isDev 
+        ? '/api/freshx/v1/quotes'
+        : '/.netlify/functions/freshx-proxy/v1/quotes';
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'x-api-key': this.apiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(freshxRequest)
+      });
+
+      console.log(`📥 FreshX API response status: ${response.status}`);
+
+      if (response.status === 204) {
+        console.log('ℹ️ No FreshX quotes available for this request');
+        return [];
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ FreshX API error:', response.status, errorText);
+        
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { message: errorText };
+        }
+
+        // Provide specific error messages based on the response
+        if (response.status === 400) {
+          throw new Error(`FreshX API validation error: ${errorData.message || 'Invalid request data'}`);
+        } else if (response.status === 401) {
+          throw new Error('FreshX API authentication failed. Please check your API key.');
+        } else if (response.status === 403) {
+          throw new Error('FreshX API access denied. Please verify your API key permissions.');
+        } else {
+          throw new Error(`FreshX API error: ${response.status} - ${errorData.message || errorText}`);
+        }
+      }
+
+      const freshxQuotes: FreshXQuoteResponse[] = await response.json();
+      console.log(`✅ Received ${freshxQuotes.length} FreshX quotes`);
+
+      // Transform FreshX quotes to our Quote interface
+      const quotes: Quote[] = freshxQuotes.map((freshxQuote, index) => {
+        const quote: Quote = {
+          quoteId: freshxQuote.quoteId || index + 1,
+          baseRate: freshxQuote.baseRate,
+          fuelSurcharge: freshxQuote.fuelSurcharge,
+          accessorial: freshxQuote.accessorial || [],
+          premiumsAndDiscounts: freshxQuote.premiumsAndDiscounts,
+          readyByDate: freshxQuote.readyByDate,
+          estimatedDeliveryDate: freshxQuote.estimatedDeliveryDate,
+          temperature: freshxQuote.temperature,
+          weight: freshxQuote.weight,
+          pallets: freshxQuote.pallets,
+          commodity: freshxQuote.commodity,
+          stackable: freshxQuote.stackable,
+          foodGrade: freshxQuote.foodGrade,
+          pickup: freshxQuote.pickup,
+          dropoff: freshxQuote.dropoff,
+          submittedBy: freshxQuote.submittedBy,
+          submissionDatetime: freshxQuote.submissionDatetime,
+          carrier: freshxQuote.carrier,
+          transitDays: this.calculateTransitDays(freshxQuote.readyByDate, freshxQuote.estimatedDeliveryDate)
+        };
+
+        return quote;
+      });
+
+      console.log(`✅ Transformed ${quotes.length} FreshX quotes`);
+      return quotes;
+
+    } catch (error) {
+      console.error('❌ FreshX API request failed:', error);
+      
+      // Check for network/CORS errors which are common in development
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        console.log('⚠️ Network error detected, falling back to mock data for development');
+        return this.generateMockQuotes(rfq);
+      }
+      
+      throw error;
+    }
+  }
+
+  private mapAccessorialCodes(accessorialCodes: string[]): string[] {
+    // Map Project44 accessorial codes to FreshX equivalents where possible
+    const codeMapping: { [key: string]: string } = {
+      'LGPU': 'LIFTGATE_PICKUP',
+      'LGDEL': 'LIFTGATE_DROPOFF',
+      'INPU': 'INSIDE_DELIVERY_PICKUP',
+      'INDEL': 'INSIDE_DELIVERY_DROPOFF',
+      'LTDPU': 'LIMITED_ACCESS_PICKUP',
+      'LTDDEL': 'LIMITED_ACCESS_DROPOFF',
+      'NBPU': 'NIGHTTIME_DELIVERY_PICKUP',
+      'NBDEL': 'NIGHTTIME_DELIVERY_DROPOFF'
+    };
+
+    const mappedCodes: string[] = [];
+    
+    accessorialCodes.forEach(code => {
+      if (codeMapping[code]) {
+        mappedCodes.push(codeMapping[code]);
+      } else if (this.isValidFreshXAccessorial(code)) {
+        mappedCodes.push(code);
+      } else {
+        console.log(`⚠️ Unmapped accessorial code: ${code}`);
+      }
+    });
+
+    return mappedCodes;
+  }
+
+  private isValidFreshXAccessorial(code: string): boolean {
+    const validCodes = [
+      'DRIVER_LOADING_PICKUP',
+      'DRIVER_LOADING_DROPOFF',
+      'INSIDE_DELIVERY_PICKUP',
+      'INSIDE_DELIVERY_DROPOFF',
+      'LIFTGATE_PICKUP',
+      'LIFTGATE_DROPOFF',
+      'LIMITED_ACCESS_PICKUP',
+      'LIMITED_ACCESS_DROPOFF',
+      'NIGHTTIME_DELIVERY_PICKUP',
+      'NIGHTTIME_DELIVERY_DROPOFF'
+    ];
+    
+    return validCodes.includes(code);
+  }
+
+  private calculateTransitDays(readyByDate: string, estimatedDeliveryDate: string): number | undefined {
+    if (!readyByDate || !estimatedDeliveryDate) return undefined;
+    
+    try {
+      const pickup = new Date(readyByDate);
+      const delivery = new Date(estimatedDeliveryDate);
+      const diffTime = delivery.getTime() - pickup.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      return diffDays > 0 ? diffDays : undefined;
+    } catch (error) {
+      console.warn('Failed to calculate transit days:', error);
+      return undefined;
+    }
+  }
+
+  private generateMockQuotes(rfq: RFQRow): Quote[] {
+    console.log('📝 Generating realistic FreshX mock data for development...');
     
     const mockCarriers = [
       { name: 'FreshX Premium Cold Chain', scac: 'FXPC', mcNumber: 'MC-123456' },
@@ -1072,7 +1291,7 @@ export class FreshXAPIClient {
           state: rfq.destinationState || '',
           zip: rfq.toZip
         },
-        submittedBy: 'FreshX',
+        submittedBy: 'FreshX (Mock)',
         submissionDatetime: new Date().toISOString(),
         carrier: {
           name: carrier.name,
@@ -1084,7 +1303,7 @@ export class FreshXAPIClient {
       };
     });
 
-    console.log(`✅ Generated ${quotes.length} realistic FreshX reefer quotes`);
+    console.log(`✅ Generated ${quotes.length} realistic FreshX mock quotes for development`);
     return quotes;
   }
 }
