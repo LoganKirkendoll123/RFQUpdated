@@ -10,7 +10,7 @@ import { PricingSettingsComponent as PricingSettings } from './components/Pricin
 import { Analytics } from './components/Analytics';
 import SpotQuote from './components/SpotQuote';
 import { CustomerSelection } from './components/CustomerSelection';
-import QuickActions from './components/QuickActions';
+import { QuickActions } from './components/QuickActions';
 import { RFQRow, QuoteResult } from './types';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { processRFQBatch } from './utils/apiClient';
