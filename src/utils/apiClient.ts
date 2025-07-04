@@ -495,14 +495,12 @@ export class Project44APIClient {
 
    
         requestPayload.capacityProviderAccountGroup = {
-          code: accountGroupCodeaccountGroupCode,
+          code: accountGroupCode,
           accounts: selectedCarrierIds
         };
         console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
       }
-    } else {
-      console.log('⚠️ No carriers selected - will get quotes from all available carriers');
-    }
+    } 
 
     console.log('📤 Sending comprehensive request payload:', JSON.stringify(requestPayload, null, 2));
 
