@@ -242,9 +242,14 @@ export const calculatePricing = (
     }
     
     // Ensure minimum profit is met (only adjust if below minimum)
-    if (markupApplied < settings.minimumProfit) {
+    // CRITICAL: Ensure minimum profit is ALWAYS enforced
+    const calculatedProfit = customerPrice - carrierTotalRate;
+    if (calculatedProfit < settings.minimumProfit) {
+      console.log(`⚠️ Enforcing minimum profit: ${formatCurrency(calculatedProfit)} → ${formatCurrency(settings.minimumProfit)}`);
       markupApplied = settings.minimumProfit;
-      customerPrice = carrierTotalRate + markupApplied;
+      customerPrice = carrierTotalRate + settings.minimumProfit;
+      // Recalculate the applied margin percentage based on the enforced minimum
+      appliedMarginPercentage = carrierTotalRate > 0 ? (settings.minimumProfit / carrierTotalRate) * 100 : 0;
     }
   }
 
@@ -287,19 +292,28 @@ export const calculatePricingWithCustomerMargins = async (
       if (customerMargin !== null && customerMargin > 0) {
         // Apply customer-specific margin
         const customerPrice = result.carrierTotalRate / (1 - (customerMargin / 100));
-        const markupApplied = customerPrice - result.carrierTotalRate;
-        const profit = customerPrice - result.carrierTotalRate;
+        let markupApplied = customerPrice - result.carrierTotalRate;
+        let finalCustomerPrice = customerPrice;
+        
+        // CRITICAL: Enforce minimum profit for customer margins too
+        if (markupApplied < settings.minimumProfit) {
+          console.log(`⚠️ Customer margin below minimum profit. Enforcing: ${formatCurrency(markupApplied)} → ${formatCurrency(settings.minimumProfit)}`);
+          markupApplied = settings.minimumProfit;
+          finalCustomerPrice = result.carrierTotalRate + settings.minimumProfit;
+        }
+        
+        const profit = finalCustomerPrice - result.carrierTotalRate;
         
         result = {
           ...result,
-          customerPrice,
+          customerPrice: finalCustomerPrice,
           profit,
           markupApplied,
           appliedMarginType: 'customer',
-          appliedMarginPercentage: customerMargin
+          appliedMarginPercentage: result.carrierTotalRate > 0 ? (profit / result.carrierTotalRate) * 100 : 0
         };
         
-        console.log(`💰 Applied customer margin: ${customerMargin}% for ${selectedCustomer} + ${carrierName}`);
+        console.log(`💰 Applied customer margin: ${customerMargin}% (final: ${result.appliedMarginPercentage.toFixed(1)}%) for ${selectedCustomer} + ${carrierName}`);
       } else {
         console.log(`📋 Using fallback margin: ${settings.fallbackMarkupPercentage || 23}% for ${selectedCustomer} + ${carrierName}`);
       }
