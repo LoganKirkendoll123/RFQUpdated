@@ -1,14 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Zap, MapPin, Package, Calendar, DollarSign, Truck, Clock, AlertCircle, CheckCircle, Loader,
-  User, Phone, Mail, Building2, Shield, Thermometer, Wrench, Plus, Minus, ChevronDown, ChevronUp,
-  Info, Settings, Globe, CreditCard, Scale, Ruler, Box, FileText, AlertTriangle
+  Zap, 
+  MapPin, 
+  Package, 
+  Calendar, 
+  Clock, 
+  Thermometer, 
+  ChevronDown, 
+  ChevronUp,
+  Plus,
+  Minus,
+  AlertTriangle,
+  CheckCircle,
+  Loader,
+  Users,
+  Building2,
+  DollarSign,
+  Calculator,
+  Percent,
+  Search,
+  RefreshCw
 } from 'lucide-react';
-import { RFQRow, ProcessingResult, LineItemData } from '../types';
 import { Project44APIClient, FreshXAPIClient } from '../utils/apiClient';
+import { RFQRow, PricingSettings, QuoteWithPricing } from '../types';
 import { calculatePricingWithCustomerMargins } from '../utils/pricingCalculator';
-import { PricingSettings } from '../types';
-import { ResultsTable } from './ResultsTable';
+import { supabase } from '../utils/supabase';
 
 interface SpotQuoteProps {
   project44Client: Project44APIClient | null;
@@ -18,670 +34,1077 @@ interface SpotQuoteProps {
   selectedCustomer: string;
 }
 
-// Project44 accessorial codes
-const PROJECT44_ACCESSORIALS = [
-  { code: 'LGPU', label: 'Liftgate Pickup' },
-  { code: 'LGDEL', label: 'Liftgate Delivery' },
-  { code: 'INPU', label: 'Inside Pickup' },
-  { code: 'INDEL', label: 'Inside Delivery' },
-  { code: 'RESPU', label: 'Residential Pickup' },
-  { code: 'RESDEL', label: 'Residential Delivery' },
-  { code: 'APPTPU', label: 'Appointment Pickup' },
-  { code: 'APPTDEL', label: 'Appointment Delivery' },
-  { code: 'LTDPU', label: 'Limited Access Pickup' },
-  { code: 'LTDDEL', label: 'Limited Access Delivery' },
-  { code: 'SATPU', label: 'Saturday Pickup' },
-  { code: 'SATDEL', label: 'Saturday Delivery' },
-  { code: 'NOTIFY', label: 'Delivery Notification' },
-  { code: 'SORTPU', label: 'Sort/Segregate Pickup' },
-  { code: 'SORTDEL', label: 'Sort/Segregate Delivery' }
-];
+interface LineItem {
+  id: number;
+  description: string;
+  totalWeight: number;
+  freightClass: string;
+  packageLength: number;
+  packageWidth: number;
+  packageHeight: number;
+  packageType: string;
+  totalPackages: number;
+  stackable: boolean;
+  nmfcItemCode: string;
+  totalValue: number;
+}
+
+interface CustomerMarginSettings {
+  useCustomerMargins: boolean;
+  selectedCustomer: string;
+  marginType: 'percentage' | 'fixed';
+  marginValue: number;
+  minimumProfit: number;
+}
 
 export const SpotQuote: React.FC<SpotQuoteProps> = ({
   project44Client,
   freshxClient,
   selectedCarriers,
   pricingSettings,
-  selectedCustomer
+  selectedCustomer: globalSelectedCustomer
 }) => {
-  const [formData, setFormData] = useState({
-    // Core shipment details
+  // Core form state
+  const [formData, setFormData] = useState<Partial<RFQRow>>({
+    fromDate: new Date().toISOString().split('T')[0],
     fromZip: '',
     toZip: '',
     pallets: 1,
     grossWeight: 1000,
-    fromDate: new Date().toISOString().split('T')[0],
-    isReefer: false,
-    temperature: 'AMBIENT' as const,
-    commodity: 'FOODSTUFFS' as const,
-    freightClass: '70',
     isStackable: false,
-    isFoodGrade: false,
-    
-    // Enhanced shipment details
-    deliveryDate: '',
-    deliveryStartTime: '',
-    deliveryEndTime: '',
-    pickupStartTime: '',
-    pickupEndTime: '',
-    nmfcCode: '',
-    nmfcSubCode: '',
-    commodityDescription: '',
-    commodityType: '',
-    packageType: 'PLT' as const,
-    totalPackages: 0,
-    totalPieces: 0,
-    totalValue: 0,
-    insuranceAmount: 0,
-    harmonizedCode: '',
-    countryOfManufacture: 'US' as const,
-    
-    // Hazmat information
-    hazmat: false,
-    hazmatClass: '',
-    hazmatIdNumber: '',
-    hazmatPackingGroup: 'III' as const,
-    hazmatProperShippingName: '',
-    emergencyContactName: '',
-    emergencyContactPhone: '',
-    emergencyContactCompany: '',
-    
-    // Address details
-    originAddressLines: '',
-    originCity: '',
-    originState: '',
-    originCountry: 'US',
-    destinationAddressLines: '',
-    destinationCity: '',
-    destinationState: '',
-    destinationCountry: 'US',
-    
-    // Contact information
-    pickupContactName: '',
-    pickupContactPhone: '',
-    pickupContactEmail: '',
-    pickupCompanyName: '',
-    deliveryContactName: '',
-    deliveryContactPhone: '',
-    deliveryContactEmail: '',
-    deliveryCompanyName: '',
-    
-    // API configuration
-    preferredCurrency: 'USD' as const,
-    paymentTerms: 'PREPAID' as const,
-    direction: 'SHIPPER' as const,
-    preferredSystemOfMeasurement: 'IMPERIAL' as const,
-    lengthUnit: 'IN' as const,
-    weightUnit: 'LB' as const,
-    allowUnacceptedAccessorials: true,
-    fetchAllGuaranteed: true,
-    fetchAllInsideDelivery: true,
-    fetchAllServiceLevels: true,
-    enableUnitConversion: true,
-    fallBackToDefaultAccountGroup: true,
-    apiTimeout: 30,
-    totalLinearFeet: 0,
-    
-    // Accessorial services
-    accessorials: {} as { [code: string]: boolean }
+    isReefer: false,
+    temperature: 'AMBIENT',
+    freightClass: '70',
+    packageType: 'PLT',
+    lengthUnit: 'IN',
+    weightUnit: 'LB',
+    preferredCurrency: 'USD',
+    paymentTerms: 'PREPAID'
   });
-  
-  const [lineItems, setLineItems] = useState<LineItemData[]>([]);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showLineItems, setShowLineItems] = useState(false);
-  const [showAccessorials, setShowAccessorials] = useState(false);
-  const [showContacts, setShowContacts] = useState(false);
-  const [showHazmat, setShowHazmat] = useState(false);
-  const [showApiConfig, setShowApiConfig] = useState(false);
-  
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [results, setResults] = useState<ProcessingResult[]>([]);
-  const [error, setError] = useState<string>('');
 
-  const handleInputChange = (field: string, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
+  // Customer and margin state
+  const [customers, setCustomers] = useState<string[]>([]);
+  const [filteredCustomers, setFilteredCustomers] = useState<string[]>([]);
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [customerPage, setCustomerPage] = useState(0);
+  const [hasMoreCustomers, setHasMoreCustomers] = useState(true);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
 
-  const handleAccessorialChange = (code: string, checked: boolean) => {
-    setFormData(prev => ({
-      ...prev,
-      accessorials: {
-        ...prev.accessorials,
-        [code]: checked
-      }
-    }));
-  };
+  const [marginSettings, setMarginSettings] = useState<CustomerMarginSettings>({
+    useCustomerMargins: false,
+    selectedCustomer: globalSelectedCustomer || '',
+    marginType: 'percentage',
+    marginValue: 15,
+    minimumProfit: 100
+  });
 
-  const addLineItem = () => {
-    const newItem: LineItemData = {
-      id: lineItems.length + 1,
-      description: '',
-      totalWeight: 0,
+  // Line items state
+  const [lineItems, setLineItems] = useState<LineItem[]>([
+    {
+      id: 1,
+      description: 'Standard Freight',
+      totalWeight: 1000,
       freightClass: '70',
       packageLength: 48,
       packageWidth: 40,
       packageHeight: 48,
       packageType: 'PLT',
       totalPackages: 1,
-      totalPieces: 1,
-      stackable: false
-    };
-    setLineItems([...lineItems, newItem]);
+      stackable: false,
+      nmfcItemCode: '',
+      totalValue: 0
+    }
+  ]);
+
+  // Accessorial state
+  const [accessorials, setAccessorials] = useState<{ [key: string]: boolean }>({
+    LGPU: false,
+    LGDEL: false,
+    INPU: false,
+    INDEL: false,
+    RESPU: false,
+    RESDEL: false,
+    APPTPU: false,
+    APPTDEL: false,
+    LTDPU: false,
+    LTDDEL: false,
+    SATPU: false,
+    SATDEL: false,
+    NOTIFY: false,
+    NBPU: false,
+    NBDEL: false
+  });
+
+  // UI state
+  const [expandedSections, setExpandedSections] = useState<{ [key: string]: boolean }>({
+    basic: true,
+    items: false,
+    accessorials: false,
+    contacts: false,
+    hazmat: false,
+    advanced: false,
+    margins: true
+  });
+
+  // Quote state
+  const [isQuoting, setIsQuoting] = useState(false);
+  const [quotes, setQuotes] = useState<QuoteWithPricing[]>([]);
+  const [error, setError] = useState<string>('');
+  const [routingDecision, setRoutingDecision] = useState<string>('');
+
+  // Load customers on component mount
+  useEffect(() => {
+    loadCustomers(true);
+  }, []);
+
+  // Filter customers based on search term
+  useEffect(() => {
+    if (customerSearchTerm) {
+      const filtered = customers.filter(customer =>
+        customer.toLowerCase().includes(customerSearchTerm.toLowerCase())
+      );
+      setFilteredCustomers(filtered);
+    } else {
+      setFilteredCustomers(customers);
+    }
+  }, [customerSearchTerm, customers]);
+
+  // Update margin settings when global customer changes
+  useEffect(() => {
+    if (globalSelectedCustomer && globalSelectedCustomer !== marginSettings.selectedCustomer) {
+      setMarginSettings(prev => ({
+        ...prev,
+        selectedCustomer: globalSelectedCustomer
+      }));
+    }
+  }, [globalSelectedCustomer]);
+
+  const loadCustomers = async (reset: boolean = false) => {
+    if (loadingCustomers) return;
+    
+    setLoadingCustomers(true);
+    try {
+      const page = reset ? 0 : customerPage;
+      const from = page * 1000;
+      const to = from + 999;
+
+      console.log(`🔍 Loading customers batch ${page + 1} (${from}-${to})`);
+
+      const { data, error } = await supabase
+        .from('CustomerCarriers')
+        .select('InternalName')
+        .not('InternalName', 'is', null)
+        .range(from, to)
+        .order('InternalName');
+
+      if (error) {
+        throw error;
+      }
+
+      const newCustomers = [...new Set(data?.map(d => d.InternalName).filter(Boolean))] as string[];
+      
+      if (reset) {
+        setCustomers(newCustomers);
+        setCustomerPage(0);
+      } else {
+        setCustomers(prev => [...prev, ...newCustomers]);
+      }
+
+      setHasMoreCustomers(data?.length === 1000);
+      setCustomerPage(page + 1);
+
+      console.log(`✅ Loaded ${newCustomers.length} customers (total: ${reset ? newCustomers.length : customers.length + newCustomers.length})`);
+    } catch (err) {
+      console.error('❌ Failed to load customers:', err);
+      setError('Failed to load customers from database');
+    } finally {
+      setLoadingCustomers(false);
+    }
   };
 
-  const removeLineItem = (index: number) => {
-    setLineItems(lineItems.filter((_, i) => i !== index));
+  const loadMoreCustomers = () => {
+    if (hasMoreCustomers && !loadingCustomers) {
+      loadCustomers(false);
+    }
   };
 
-  const updateLineItem = (index: number, field: keyof LineItemData, value: any) => {
-    const updated = [...lineItems];
-    updated[index] = { ...updated[index], [field]: value };
-    setLineItems(updated);
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
   };
 
-  const handleSpotQuote = async () => {
-    if (!formData.fromZip || !formData.toZip) {
-      setError('Please enter both origin and destination ZIP codes');
+  const updateFormData = (field: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const updateMarginSettings = (field: keyof CustomerMarginSettings, value: any) => {
+    setMarginSettings(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const addLineItem = () => {
+    const newId = Math.max(...lineItems.map(item => item.id)) + 1;
+    setLineItems(prev => [...prev, {
+      id: newId,
+      description: `Item ${newId}`,
+      totalWeight: 500,
+      freightClass: '70',
+      packageLength: 48,
+      packageWidth: 40,
+      packageHeight: 48,
+      packageType: 'PLT',
+      totalPackages: 1,
+      stackable: false,
+      nmfcItemCode: '',
+      totalValue: 0
+    }]);
+  };
+
+  const removeLineItem = (id: number) => {
+    if (lineItems.length > 1) {
+      setLineItems(prev => prev.filter(item => item.id !== id));
+    }
+  };
+
+  const updateLineItem = (id: number, field: keyof LineItem, value: any) => {
+    setLineItems(prev => prev.map(item => 
+      item.id === id ? { ...item, [field]: value } : item
+    ));
+  };
+
+  const toggleAccessorial = (code: string) => {
+    setAccessorials(prev => ({
+      ...prev,
+      [code]: !prev[code]
+    }));
+  };
+
+  const calculateTotalWeight = () => {
+    return lineItems.reduce((sum, item) => sum + item.totalWeight, 0);
+  };
+
+  const calculateLinearFeet = () => {
+    return lineItems.reduce((sum, item) => {
+      const itemLinearFeet = (item.packageLength / 12) * item.totalPackages;
+      return sum + itemLinearFeet;
+    }, 0);
+  };
+
+  const determineRoutingDecision = () => {
+    const totalWeight = calculateTotalWeight();
+    const pallets = formData.pallets || 1;
+    
+    if (formData.isReefer) {
+      return 'FreshX Reefer Network';
+    } else if (pallets >= 10 || totalWeight >= 15000) {
+      return 'Project44 Dual Mode (Volume LTL + Standard LTL)';
+    } else {
+      return 'Project44 Standard LTL';
+    }
+  };
+
+  const validateForm = (): string[] => {
+    const errors: string[] = [];
+    
+    if (!formData.fromZip || !/^\d{5}$/.test(formData.fromZip)) {
+      errors.push('Valid origin ZIP code is required');
+    }
+    if (!formData.toZip || !/^\d{5}$/.test(formData.toZip)) {
+      errors.push('Valid destination ZIP code is required');
+    }
+    if (!formData.fromDate) {
+      errors.push('Pickup date is required');
+    }
+    if (!formData.pallets || formData.pallets < 1) {
+      errors.push('At least 1 pallet is required');
+    }
+    
+    const totalWeight = calculateTotalWeight();
+    if (totalWeight !== formData.grossWeight) {
+      errors.push(`Total weight (${formData.grossWeight}) must equal sum of line item weights (${totalWeight})`);
+    }
+    
+    lineItems.forEach((item, index) => {
+      if (!item.description.trim()) {
+        errors.push(`Line item ${index + 1} description is required`);
+      }
+      if (item.totalWeight <= 0) {
+        errors.push(`Line item ${index + 1} weight must be greater than 0`);
+      }
+      if (!item.freightClass) {
+        errors.push(`Line item ${index + 1} freight class is required`);
+      }
+    });
+    
+    return errors;
+  };
+
+  const calculateCustomerPrice = (carrierRate: number): { customerPrice: number; profit: number } => {
+    let customerPrice: number;
+    let profit: number;
+
+    if (marginSettings.marginType === 'percentage') {
+      // Percentage margin: price = cost / (1 - margin%)
+      customerPrice = carrierRate / (1 - (marginSettings.marginValue / 100));
+      profit = customerPrice - carrierRate;
+    } else {
+      // Fixed margin: price = cost + fixed amount
+      customerPrice = carrierRate + marginSettings.marginValue;
+      profit = marginSettings.marginValue;
+    }
+
+    // Enforce minimum profit
+    if (profit < marginSettings.minimumProfit) {
+      profit = marginSettings.minimumProfit;
+      customerPrice = carrierRate + marginSettings.minimumProfit;
+    }
+
+    return { customerPrice, profit };
+  };
+
+  const getSpotQuote = async () => {
+    const validationErrors = validateForm();
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(', '));
       return;
     }
 
-    if (!project44Client && !freshxClient) {
-      setError('No API clients available. Please configure your API keys.');
-      return;
-    }
-
-    setIsProcessing(true);
+    setIsQuoting(true);
     setError('');
-    setResults([]);
+    setQuotes([]);
 
     try {
-      // Create comprehensive RFQ data from form
+      // Build RFQ data
+      const totalWeight = calculateTotalWeight();
+      const selectedAccessorials = Object.entries(accessorials)
+        .filter(([_, selected]) => selected)
+        .map(([code, _]) => code);
+
       const rfqData: RFQRow = {
-        fromDate: formData.fromDate,
-        fromZip: formData.fromZip,
-        toZip: formData.toZip,
-        pallets: formData.pallets,
-        grossWeight: formData.grossWeight,
-        isStackable: formData.isStackable,
-        accessorial: Object.entries(formData.accessorials)
-          .filter(([_, checked]) => checked)
-          .map(([code, _]) => code),
-        isReefer: formData.isReefer,
-        temperature: formData.temperature,
-        commodity: formData.commodity,
-        isFoodGrade: formData.isFoodGrade,
-        freightClass: formData.freightClass,
-        
-        // Enhanced fields
-        deliveryDate: formData.deliveryDate || undefined,
-        deliveryStartTime: formData.deliveryStartTime || undefined,
-        deliveryEndTime: formData.deliveryEndTime || undefined,
-        pickupStartTime: formData.pickupStartTime || undefined,
-        pickupEndTime: formData.pickupEndTime || undefined,
-        nmfcCode: formData.nmfcCode || undefined,
-        nmfcSubCode: formData.nmfcSubCode || undefined,
-        commodityDescription: formData.commodityDescription || undefined,
-        commodityType: formData.commodityType || undefined,
-        packageType: formData.packageType,
-        totalPackages: formData.totalPackages || undefined,
-        totalPieces: formData.totalPieces || undefined,
-        totalValue: formData.totalValue || undefined,
-        insuranceAmount: formData.insuranceAmount || undefined,
-        harmonizedCode: formData.harmonizedCode || undefined,
-        countryOfManufacture: formData.countryOfManufacture,
-        
-        // Hazmat
-        hazmat: formData.hazmat,
-        hazmatClass: formData.hazmatClass || undefined,
-        hazmatIdNumber: formData.hazmatIdNumber || undefined,
-        hazmatPackingGroup: formData.hazmatPackingGroup,
-        hazmatProperShippingName: formData.hazmatProperShippingName || undefined,
-        emergencyContactName: formData.emergencyContactName || undefined,
-        emergencyContactPhone: formData.emergencyContactPhone || undefined,
-        emergencyContactCompany: formData.emergencyContactCompany || undefined,
-        
-        // Addresses
-        originAddressLines: formData.originAddressLines ? [formData.originAddressLines] : undefined,
-        originCity: formData.originCity || undefined,
-        originState: formData.originState || undefined,
-        originCountry: formData.originCountry || undefined,
-        destinationAddressLines: formData.destinationAddressLines ? [formData.destinationAddressLines] : undefined,
-        destinationCity: formData.destinationCity || undefined,
-        destinationState: formData.destinationState || undefined,
-        destinationCountry: formData.destinationCountry || undefined,
-        
-        // Contacts
-        pickupContactName: formData.pickupContactName || undefined,
-        pickupContactPhone: formData.pickupContactPhone || undefined,
-        pickupContactEmail: formData.pickupContactEmail || undefined,
-        pickupCompanyName: formData.pickupCompanyName || undefined,
-        deliveryContactName: formData.deliveryContactName || undefined,
-        deliveryContactPhone: formData.deliveryContactPhone || undefined,
-        deliveryContactEmail: formData.deliveryContactEmail || undefined,
-        deliveryCompanyName: formData.deliveryCompanyName || undefined,
-        
-        // API config
-        preferredCurrency: formData.preferredCurrency,
-        paymentTerms: formData.paymentTerms,
-        direction: formData.direction,
-        preferredSystemOfMeasurement: formData.preferredSystemOfMeasurement,
-        lengthUnit: formData.lengthUnit,
-        weightUnit: formData.weightUnit,
-        allowUnacceptedAccessorials: formData.allowUnacceptedAccessorials,
-        fetchAllGuaranteed: formData.fetchAllGuaranteed,
-        fetchAllInsideDelivery: formData.fetchAllInsideDelivery,
-        fetchAllServiceLevels: formData.fetchAllServiceLevels,
-        enableUnitConversion: formData.enableUnitConversion,
-        fallBackToDefaultAccountGroup: formData.fallBackToDefaultAccountGroup,
-        apiTimeout: formData.apiTimeout,
-        totalLinearFeet: formData.totalLinearFeet || undefined,
-        
-        // Line items
-        lineItems: lineItems.length > 0 ? lineItems : undefined
-      };
+        ...formData,
+        grossWeight: totalWeight,
+        accessorial: selectedAccessorials,
+        totalLinearFeet: Math.ceil(calculateLinearFeet()),
+        lineItems: lineItems.map(item => ({
+          id: item.id,
+          description: item.description,
+          totalWeight: item.totalWeight,
+          freightClass: item.freightClass,
+          packageLength: item.packageLength,
+          packageWidth: item.packageWidth,
+          packageHeight: item.packageHeight,
+          packageType: item.packageType as any,
+          totalPackages: item.totalPackages,
+          stackable: item.stackable,
+          nmfcItemCode: item.nmfcItemCode,
+          totalValue: item.totalValue
+        }))
+      } as RFQRow;
 
-      const result: ProcessingResult = {
-        rowIndex: 0,
-        originalData: rfqData,
-        quotes: [],
-        status: 'processing'
-      };
+      const decision = determineRoutingDecision();
+      setRoutingDecision(decision);
 
-      // Determine routing based on isReefer field
-      if (formData.isReefer && freshxClient) {
-        console.log('🌡️ Getting FreshX spot quote...');
-        const quotes = await freshxClient.getQuotes(rfqData);
-        
-        // Apply pricing to quotes
-        const quotesWithPricing = await Promise.all(
-          quotes.map(quote => 
-            calculatePricingWithCustomerMargins(quote, pricingSettings, selectedCustomer)
-          )
-        );
-        
-        result.quotes = quotesWithPricing;
-        result.status = 'success';
-      } else if (!formData.isReefer && project44Client) {
-        console.log('🚛 Getting Project44 spot quote...');
-        
-        const selectedCarrierIds = Object.entries(selectedCarriers)
-          .filter(([_, selected]) => selected)
-          .map(([carrierId, _]) => carrierId);
+      console.log('🎯 Spot Quote Request:', {
+        decision,
+        weight: totalWeight,
+        pallets: rfqData.pallets,
+        isReefer: rfqData.isReefer,
+        lineItems: rfqData.lineItems?.length
+      });
 
-        // Determine if this should be Volume LTL
-        const isVolumeMode = formData.pallets >= 10 || formData.grossWeight >= 15000;
-        
-        const quotes = await project44Client.getQuotes(
-          rfqData, 
-          selectedCarrierIds, 
-          isVolumeMode, 
-          false, 
-          false
-        );
-        
-        // Apply pricing to quotes
-        const quotesWithPricing = await Promise.all(
-          quotes.map(quote => 
-            calculatePricingWithCustomerMargins(quote, pricingSettings, selectedCustomer)
-          )
-        );
-        
-        result.quotes = quotesWithPricing;
-        result.status = 'success';
-      } else {
-        throw new Error('No suitable API client available for this quote type');
+      let allQuotes: any[] = [];
+
+      // Get selected carrier IDs
+      const selectedCarrierIds = Object.entries(selectedCarriers)
+        .filter(([_, selected]) => selected)
+        .map(([carrierId, _]) => carrierId);
+
+      if (rfqData.isReefer && freshxClient) {
+        // FreshX reefer quotes
+        console.log('🌡️ Getting FreshX reefer quotes...');
+        allQuotes = await freshxClient.getQuotes(rfqData);
+      } else if (project44Client) {
+        if (decision.includes('Dual Mode')) {
+          // Get both Volume LTL and Standard LTL
+          console.log('📦 Getting dual mode quotes...');
+          const [volumeQuotes, standardQuotes] = await Promise.all([
+            project44Client.getQuotes(rfqData, selectedCarrierIds, true, false, false),
+            project44Client.getQuotes(rfqData, selectedCarrierIds, false, false, false)
+          ]);
+          
+          const taggedVolumeQuotes = volumeQuotes.map(quote => ({
+            ...quote,
+            quoteMode: 'volume',
+            quoteModeLabel: 'Volume LTL'
+          }));
+          
+          const taggedStandardQuotes = standardQuotes.map(quote => ({
+            ...quote,
+            quoteMode: 'standard',
+            quoteModeLabel: 'Standard LTL'
+          }));
+          
+          allQuotes = [...taggedVolumeQuotes, ...taggedStandardQuotes];
+        } else {
+          // Standard LTL only
+          console.log('🚛 Getting standard LTL quotes...');
+          allQuotes = await project44Client.getQuotes(rfqData, selectedCarrierIds, false, false, false);
+        }
       }
 
-      setResults([result]);
-      console.log(`✅ Spot quote completed: ${result.quotes.length} quotes received`);
+      if (allQuotes.length === 0) {
+        setError('No quotes received. Please check your carrier selection and try again.');
+        return;
+      }
+
+      // Apply pricing with custom margin settings
+      const quotesWithPricing = await Promise.all(
+        allQuotes.map(async (quote) => {
+          if (marginSettings.useCustomerMargins && marginSettings.selectedCustomer) {
+            // Use customer-specific margins from database
+            return await calculatePricingWithCustomerMargins(
+              quote, 
+              {
+                ...pricingSettings,
+                usesCustomerMargins: true,
+                fallbackMarkupPercentage: marginSettings.marginValue
+              },
+              marginSettings.selectedCustomer
+            );
+          } else {
+            // Use manual margin settings
+            const carrierRate = quote.rateQuoteDetail?.total || 
+                              (quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts);
+            
+            const { customerPrice, profit } = calculateCustomerPrice(carrierRate);
+            
+            return {
+              ...quote,
+              carrierTotalRate: carrierRate,
+              customerPrice,
+              profit,
+              markupApplied: profit,
+              isCustomPrice: false,
+              appliedMarginType: 'manual' as any,
+              appliedMarginPercentage: marginSettings.marginType === 'percentage' ? 
+                marginSettings.marginValue : 
+                (profit / carrierRate) * 100,
+              chargeBreakdown: {
+                baseCharges: [],
+                fuelCharges: [],
+                accessorialCharges: [],
+                discountCharges: [],
+                premiumCharges: [],
+                otherCharges: quote.rateQuoteDetail?.charges || []
+              }
+            } as QuoteWithPricing;
+          }
+        })
+      );
+
+      // Sort by customer price
+      quotesWithPricing.sort((a, b) => a.customerPrice - b.customerPrice);
+      
+      setQuotes(quotesWithPricing);
+      console.log(`✅ Received ${quotesWithPricing.length} quotes with pricing applied`);
 
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to get spot quote';
-      setError(errorMessage);
       console.error('❌ Spot quote failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to get quotes');
     } finally {
-      setIsProcessing(false);
+      setIsQuoting(false);
     }
   };
 
-  const handlePriceUpdate = (resultIndex: number, quoteId: number, newPrice: number) => {
-    setResults(prevResults => {
-      const newResults = [...prevResults];
-      const result = newResults[resultIndex];
-      
-      if (result && result.quotes) {
-        const updatedQuotes = result.quotes.map(quote => {
-          if (quote.quoteId === quoteId) {
-            return calculatePricingWithCustomerMargins(quote, pricingSettings, selectedCustomer, newPrice);
-          }
-          return quote;
-        });
-        
-        newResults[resultIndex] = {
-          ...result,
-          quotes: updatedQuotes
-        };
-      }
-      
-      return newResults;
-    });
+  const formatCurrency = (amount: number): string => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(amount);
   };
 
-  const exportResults = () => {
-    console.log('📊 Exporting spot quote results...');
-  };
+  const renderSection = (title: string, icon: React.ReactNode, sectionKey: string, children: React.ReactNode) => (
+    <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+      <button
+        onClick={() => toggleSection(sectionKey)}
+        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+      >
+        <div className="flex items-center space-x-3">
+          <div className="text-blue-600">{icon}</div>
+          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+        </div>
+        {expandedSections[sectionKey] ? (
+          <ChevronUp className="h-5 w-5 text-gray-500" />
+        ) : (
+          <ChevronDown className="h-5 w-5 text-gray-500" />
+        )}
+      </button>
+      {expandedSections[sectionKey] && (
+        <div className="px-6 py-4 border-t border-gray-200">
+          {children}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center space-x-3">
-          <div className="bg-orange-600 p-2 rounded-lg">
+          <div className="bg-gradient-to-r from-orange-500 to-pink-500 p-3 rounded-lg">
             <Zap className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Comprehensive Spot Quote</h2>
-            <p className="text-sm text-gray-600">
-              Full-featured quote form with all RFQ template options and smart routing
-            </p>
+            <h1 className="text-xl font-semibold text-gray-900">Spot Quote</h1>
+            <p className="text-sm text-gray-600">Get instant freight quotes with comprehensive options</p>
           </div>
         </div>
       </div>
 
-      {/* Main Quote Form */}
-      <div className="bg-white rounded-lg shadow-md overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Shipment Details</h3>
-        </div>
-        
-        <div className="p-6 space-y-6">
-          {/* Core Shipment Information */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <MapPin className="inline h-4 w-4 mr-1" />
-                Origin ZIP *
-              </label>
-              <input
-                type="text"
-                value={formData.fromZip}
-                onChange={(e) => handleInputChange('fromZip', e.target.value)}
-                placeholder="60607"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                maxLength={5}
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <MapPin className="inline h-4 w-4 mr-1" />
-                Destination ZIP *
-              </label>
-              <input
-                type="text"
-                value={formData.toZip}
-                onChange={(e) => handleInputChange('toZip', e.target.value)}
-                placeholder="30033"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                maxLength={5}
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Calendar className="inline h-4 w-4 mr-1" />
-                Pickup Date *
-              </label>
-              <input
-                type="date"
-                value={formData.fromDate}
-                onChange={(e) => handleInputChange('fromDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Package className="inline h-4 w-4 mr-1" />
-                Pallets *
-              </label>
-              <input
-                type="number"
-                value={formData.pallets}
-                onChange={(e) => handleInputChange('pallets', parseInt(e.target.value) || 1)}
-                min="1"
-                max="100"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Scale className="inline h-4 w-4 mr-1" />
-                Weight (lbs) *
-              </label>
-              <input
-                type="number"
-                value={formData.grossWeight}
-                onChange={(e) => handleInputChange('grossWeight', parseInt(e.target.value) || 1000)}
-                min="1"
-                max="100000"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Freight Class
-              </label>
-              <select
-                value={formData.freightClass}
-                onChange={(e) => handleInputChange('freightClass', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+      {/* Customer Selection & Margin Settings */}
+      {renderSection(
+        'Customer & Margin Settings',
+        <Building2 className="h-5 w-5" />,
+        'margins',
+        <div className="space-y-6">
+          {/* Customer Selection */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Customer Selection
+            </label>
+            <div className="relative">
+              <button
+                onClick={() => setShowCustomerDropdown(!showCustomerDropdown)}
+                className="w-full px-4 py-3 text-left border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white hover:bg-gray-50 transition-colors"
               >
-                <option value="50">50</option>
-                <option value="55">55</option>
-                <option value="60">60</option>
-                <option value="65">65</option>
-                <option value="70">70</option>
-                <option value="77.5">77.5</option>
-                <option value="85">85</option>
-                <option value="92.5">92.5</option>
-                <option value="100">100</option>
-                <option value="110">110</option>
-                <option value="125">125</option>
-                <option value="150">150</option>
-                <option value="175">175</option>
-                <option value="200">200</option>
-                <option value="250">250</option>
-                <option value="300">300</option>
-                <option value="400">400</option>
-                <option value="500">500</option>
-              </select>
-            </div>
-          </div>
+                <div className="flex items-center justify-between">
+                  <span className={marginSettings.selectedCustomer ? 'text-gray-900' : 'text-gray-500'}>
+                    {marginSettings.selectedCustomer || 'Select a customer...'}
+                  </span>
+                  <div className="flex items-center space-x-2">
+                    {marginSettings.selectedCustomer && (
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                    )}
+                    <Users className="h-4 w-4 text-gray-400" />
+                  </div>
+                </div>
+              </button>
 
-          {/* Smart Routing Section */}
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <h4 className="text-sm font-semibold text-blue-900 mb-3 flex items-center">
-              <Zap className="h-4 w-4 mr-2" />
-              Smart Routing Control
-            </h4>
-            
-            <div className="space-y-3">
-              <div className="flex items-center space-x-3">
-                <input
-                  type="checkbox"
-                  id="isReefer"
-                  checked={formData.isReefer}
-                  onChange={(e) => handleInputChange('isReefer', e.target.checked)}
-                  className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                />
-                <label htmlFor="isReefer" className="text-sm font-medium text-blue-900">
-                  Route to FreshX Reefer Network (isReefer = TRUE)
-                </label>
-              </div>
-
-              {formData.isReefer && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
-                  <div>
-                    <label className="block text-sm font-medium text-blue-700 mb-1">
-                      <Thermometer className="inline h-4 w-4 mr-1" />
-                      Temperature
-                    </label>
-                    <select
-                      value={formData.temperature}
-                      onChange={(e) => handleInputChange('temperature', e.target.value)}
-                      className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                    >
-                      <option value="AMBIENT">Ambient</option>
-                      <option value="CHILLED">Chilled</option>
-                      <option value="FROZEN">Frozen</option>
-                    </select>
+              {showCustomerDropdown && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-64 overflow-hidden">
+                  {/* Search Input */}
+                  <div className="p-3 border-b border-gray-200">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={customerSearchTerm}
+                        onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                        placeholder="Search customers..."
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        autoFocus
+                      />
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-blue-700 mb-1">
-                      Commodity
-                    </label>
-                    <select
-                      value={formData.commodity}
-                      onChange={(e) => handleInputChange('commodity', e.target.value)}
-                      className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                    >
-                      <option value="FOODSTUFFS">Foodstuffs</option>
-                      <option value="FRESH_SEAFOOD">Fresh Seafood</option>
-                      <option value="FROZEN_SEAFOOD">Frozen Seafood</option>
-                      <option value="ICE_CREAM">Ice Cream</option>
-                      <option value="PRODUCE">Produce</option>
-                      <option value="ALCOHOL">Alcohol</option>
-                    </select>
-                  </div>
+                  {/* Customer List */}
+                  <div className="max-h-48 overflow-y-auto">
+                    {loadingCustomers && customers.length === 0 ? (
+                      <div className="p-4 text-center text-gray-500">
+                        <Loader className="h-4 w-4 animate-spin mx-auto mb-2" />
+                        Loading customers...
+                      </div>
+                    ) : filteredCustomers.length === 0 ? (
+                      <div className="p-4 text-center text-gray-500">
+                        {customerSearchTerm ? 'No customers found' : 'No customers available'}
+                      </div>
+                    ) : (
+                      <>
+                        {/* Clear Selection Option */}
+                        <button
+                          onClick={() => {
+                            updateMarginSettings('selectedCustomer', '');
+                            setShowCustomerDropdown(false);
+                            setCustomerSearchTerm('');
+                          }}
+                          className="w-full px-4 py-2 text-left hover:bg-gray-100 transition-colors border-b border-gray-100"
+                        >
+                          <span className="text-gray-500 italic">No customer selected</span>
+                        </button>
+                        
+                        {/* Customer Options */}
+                        {filteredCustomers.map((customer) => (
+                          <button
+                            key={customer}
+                            onClick={() => {
+                              updateMarginSettings('selectedCustomer', customer);
+                              setShowCustomerDropdown(false);
+                              setCustomerSearchTerm('');
+                            }}
+                            className={`w-full px-4 py-2 text-left hover:bg-blue-50 transition-colors ${
+                              marginSettings.selectedCustomer === customer ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span>{customer}</span>
+                              {marginSettings.selectedCustomer === customer && (
+                                <CheckCircle className="h-4 w-4 text-blue-600" />
+                              )}
+                            </div>
+                          </button>
+                        ))}
 
-                  <div className="flex items-center space-x-3 pt-6">
-                    <input
-                      type="checkbox"
-                      id="isFoodGrade"
-                      checked={formData.isFoodGrade}
-                      onChange={(e) => handleInputChange('isFoodGrade', e.target.checked)}
-                      className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                    />
-                    <label htmlFor="isFoodGrade" className="text-sm font-medium text-blue-900">
-                      Food Grade
-                    </label>
+                        {/* Load More Button */}
+                        {hasMoreCustomers && (
+                          <button
+                            onClick={loadMoreCustomers}
+                            disabled={loadingCustomers}
+                            className="w-full px-4 py-2 text-center text-blue-600 hover:bg-blue-50 transition-colors border-t border-gray-100"
+                          >
+                            {loadingCustomers ? (
+                              <div className="flex items-center justify-center space-x-2">
+                                <Loader className="h-4 w-4 animate-spin" />
+                                <span>Loading more...</span>
+                              </div>
+                            ) : (
+                              `Load more customers (${customers.length} loaded)`
+                            )}
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
               )}
-
-              <div className="flex items-center space-x-6">
-                <div className="flex items-center space-x-3">
-                  <input
-                    type="checkbox"
-                    id="isStackable"
-                    checked={formData.isStackable}
-                    onChange={(e) => handleInputChange('isStackable', e.target.checked)}
-                    className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                  />
-                  <label htmlFor="isStackable" className="text-sm font-medium text-blue-900">
-                    Stackable
-                  </label>
-                </div>
-              </div>
-
-              <div className="mt-3 p-3 bg-white border border-blue-200 rounded-md">
-                <div className="text-sm text-blue-800">
-                  <strong>Routing Decision:</strong>
-                  {formData.isReefer ? (
-                    <span className="ml-2 text-green-600">
-                      FreshX Reefer Network ({formData.temperature})
-                    </span>
-                  ) : (
-                    <span className="ml-2 text-blue-600">
-                      Project44 {formData.pallets >= 10 || formData.grossWeight >= 15000 ? 'Volume LTL' : 'Standard LTL'}
-                    </span>
-                  )}
-                </div>
-              </div>
             </div>
           </div>
 
-          {/* Enhanced Shipment Details */}
+          {/* Margin Type Selection */}
           <div>
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex items-center space-x-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Margin Application Method
+            </label>
+            <div className="flex space-x-4">
+              <button
+                onClick={() => updateMarginSettings('useCustomerMargins', false)}
+                className={`flex items-center space-x-2 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+                  !marginSettings.useCustomerMargins
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <Calculator className="h-5 w-5" />
+                <span>Manual Margin</span>
+              </button>
+              <button
+                onClick={() => updateMarginSettings('useCustomerMargins', true)}
+                className={`flex items-center space-x-2 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+                  marginSettings.useCustomerMargins
+                    ? 'bg-green-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <Users className="h-5 w-5" />
+                <span>Customer Database Margins</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Manual Margin Settings */}
+          {!marginSettings.useCustomerMargins && (
+            <div className="space-y-4">
+              {/* Margin Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Margin Type
+                </label>
+                <div className="flex space-x-4">
+                  <button
+                    onClick={() => updateMarginSettings('marginType', 'percentage')}
+                    className={`flex items-center space-x-2 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+                      marginSettings.marginType === 'percentage'
+                        ? 'bg-green-600 text-white shadow-md'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    <Percent className="h-5 w-5" />
+                    <span>Percentage</span>
+                  </button>
+                  <button
+                    onClick={() => updateMarginSettings('marginType', 'fixed')}
+                    className={`flex items-center space-x-2 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
+                      marginSettings.marginType === 'fixed'
+                        ? 'bg-green-600 text-white shadow-md'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    <DollarSign className="h-5 w-5" />
+                    <span>Fixed Amount</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Margin Value */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {marginSettings.marginType === 'percentage' ? 'Margin Percentage' : 'Fixed Margin Amount'}
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    step={marginSettings.marginType === 'percentage' ? '0.1' : '1'}
+                    value={marginSettings.marginValue}
+                    onChange={(e) => updateMarginSettings('marginValue', parseFloat(e.target.value) || 0)}
+                    className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    placeholder={marginSettings.marginType === 'percentage' ? '15.0' : '500'}
+                  />
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500">
+                    {marginSettings.marginType === 'percentage' ? '%' : '$'}
+                  </div>
+                </div>
+                <p className="mt-1 text-sm text-gray-500">
+                  {marginSettings.marginType === 'percentage' 
+                    ? 'Customer price = Carrier cost ÷ (1 - margin%)'
+                    : 'Customer price = Carrier cost + fixed amount'
+                  }
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Minimum Profit */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Minimum Profit per Shipment
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={marginSettings.minimumProfit}
+                onChange={(e) => updateMarginSettings('minimumProfit', parseFloat(e.target.value) || 0)}
+                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                placeholder="100"
+              />
+              <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500">
+                $
+              </div>
+            </div>
+            <p className="mt-1 text-sm text-gray-500">
+              Minimum profit margin that must be maintained on each shipment
+            </p>
+          </div>
+
+          {/* Example Calculation */}
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Example Calculation</h4>
+            <div className="text-sm text-gray-600 space-y-1">
+              <div>Carrier Rate: $1,000</div>
+              {marginSettings.useCustomerMargins ? (
+                <>
+                  <div>Customer: {marginSettings.selectedCustomer || 'No customer selected'}</div>
+                  <div>Method: Database lookup with fallback</div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    {marginSettings.marginType === 'percentage' 
+                      ? `Margin (${marginSettings.marginValue}%): $${(1000 / (1 - marginSettings.marginValue / 100) - 1000).toFixed(0)}`
+                      : `Fixed Margin: $${marginSettings.marginValue}`
+                    }
+                  </div>
+                  <div className="border-t pt-1 font-medium">
+                    Customer Price: $
+                    {marginSettings.marginType === 'percentage' 
+                      ? Math.max(1000 / (1 - marginSettings.marginValue / 100), 1000 + marginSettings.minimumProfit).toFixed(0)
+                      : Math.max(1000 + marginSettings.marginValue, 1000 + marginSettings.minimumProfit).toFixed(0)
+                    }
+                  </div>
+                  <div className="text-green-600">
+                    Profit: $
+                    {marginSettings.marginType === 'percentage' 
+                      ? Math.max((1000 / (1 - marginSettings.marginValue / 100) - 1000), marginSettings.minimumProfit).toFixed(0)
+                      : Math.max(marginSettings.marginValue, marginSettings.minimumProfit).toFixed(0)
+                    }
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Basic Shipment Information */}
+      {renderSection(
+        'Basic Shipment Information',
+        <MapPin className="h-5 w-5" />,
+        'basic',
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Origin ZIP *</label>
+            <input
+              type="text"
+              value={formData.fromZip || ''}
+              onChange={(e) => updateFormData('fromZip', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              placeholder="60607"
+              maxLength={5}
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Destination ZIP *</label>
+            <input
+              type="text"
+              value={formData.toZip || ''}
+              onChange={(e) => updateFormData('toZip', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              placeholder="30033"
+              maxLength={5}
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Pickup Date *</label>
+            <input
+              type="date"
+              value={formData.fromDate || ''}
+              onChange={(e) => updateFormData('fromDate', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Pallets *</label>
+            <input
+              type="number"
+              min="1"
+              value={formData.pallets || ''}
+              onChange={(e) => updateFormData('pallets', parseInt(e.target.value) || 1)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Total Weight (lbs) *</label>
+            <input
+              type="number"
+              min="1"
+              value={formData.grossWeight || ''}
+              onChange={(e) => updateFormData('grossWeight', parseInt(e.target.value) || 1000)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Current line items total: {calculateTotalWeight()} lbs
+            </p>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Smart Routing</label>
+            <div className="flex space-x-4">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="isReefer"
+                  checked={!formData.isReefer}
+                  onChange={() => updateFormData('isReefer', false)}
+                  className="mr-2"
+                />
+                <span className="text-sm">Project44</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="isReefer"
+                  checked={formData.isReefer}
+                  onChange={() => updateFormData('isReefer', true)}
+                  className="mr-2"
+                />
+                <span className="text-sm">FreshX Reefer</span>
+              </label>
+            </div>
+          </div>
+          
+          {formData.isReefer && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
+              <select
+                value={formData.temperature || 'AMBIENT'}
+                onChange={(e) => updateFormData('temperature', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="AMBIENT">Ambient</option>
+                <option value="CHILLED">Chilled</option>
+                <option value="FROZEN">Frozen</option>
+              </select>
+            </div>
+          )}
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Freight Class</label>
+            <select
+              value={formData.freightClass || '70'}
+              onChange={(e) => updateFormData('freightClass', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
             >
-              {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              <span>Enhanced Shipment Details</span>
-            </button>
+              <option value="50">50</option>
+              <option value="55">55</option>
+              <option value="60">60</option>
+              <option value="65">65</option>
+              <option value="70">70</option>
+              <option value="77.5">77.5</option>
+              <option value="85">85</option>
+              <option value="92.5">92.5</option>
+              <option value="100">100</option>
+              <option value="110">110</option>
+              <option value="125">125</option>
+              <option value="150">150</option>
+              <option value="175">175</option>
+              <option value="200">200</option>
+              <option value="250">250</option>
+              <option value="300">300</option>
+              <option value="400">400</option>
+              <option value="500">500</option>
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Stackable</label>
+            <select
+              value={formData.isStackable ? 'true' : 'false'}
+              onChange={(e) => updateFormData('isStackable', e.target.value === 'true')}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="false">No</option>
+              <option value="true">Yes</option>
+            </select>
+          </div>
+        </div>
+      )}
 
-            {showAdvanced && (
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Delivery Date
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.deliveryDate}
-                    onChange={(e) => handleInputChange('deliveryDate', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Pickup Start Time
-                  </label>
-                  <input
-                    type="time"
-                    value={formData.pickupStartTime}
-                    onChange={(e) => handleInputChange('pickupStartTime', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Pickup End Time
-                  </label>
-                  <input
-                    type="time"
-                    value={formData.pickupEndTime}
-                    onChange={(e) => handleInputChange('pickupEndTime', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    NMFC Code
-                  </label>
+      {/* Line Items */}
+      {renderSection(
+        'Line Items',
+        <Package className="h-5 w-5" />,
+        'items',
+        <div className="space-y-4">
+          {lineItems.map((item, index) => (
+            <div key={item.id} className="border border-gray-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-md font-medium text-gray-900">Item {index + 1}</h4>
+                {lineItems.length > 1 && (
+                  <button
+                    onClick={() => removeLineItem(item.id)}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="lg:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
                   <input
                     type="text"
-                    value={formData.nmfcCode}
-                    onChange={(e) => handleInputChange('nmfcCode', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                    value={item.description}
+                    onChange={(e) => updateLineItem(item.id, 'description', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                    placeholder="Item description"
                   />
                 </div>
-
+                
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Package Type
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Weight (lbs) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={item.totalWeight}
+                    onChange={(e) => updateLineItem(item.id, 'totalWeight', parseInt(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Freight Class *</label>
                   <select
-                    value={formData.packageType}
-                    onChange={(e) => handleInputChange('packageType', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                    value={item.freightClass}
+                    onChange={(e) => updateLineItem(item.id, 'freightClass', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="50">50</option>
+                    <option value="55">55</option>
+                    <option value="60">60</option>
+                    <option value="65">65</option>
+                    <option value="70">70</option>
+                    <option value="77.5">77.5</option>
+                    <option value="85">85</option>
+                    <option value="92.5">92.5</option>
+                    <option value="100">100</option>
+                    <option value="110">110</option>
+                    <option value="125">125</option>
+                    <option value="150">150</option>
+                    <option value="175">175</option>
+                    <option value="200">200</option>
+                    <option value="250">250</option>
+                    <option value="300">300</option>
+                    <option value="400">400</option>
+                    <option value="500">500</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Length (in) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={item.packageLength}
+                    onChange={(e) => updateLineItem(item.id, 'packageLength', parseInt(e.target.value) || 48)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Width (in) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={item.packageWidth}
+                    onChange={(e) => updateLineItem(item.id, 'packageWidth', parseInt(e.target.value) || 40)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Height (in) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={item.packageHeight}
+                    onChange={(e) => updateLineItem(item.id, 'packageHeight', parseInt(e.target.value) || 48)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Package Type</label>
+                  <select
+                    value={item.packageType}
+                    onChange={(e) => updateLineItem(item.id, 'packageType', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="PLT">Pallet</option>
                     <option value="BOX">Box</option>
@@ -692,509 +1115,170 @@ export const SpotQuote: React.FC<SpotQuoteProps> = ({
                     <option value="PIECES">Pieces</option>
                   </select>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Total Value ($)
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.totalValue}
-                    onChange={(e) => handleInputChange('totalValue', parseFloat(e.target.value) || 0)}
-                    min="0"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Commodity Description
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.commodityDescription}
-                    onChange={(e) => handleInputChange('commodityDescription', e.target.value)}
-                    placeholder="General freight"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Total Packages
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.totalPackages}
-                    onChange={(e) => handleInputChange('totalPackages', parseInt(e.target.value) || 0)}
-                    min="0"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Linear Feet
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.totalLinearFeet}
-                    onChange={(e) => handleInputChange('totalLinearFeet', parseInt(e.target.value) || 0)}
-                    min="0"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Line Items Section */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowLineItems(!showLineItems)}
-              className="flex items-center space-x-2 text-sm font-medium text-gray-700 hover:text-gray-900"
-            >
-              {showLineItems ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              <Box className="h-4 w-4" />
-              <span>Line Items ({lineItems.length})</span>
-            </button>
-
-            {showLineItems && (
-              <div className="mt-4 space-y-4">
-                {lineItems.map((item, index) => (
-                  <div key={index} className="p-4 border border-gray-200 rounded-lg">
-                    <div className="flex items-center justify-between mb-3">
-                      <h5 className="font-medium text-gray-900">Item {index + 1}</h5>
-                      <button
-                        type="button"
-                        onClick={() => removeLineItem(index)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Minus className="h-4 w-4" />
-                      </button>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
-                        <input
-                          type="text"
-                          value={item.description}
-                          onChange={(e) => updateLineItem(index, 'description', e.target.value)}
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-orange-500"
-                        />
-                      </div>
-                      
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Weight (lbs)</label>
-                        <input
-                          type="number"
-                          value={item.totalWeight}
-                          onChange={(e) => updateLineItem(index, 'totalWeight', parseFloat(e.target.value) || 0)}
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-orange-500"
-                        />
-                      </div>
-                      
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Freight Class</label>
-                        <select
-                          value={item.freightClass}
-                          onChange={(e) => updateLineItem(index, 'freightClass', e.target.value)}
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-orange-500"
-                        >
-                          <option value="50">50</option>
-                          <option value="70">70</option>
-                          <option value="85">85</option>
-                          <option value="92.5">92.5</option>
-                          <option value="100">100</option>
-                          <option value="125">125</option>
-                          <option value="150">150</option>
-                        </select>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Packages</label>
-                        <input
-                          type="number"
-                          value={item.totalPackages}
-                          onChange={(e) => updateLineItem(index, 'totalPackages', parseInt(e.target.value) || 1)}
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-orange-500"
-                        />
-                      </div>
-                      
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Length (in)</label>
-                        <input
-                          type="number"
-                          value={item.packageLength}
-                          onChange={(e) => updateLineItem(index, 'packageLength', parseFloat(e.target.value) || 48)}
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-orange-500"
-                        />
-                      </div>
-                      
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Width (in)</label>
-                        <input
-                          type="number"
-                          value={item.packageWidth}
-                          onChange={(e) => updateLineItem(index, 'packageWidth', parseFloat(e.target.value) || 40)}
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-orange-500"
-                        />
-                      </div>
-                      
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Height (in)</label>
-                        <input
-                          type="number"
-                          value={item.packageHeight}
-                          onChange={(e) => updateLineItem(index, 'packageHeight', parseFloat(e.target.value) || 48)}
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-orange-500"
-                        />
-                      </div>
-                      
-                      <div className="flex items-center pt-4">
-                        <input
-                          type="checkbox"
-                          checked={item.stackable}
-                          onChange={(e) => updateLineItem(index, 'stackable', e.target.checked)}
-                          className="h-3 w-3 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                        />
-                        <label className="ml-2 text-xs font-medium text-gray-600">Stackable</label>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                
-                <button
-                  type="button"
-                  onClick={addLineItem}
-                  className="flex items-center space-x-2 px-4 py-2 text-sm text-orange-600 border border-orange-300 rounded-lg hover:bg-orange-50"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Add Line Item</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Accessorial Services */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowAccessorials(!showAccessorials)}
-              className="flex items-center space-x-2 text-sm font-medium text-gray-700 hover:text-gray-900"
-            >
-              {showAccessorials ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              <Wrench className="h-4 w-4" />
-              <span>Accessorial Services</span>
-            </button>
-
-            {showAccessorials && (
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {PROJECT44_ACCESSORIALS.map((acc) => (
-                  <div key={acc.code} className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id={acc.code}
-                      checked={formData.accessorials[acc.code] || false}
-                      onChange={(e) => handleAccessorialChange(acc.code, e.target.checked)}
-                      className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                    />
-                    <label htmlFor={acc.code} className="text-sm text-gray-700">
-                      {acc.label}
-                    </label>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Contact Information */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowContacts(!showContacts)}
-              className="flex items-center space-x-2 text-sm font-medium text-gray-700 hover:text-gray-900"
-            >
-              {showContacts ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              <User className="h-4 w-4" />
-              <span>Contact Information</span>
-            </button>
-
-            {showContacts && (
-              <div className="mt-4 space-y-4">
-                <div>
-                  <h5 className="font-medium text-gray-900 mb-3">Pickup Contact</h5>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
-                      <input
-                        type="text"
-                        value={formData.pickupCompanyName}
-                        onChange={(e) => handleInputChange('pickupCompanyName', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name</label>
-                      <input
-                        type="text"
-                        value={formData.pickupContactName}
-                        onChange={(e) => handleInputChange('pickupContactName', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                      <input
-                        type="tel"
-                        value={formData.pickupContactPhone}
-                        onChange={(e) => handleInputChange('pickupContactPhone', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                      <input
-                        type="email"
-                        value={formData.pickupContactEmail}
-                        onChange={(e) => handleInputChange('pickupContactEmail', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h5 className="font-medium text-gray-900 mb-3">Delivery Contact</h5>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
-                      <input
-                        type="text"
-                        value={formData.deliveryCompanyName}
-                        onChange={(e) => handleInputChange('deliveryCompanyName', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name</label>
-                      <input
-                        type="text"
-                        value={formData.deliveryContactName}
-                        onChange={(e) => handleInputChange('deliveryContactName', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                      <input
-                        type="tel"
-                        value={formData.deliveryContactPhone}
-                        onChange={(e) => handleInputChange('deliveryContactPhone', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                      <input
-                        type="email"
-                        value={formData.deliveryContactEmail}
-                        onChange={(e) => handleInputChange('deliveryContactEmail', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Hazmat Information */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowHazmat(!showHazmat)}
-              className="flex items-center space-x-2 text-sm font-medium text-gray-700 hover:text-gray-900"
-            >
-              {showHazmat ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              <AlertTriangle className="h-4 w-4" />
-              <span>Hazmat Information</span>
-            </button>
-
-            {showHazmat && (
-              <div className="mt-4 space-y-4">
-                <div className="flex items-center space-x-3">
-                  <input
-                    type="checkbox"
-                    id="hazmat"
-                    checked={formData.hazmat}
-                    onChange={(e) => handleInputChange('hazmat', e.target.checked)}
-                    className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                  />
-                  <label htmlFor="hazmat" className="text-sm font-medium text-gray-700">
-                    Contains Hazardous Materials
-                  </label>
-                </div>
-
-                {formData.hazmat && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Hazmat Class</label>
-                      <input
-                        type="text"
-                        value={formData.hazmatClass}
-                        onChange={(e) => handleInputChange('hazmatClass', e.target.value)}
-                        placeholder="e.g., 9"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">UN ID Number</label>
-                      <input
-                        type="text"
-                        value={formData.hazmatIdNumber}
-                        onChange={(e) => handleInputChange('hazmatIdNumber', e.target.value)}
-                        placeholder="e.g., UN1234"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Packing Group</label>
-                      <select
-                        value={formData.hazmatPackingGroup}
-                        onChange={(e) => handleInputChange('hazmatPackingGroup', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      >
-                        <option value="I">I</option>
-                        <option value="II">II</option>
-                        <option value="III">III</option>
-                        <option value="NONE">None</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Proper Shipping Name</label>
-                      <input
-                        type="text"
-                        value={formData.hazmatProperShippingName}
-                        onChange={(e) => handleInputChange('hazmatProperShippingName', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* API Configuration */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowApiConfig(!showApiConfig)}
-              className="flex items-center space-x-2 text-sm font-medium text-gray-700 hover:text-gray-900"
-            >
-              {showApiConfig ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              <Settings className="h-4 w-4" />
-              <span>API Configuration</span>
-            </button>
-
-            {showApiConfig && (
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Terms</label>
-                  <select
-                    value={formData.paymentTerms}
-                    onChange={(e) => handleInputChange('paymentTerms', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  >
-                    <option value="PREPAID">Prepaid</option>
-                    <option value="COLLECT">Collect</option>
-                    <option value="THIRD_PARTY">Third Party</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
-                  <select
-                    value={formData.preferredCurrency}
-                    onChange={(e) => handleInputChange('preferredCurrency', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  >
-                    <option value="USD">USD</option>
-                    <option value="CAD">CAD</option>
-                    <option value="MXN">MXN</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">API Timeout (seconds)</label>
-                  <input
-                    type="number"
-                    value={formData.apiTimeout}
-                    onChange={(e) => handleInputChange('apiTimeout', parseInt(e.target.value) || 30)}
-                    min="10"
-                    max="120"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Get Quote Button */}
-          <div className="flex justify-center pt-6">
-            <button
-              onClick={handleSpotQuote}
-              disabled={isProcessing || !formData.fromZip || !formData.toZip}
-              className={`flex items-center space-x-3 px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-200 ${
-                isProcessing || !formData.fromZip || !formData.toZip
-                  ? 'bg-gray-400 cursor-not-allowed text-white'
-                  : 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
-              }`}
-            >
-              {isProcessing ? (
-                <>
-                  <Loader className="h-6 w-6 animate-spin" />
-                  <span>Getting Comprehensive Quote...</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="h-6 w-6" />
-                  <span>Get Comprehensive Spot Quote</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Error Display */}
-          {error && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-              <div className="flex items-center space-x-2 text-red-800">
-                <AlertCircle className="h-5 w-5" />
-                <span>{error}</span>
               </div>
             </div>
-          )}
+          ))}
+          
+          <button
+            onClick={addLineItem}
+            className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add Line Item</span>
+          </button>
+          
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="text-sm text-blue-800">
+              <p className="font-medium mb-1">Summary:</p>
+              <p>Total Weight: {calculateTotalWeight()} lbs</p>
+              <p>Linear Feet: {calculateLinearFeet().toFixed(1)} ft</p>
+              <p>Routing Decision: {determineRoutingDecision()}</p>
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* Accessorial Services */}
+      {renderSection(
+        'Accessorial Services',
+        <CheckCircle className="h-5 w-5" />,
+        'accessorials',
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Object.entries({
+            LGPU: 'Liftgate Pickup',
+            LGDEL: 'Liftgate Delivery',
+            INPU: 'Inside Pickup',
+            INDEL: 'Inside Delivery',
+            RESPU: 'Residential Pickup',
+            RESDEL: 'Residential Delivery',
+            APPTPU: 'Appointment Pickup',
+            APPTDEL: 'Appointment Delivery',
+            LTDPU: 'Limited Access Pickup',
+            LTDDEL: 'Limited Access Delivery',
+            SATPU: 'Saturday Pickup',
+            SATDEL: 'Saturday Delivery',
+            NOTIFY: 'Delivery Notification',
+            NBPU: 'Non-Business Hours Pickup',
+            NBDEL: 'Non-Business Hours Delivery'
+          }).map(([code, label]) => (
+            <label key={code} className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={accessorials[code] || false}
+                onChange={() => toggleAccessorial(code)}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700">{label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {/* Quote Button */}
+      <div className="flex justify-center">
+        <button
+          onClick={getSpotQuote}
+          disabled={isQuoting || !project44Client}
+          className={`flex items-center space-x-3 px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-200 ${
+            isQuoting || !project44Client
+              ? 'bg-gray-400 cursor-not-allowed text-white'
+              : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
+          }`}
+        >
+          {isQuoting ? (
+            <>
+              <Loader className="h-6 w-6 animate-spin" />
+              <span>Getting Quotes...</span>
+            </>
+          ) : (
+            <>
+              <Zap className="h-6 w-6" />
+              <span>Get Spot Quote</span>
+            </>
+          )}
+        </button>
       </div>
 
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+            <span className="text-red-800">{error}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Routing Decision */}
+      {routingDecision && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <CheckCircle className="h-5 w-5 text-blue-600" />
+            <span className="text-blue-800 font-medium">Routing Decision: {routingDecision}</span>
+          </div>
+        </div>
+      )}
+
       {/* Results */}
-      {results.length > 0 && (
+      {quotes.length > 0 && (
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center space-x-3">
-              <CheckCircle className="h-5 w-5 text-green-500" />
-              <h3 className="text-lg font-semibold text-gray-900">Comprehensive Spot Quote Results</h3>
-            </div>
+            <h3 className="text-lg font-semibold text-gray-900">
+              Spot Quote Results ({quotes.length} quotes)
+            </h3>
           </div>
-          <div className="p-6">
-            <ResultsTable
-              results={results}
-              onExport={exportResults}
-              onPriceUpdate={handlePriceUpdate}
-            />
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Carrier</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Service</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transit</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Carrier Rate</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer Price</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Profit</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Margin %</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {quotes.map((quote, index) => (
+                  <tr key={index} className={index === 0 ? 'bg-green-50' : 'hover:bg-gray-50'}>
+                    <td className="px-6 py-4 text-sm">
+                      <div className="font-medium text-gray-900">{quote.carrier.name}</div>
+                      {quote.carrier.scac && (
+                        <div className="text-xs text-gray-500">SCAC: {quote.carrier.scac}</div>
+                      )}
+                      {(quote as any).quoteModeLabel && (
+                        <div className="text-xs text-blue-600">{(quote as any).quoteModeLabel}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {quote.serviceLevel?.description || quote.serviceLevel?.code || 'Standard'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {quote.transitDays ? `${quote.transitDays} days` : '—'}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                      {formatCurrency(quote.carrierTotalRate)}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-bold text-green-600">
+                      {formatCurrency(quote.customerPrice)}
+                      {index === 0 && (
+                        <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                          BEST
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-medium text-green-600">
+                      {formatCurrency(quote.profit)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {quote.appliedMarginPercentage?.toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
