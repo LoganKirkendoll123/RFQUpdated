@@ -1281,7 +1281,8 @@ export async function processRFQBatch(
   let processedCount = 0;
   
   // Process each RFQ
-  for (const rfq of rfqs) {
+  for (let i = 0; i < rfqs.length; i++) {
+    const rfq = rfqs[i];
     try {
       onProgress?.(
         (processedCount / rfqs.length) * 100,
@@ -1343,14 +1344,14 @@ export async function processRFQBatch(
         }
       }
       
-      allResults[rfq.rowIndex] = quotes;
-      onQuoteReceived?.(rfq.rowIndex, quotes);
+      allResults[i] = quotes;
+      onQuoteReceived?.(i, quotes);
       
-      console.log(`✅ Processed RFQ ${rfq.rowIndex}: ${quotes.length} quotes received`);
+      console.log(`✅ Processed RFQ ${i}: ${quotes.length} quotes received`);
       
     } catch (error) {
-      console.error(`❌ Failed to process RFQ ${rfq.rowIndex}:`, error);
-      allResults[rfq.rowIndex] = [];
+      console.error(`❌ Failed to process RFQ ${i}:`, error);
+      allResults[i] = [];
     }
     
     processedCount++;
