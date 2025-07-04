@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Users, Building2, CheckCircle, AlertCircle } from 'lucide-react';
-import { getCustomerList } from '../utils/database';
+import { supabase } from '../utils/supabase';
 
 interface CustomerSelectionProps {
   selectedCustomer: string;
@@ -37,43 +37,24 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
     setLoading(true);
     setError('');
     try {
-      // Get unique customers from CustomerCarriers table
-      console.log('🔍 Loading all customers from CustomerCarriers...');
+      // Get customers from customers table
+      console.log('🔍 Loading customers from customers table...');
       
-      // Load all customers without any limits
-      let allCustomers: any[] = [];
-      let from = 0;
-      const batchSize = 1000;
-      let hasMore = true;
+      const { data, error } = await supabase
+        .from('customers')
+        .select('name')
+        .eq('is_active', true)
+        .order('name');
       
-      while (hasMore) {
-        const { data, error } = await import('../utils/supabase').then(({ supabase }) =>
-          supabase
-            .from('CustomerCarriers')
-            .select('InternalName')
-            .not('InternalName', 'is', null)
-            .range(from, from + batchSize - 1)
-        );
-        
-        if (error) {
-          throw error;
-        }
-        
-        if (data && data.length > 0) {
-          allCustomers = [...allCustomers, ...data];
-          from += batchSize;
-          hasMore = data.length === batchSize; // Continue if we got a full batch
-          console.log(`📋 Loaded batch: ${data.length} customers (total: ${allCustomers.length})`);
-        } else {
-          hasMore = false;
-        }
+      if (error) {
+        throw error;
       }
-
-      // Get unique customer names
-      const uniqueCustomers = [...new Set(allCustomers?.map(d => d.InternalName).filter(Boolean))].sort();
-      setCustomers(uniqueCustomers);
-      setFilteredCustomers(uniqueCustomers);
-      console.log(`✅ Loaded ${uniqueCustomers.length} unique customers from ${allCustomers.length} total records`);
+      
+      // Extract customer names
+      const customerNames = data.map(customer => customer.name);
+      setCustomers(customerNames);
+      setFilteredCustomers(customerNames);
+      console.log(`✅ Loaded ${customerNames.length} customers from customers table`);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to load customers';
       setError(errorMsg);
@@ -202,7 +183,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
 
       {customers.length > 0 && (
         <p className="mt-2 text-xs text-gray-500">
-          {customers.length} customer{customers.length !== 1 ? 's' : ''} available from CustomerCarriers database
+          {customers.length} customer{customers.length !== 1 ? 's' : ''} available from customers database
         </p>
       )}
     </div>

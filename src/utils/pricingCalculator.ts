@@ -21,13 +21,13 @@ export const getCustomerCarrierMargin = async (
   }
   
   try {
-    console.log(`🔍 Looking up margin for customer "${customerName}" and carrier "${carrierName}" (SCAC: ${carrierScac})`);
+    console.log(`🔍 Looking up margin for customer "${customerName}" and carrier "${carrierName}" (SCAC: ${carrierScac || 'N/A'})`);
 
     // First try to find the carrier by SCAC or name to get its account_code
     const { data: carrierData, error: carrierError } = await supabase
       .from('carriers')
       .select('account_code')
-      .or(`scac.eq.${carrierScac},name.ilike.%${carrierName}%`)
+      .or(`scac.eq.${carrierScac || ''},name.ilike.%${carrierName}%`)
       .limit(1);
     
     if (carrierError) {
@@ -37,14 +37,47 @@ export const getCustomerCarrierMargin = async (
     
     const carrierCode = carrierData && carrierData.length > 0 ? carrierData[0].account_code : carrierScac || carrierName;
     
-    // Now query CustomerCarriers table for matching customer and carrier code
-    const query = supabase
+    // First find the customer ID from the customers table
+    const { data: customerData, error: customerError } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('name', customerName)
+      .single();
+    
+    if (customerError) {
+      console.error('❌ Error finding customer:', customerError);
+      return null;
+    }
+    
+    const customerId = customerData.id;
+    
+    // Now find the carrier ID from the carriers table
+    const { data: carrierIdData, error: carrierIdError } = await supabase
+      .from('carriers')
+      .select('id')
+      .eq('account_code', carrierCode)
+      .limit(1);
+    
+    if (carrierIdError) {
+      console.error('❌ Error finding carrier ID:', carrierIdError);
+      return null;
+    }
+    
+    const carrierId = carrierIdData && carrierIdData.length > 0 ? carrierIdData[0].id : null;
+    
+    if (!carrierId) {
+      console.log(`⚠️ No carrier found with account code: ${carrierCode}`);
+      return null;
+    }
+    
+    // Now query CustomerCarriers table using the UUIDs
+    const { data, error } = await supabase
       .from('CustomerCarriers')
       .select('Percentage')
-      .eq('InternalName', customerName)
-      .eq('P44CarrierCode', carrierCode);
+      .eq('customer_id', customerId)
+      .eq('carrier_id', carrierId)
+      .limit(1);
     
-    const { data, error } = await query.limit(1);
     
     if (error) {
       console.error('❌ Error querying CustomerCarriers:', error);
@@ -53,7 +86,7 @@ export const getCustomerCarrierMargin = async (
     
     if (data && data.length > 0) {
       const percentage = parseFloat(data[0].Percentage || '0');
-      console.log(`✅ Found customer margin: ${percentage}% for ${customerName} + ${carrierCode}`);
+      console.log(`✅ Found customer margin: ${percentage}% for ${customerName} (ID: ${customerId}) + ${carrierName} (ID: ${carrierId})`);
       
       // Cache the result
       marginCache.set(cacheKey, percentage);

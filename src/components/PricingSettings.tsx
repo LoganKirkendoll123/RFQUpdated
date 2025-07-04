@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, DollarSign, Percent, Calculator, Users, Building2 } from 'lucide-react';
+import { Settings, DollarSign, Percent, Calculator, Users } from 'lucide-react';
 import { PricingSettings } from '../types';
 import { CustomerSelection } from './CustomerSelection';
 
@@ -235,9 +235,7 @@ export const PricingSettingsComponent: React.FC<PricingSettingsProps> = ({
           <div className="text-sm text-gray-600 space-y-1">
             <div>Carrier Rate: $1,000</div>
             <div>Customer: {selectedCustomer || 'No customer selected'}</div>
-            <div>
-              Customer Margin: {selectedCustomer ? 'Lookup from database' : 'N/A'}
-            </div>
+            <div>Customer Margin: {selectedCustomer ? 'Lookup from customers table' : 'N/A'}</div>
             <div>
               Fallback Margin ({settings.fallbackMarkupPercentage || 23}%): $
               {(1000 / (1 - (settings.fallbackMarkupPercentage || 23) / 100) - 1000).toFixed(0)}
