@@ -498,7 +498,7 @@ export class Project44APIClient {
       // The group code should be determined from the carriers being selected
       // For now, we'll use "Default" but this should be the actual group code
       requestPayload.capacityProviderAccountGroup = {
-        code: "Default", // This should be the actual group code that these carriers belong to
+        code: accountGroupCode, 
         accounts: selectedCarrierIds.map(carrierId => ({ code: carrierId }))
       };
       console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
