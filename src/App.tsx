@@ -436,10 +436,15 @@ function App() {
     if (results.length === 0) return;
 
     const exportData = results.flatMap(result => 
-      result.quotes.map(quote => ({
+      result.quotes.map(quote => {
+        const smartResult = result as any;
+        const quoteWithMode = quote as any;
+        
+        return {
         'RFQ #': result.rowIndex + 1,
-        'Quoting Decision': result.quotingDecision.toUpperCase(),
-        'Quoting Reason': result.quotingReason,
+        'Quoting Decision': smartResult.quotingDecision?.toUpperCase() || 'STANDARD',
+        'Quoting Reason': smartResult.quotingReason || 'Standard LTL processing',
+        'Quote Mode': quoteWithMode.quoteModeLabel || 'Standard LTL',
         'From Zip': result.originalData.fromZip,
         'To Zip': result.originalData.toZip,
         'Pallets': result.originalData.pallets,
@@ -460,7 +465,8 @@ function App() {
         'Profit': (quote as QuoteWithPricing).profit,
         'Status': result.status,
         'Error': result.error || ''
-      }))
+      };
+      })
     );
 
     const ws = XLSX.utils.json_to_sheet(exportData);

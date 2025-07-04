@@ -303,7 +303,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     // Row 4: Construction materials with varying sizes
     [
       '2025-02-18', '77001', '30309', 8, 12000, true, false,
-      'AMBIENT', '', false, '125', '789012', '03', 'Construction Materials', 'CONSTRUCTION', 'PLT', 8, 16, 'IN', 'LB', 20000, 2000, 'CONST123', 'US',
+      'AMBIENT', '', false, '125', '789012', '03', 'Construction Materials', 'CONSTRUCTION', 'PLT', 8, 8, 'IN', 'LB', 20000, 2000, 'CONST123', 'US',
       false, '', '', '', '', '', '', '',
       '2025-02-19', '07:00', '19:00', '06:00', '18:00',
       '1000 Construction Ave', 'Houston', 'TX', 'US', '2000 Builder Blvd', 'Atlanta', 'GA', 'US',
@@ -311,9 +311,9 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 40, 22,
       // Different construction materials
       'Steel Beams', 6000, '125', 120, 8, 8, 'PLT', 2, true, '789012', 12000,
-      'Concrete Blocks', 4000, '150', 48, 40, 24, 'PLT', 3, true, '890123', 6000,
-      'Insulation', 1000, '85', 96, 24, 12, 'ROLL', 10, false, '901234', 1500,
-      'Hardware', 1000, '100', 24, 18, 18, 'BOX', 20, true, '012345', 500,
+      'Concrete Blocks', 4000, '150', 48, 40, 24, 'PLT', 2, true, '890123', 6000,
+      'Insulation', 1000, '85', 96, 24, 12, 'PLT', 2, false, '901234', 1500,
+      'Hardware', 1000, '100', 24, 18, 18, 'PLT', 2, true, '012345', 500,
       // Item 5 empty
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
@@ -323,7 +323,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     // Row 5: High-value electronics with precise dimensions
     [
       '2025-02-19', '94102', '02101', 4, 3200, false, false,
-      'AMBIENT', '', false, '50', '345678', '04', 'Precision Electronics', 'ELECTRONICS', 'BOX', 20, 40, 'IN', 'LB', 100000, 10000, 'ELEC789', 'US',
+      'AMBIENT', '', false, '50', '345678', '04', 'Precision Electronics', 'ELECTRONICS', 'PLT', 4, 4, 'IN', 'LB', 100000, 10000, 'ELEC789', 'US',
       false, '', '', '', '', '', '', '',
       '', '', '', '', '',
       '500 Tech Way', 'San Francisco', 'CA', 'US', '100 Innovation Dr', 'Boston', 'MA', 'US',
@@ -331,9 +331,9 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       'USD', 'PREPAID', 'SHIPPER', 'IMPERIAL', true, true, true, true, true, true, 30, 0,
       // Precision electronics with exact dimensions
       'Server Equipment', 1500, '50', 36, 24, 72, 'CRATE', 2, false, '345678', 50000,
-      'Network Switches', 800, '60', 24, 18, 12, 'BOX', 8, true, '456789', 25000,
-      'Cables & Accessories', 400, '70', 18, 12, 6, 'CARTON', 15, true, '567890', 15000,
-      'Monitors', 500, '65', 30, 20, 8, 'BOX', 5, false, '678901', 10000,
+      'Network Switches', 800, '60', 24, 18, 12, 'PLT', 1, true, '456789', 25000,
+      'Cables & Accessories', 400, '70', 18, 12, 6, 'PLT', 1, true, '567890', 15000,
+      'Monitors', 500, '65', 30, 20, 8, 'PLT', 1, false, '678901', 10000,
       // Item 5 empty
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
@@ -438,7 +438,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
   const routingHeaders = ['Scenario', 'isReefer', 'Temperature', 'Pallets', 'Weight (lbs)', 'Expected Routing', 'Reasoning'];
   const routingData = [
     ['Standard LTL', 'FALSE', 'AMBIENT or blank', '1-9', '1-14,999', 'Project44 Standard LTL only', 'Small dry goods shipments'],
-    ['Volume LTL', 'FALSE', 'AMBIENT or blank', '10-25', '15,000+', 'Project44 Volume LTL only', 'Large dry goods shipments'],
+    ['Volume LTL (Dual)', 'FALSE', 'AMBIENT or blank', '10-25', '15,000+', 'Project44 Volume LTL + Standard LTL comparison', 'Large dry goods - quotes both modes for comparison'],
     ['FreshX Reefer', 'TRUE', 'CHILLED or FROZEN', 'Any', 'Any', 'FreshX Reefer network', 'Temperature-controlled goods marked as reefer'],
     ['Project44 Standard', 'FALSE', 'CHILLED or FROZEN', 'Any', 'Any', 'Project44 Standard LTL', 'Temperature-controlled but not marked as reefer'],
     ['Mixed Items', 'FALSE', 'AMBIENT', '5-15', '8,000-20,000', 'Project44 LTL or VLTL', 'Multiple items with different dimensions']
@@ -479,7 +479,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['🧠 SMART ROUTING WITH ITEMIZED-ONLY APPROACH'],
     ['This template uses ONLY itemized fields for all dimensions - no legacy fields:'],
     ['• isReefer = TRUE → Routes to FreshX reefer network'],
-    ['• isReefer = FALSE → Routes to Project44 networks (LTL/VLTL based on size)'],
+    ['• isReefer = FALSE → Routes to Project44 networks (Standard LTL for small, dual-mode for VLTL)'],
     ['• ALL dimensions use item1_, item2_, etc. format for consistency'],
     [''],
     ['📦 ITEMIZED-ONLY STRUCTURE:'],
@@ -563,6 +563,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['1. Upload this itemized-only file to Smart Routing Processor'],
     ['2. System validates all item fields and dimensions'],
     ['3. Routes to FreshX (if isReefer=TRUE) or Project44 (if isReefer=FALSE)'],
+    ['4. For VLTL shipments (10+ pallets OR 15,000+ lbs): Gets both Volume LTL AND Standard LTL quotes'],
     ['4. For Project44: Uses ALL item data for precise cubic calculations'],
     ['5. Each item contributes to total linear feet and cubic volume'],
     ['6. Returns detailed quotes with full Project44 API response data'],
@@ -590,6 +591,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
     ['🎯 EXPECTED RESULTS:'],
     ['Each itemized shipment will be processed with:'],
     ['• Accurate cubic calculations based on actual item dimensions'],
+    ['• For VLTL: Side-by-side comparison of Volume LTL vs Standard LTL pricing'],
     ['• Proper freight class handling for mixed-class shipments'],
     ['• Optimized loading and space utilization'],
     ['• Detailed breakdown of charges per item when available'],

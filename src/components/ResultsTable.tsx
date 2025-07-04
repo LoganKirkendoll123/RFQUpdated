@@ -167,29 +167,29 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({
   const getModeIcon = (mode: string) => {
     switch (mode) {
       case 'standard': return Truck;
-      case 'volume': return Package;
+      case 'project44-dual': return Package;
       case 'ftl': return Award;
-      case 'reefer': return Thermometer;
+      case 'freshx': return Thermometer;
       default: return Truck;
     }
   };
 
   const getModeColor = (mode: string) => {
     switch (mode) {
-      case 'standard': return 'blue';
-      case 'volume': return 'purple';
+      case 'project44-standard': return 'blue';
+      case 'project44-dual': return 'purple';
       case 'ftl': return 'orange';
-      case 'reefer': return 'green';
+      case 'freshx': return 'green';
       default: return 'gray';
     }
   };
 
   const getModeName = (mode: string) => {
     switch (mode) {
-      case 'standard': return 'Standard LTL';
-      case 'volume': return 'Volume LTL';
+      case 'project44-standard': return 'Standard LTL';
+      case 'project44-dual': return 'Dual Mode (VLTL)';
       case 'ftl': return 'Full Truckload';
-      case 'reefer': return 'Reefer LTL';
+      case 'freshx': return 'FreshX Reefer';
       default: return 'Unknown';
     }
   };
@@ -378,7 +378,7 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({
             {sortedResults.flatMap((group) => 
               group.results.map((result, resultIndex) => {
                 const multiModeResult = result as any;
-                const mode = multiModeResult.mode;
+                const quotingDecision = multiModeResult.quotingDecision;
                 const bestQuote = getBestQuote(result);
                 const hasCustomerPricing = bestQuote && hasCustomerPrice(bestQuote);
                 const displayIndex = isMultiMode ? `${group.shipmentIndex + 1}.${resultIndex + 1}` : `${group.shipmentIndex + 1}`;
@@ -395,13 +395,13 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({
                       </td>
                       {isMultiMode && (
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {mode && (
+                          {quotingDecision && (
                             <div className="flex items-center space-x-2">
-                              {React.createElement(getModeIcon(mode), { 
-                                className: `h-4 w-4 text-${getModeColor(mode)}-600` 
+                              {React.createElement(getModeIcon(quotingDecision), { 
+                                className: `h-4 w-4 text-${getModeColor(quotingDecision)}-600` 
                               })}
-                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-${getModeColor(mode)}-100 text-${getModeColor(mode)}-800`}>
-                                {getModeName(mode)}
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-${getModeColor(quotingDecision)}-100 text-${getModeColor(quotingDecision)}-800`}>
+                                {getModeName(quotingDecision)}
                               </span>
                             </div>
                           )}
