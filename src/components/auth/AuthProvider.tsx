@@ -100,22 +100,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Error loading user profile:', error);
         // Try to create a profile if it doesn't exist
         if (error?.code === 'PGRST116') { // No rows returned
-          console.log('No profile found, creating one...');
-          return await createUserProfile(userId);
+          console.log('No profile found, attempting to create one...');
+          const created = await createUserProfile(userId);
+          if (!created) {
+            setLoading(false);
+          }
+          return;
         }
+        setLoading(false);
         return;
       }
       
       if (!data) {
-        console.error('No profile found');
-        return await createUserProfile(userId);
+        console.error('No profile found despite no error');
+        const created = await createUserProfile(userId);
+        if (!created) {
+          setLoading(false);
+        }
+        return;
       } else {
         setProfile(data);
         console.log('User profile loaded successfully:', data);
+        setLoading(false);
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
-    } finally {
       setLoading(false);
     }
   };
@@ -129,7 +138,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (!userData?.user?.email) {
         console.error('Cannot create profile: user email not found');
-        setLoading(false);
         return false;
       }
       
@@ -149,11 +157,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
       if (error) {
         console.error('Error creating user profile:', error);
-        setLoading(false);
         return false;
       } else {
         console.log('User profile created successfully:', data);
         setProfile(data);
+        setLoading(false);
         return true;
       }
     } catch (error) {
