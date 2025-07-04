@@ -493,22 +493,9 @@ export class Project44APIClient {
       console.log(`📏 Using totalLinearFeet: ${requestPayload.totalLinearFeet} for VLTL request`);
     }
 
-    // FIXED: Add capacity provider account group to filter by selected carriers
-    if (selectedCarrierIds.length > 0) {
-      // Check if the first carrier ID looks like a group code (contains underscore)
-      const isGroupCode = selectedCarrierIds[0].includes('_');
-      
-      if (isGroupCode) {
-        // If it's a group code, use it directly
+   
         requestPayload.capacityProviderAccountGroup = {
-          code: "Default",
-          accounts: selectedCarrierIds
-        };
-        console.log(`🎯 Using account group code directly: ${selectedCarrierIds[0]}`);
-      } else {
-        // Otherwise use the traditional approach with individual carrier accounts
-        requestPayload.capacityProviderAccountGroup = {
-          code: "Default",
+          code: accountGroupCodeaccountGroupCode,
           accounts: selectedCarrierIds
         };
         console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
