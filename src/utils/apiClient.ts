@@ -1117,71 +1117,7 @@ export class FreshXAPIClient {
 
     } catch (error) {
       console.error('❌ FreshX API call failed:', error);
-      
-      // For demo purposes, generate realistic mock data if API fails
-      console.log('📝 Generating realistic FreshX mock data for demo...');
-      
-      const mockCarriers = [
-        { name: 'FreshX Premium Cold Chain', scac: 'FXPC', mcNumber: 'MC-123456' },
-        { name: 'Arctic Express Logistics', scac: 'AEXL', mcNumber: 'MC-234567' },
-        { name: 'ColdLink Transportation', scac: 'CLTR', mcNumber: 'MC-345678' },
-        { name: 'Frozen Fleet Services', scac: 'FFLS', mcNumber: 'MC-456789' }
-      ];
-
-      const baseRate = 800 + (rfq.grossWeight * 0.15) + (rfq.pallets * 75);
-      const fuelRate = baseRate * 0.18; // 18% fuel surcharge for reefer
-      
-      const quotes: Quote[] = mockCarriers.map((carrier, index) => {
-        const priceVariation = 1 + ((Math.random() - 0.5) * 0.3); // ±15% variation
-        const adjustedBaseRate = baseRate * priceVariation;
-        const adjustedFuelRate = fuelRate * priceVariation;
-        
-        // Add temperature-specific premiums
-        let tempPremium = 0;
-        if (rfq.temperature === 'FROZEN') {
-          tempPremium = 150 + (rfq.pallets * 25);
-        } else if (rfq.temperature === 'CHILLED') {
-          tempPremium = 75 + (rfq.pallets * 15);
-        }
-
-        return {
-          quoteId: index + 1,
-          baseRate: Math.round(adjustedBaseRate),
-          fuelSurcharge: Math.round(adjustedFuelRate),
-          accessorial: [],
-          premiumsAndDiscounts: tempPremium,
-          readyByDate: rfq.fromDate,
-          estimatedDeliveryDate: new Date(Date.now() + (2 + index) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          temperature: rfq.temperature,
-          weight: rfq.grossWeight,
-          pallets: rfq.pallets,
-          commodity: rfq.commodity,
-          stackable: rfq.isStackable,
-          foodGrade: rfq.isFoodGrade,
-          pickup: {
-            city: rfq.originCity || '',
-            state: rfq.originState || '',
-            zip: rfq.fromZip
-          },
-          dropoff: {
-            city: rfq.destinationCity || '',
-            state: rfq.destinationState || '',
-            zip: rfq.toZip
-          },
-          submittedBy: 'FreshX',
-          submissionDatetime: new Date().toISOString(),
-          carrier: {
-            name: carrier.name,
-            mcNumber: carrier.mcNumber,
-            logo: '',
-            scac: carrier.scac
-          },
-          transitDays: 2 + index
-        };
-      });
-
-      console.log(`✅ Generated ${quotes.length} realistic FreshX mock quotes`);
-      return quotes;
+      throw error;
     }
   }
 }
