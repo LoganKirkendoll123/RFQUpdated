@@ -26,11 +26,17 @@ import {
   Calculator,
   Building2,
   UserCheck,
-  TrendingUp
+  TrendingUp,
+  BarChart3,
+  Download,
+  Upload
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { MarginAnalysisTools } from './MarginAnalysisTools';
+import { LaneAnalyzer } from './LaneAnalyzer';
+import { VirtualizedTable } from './VirtualizedTable';
+import { showSuccessToast, showErrorToast } from './Toast';
 
 // Updated interfaces matching your exact database schema
 interface Shipment {
@@ -86,7 +92,7 @@ interface CustomerCarrier {
 }
 
 export const DatabaseToolbox: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers' | 'margin-tools'>('shipments');
+  const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers' | 'margin-tools' | 'lane-analyzer' | 'data-import'>('shipments');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   
@@ -250,6 +256,12 @@ export const DatabaseToolbox: React.FC = () => {
         case 'margin-tools':
           // No data loading needed for margin tools
           break;
+        case 'lane-analyzer':
+          // Lane analyzer handles its own data loading
+          break;
+        case 'data-import':
+          // Data import doesn't need initial data loading
+          break;
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to load data';
@@ -361,6 +373,118 @@ export const DatabaseToolbox: React.FC = () => {
       console.error('❌ Failed to load CustomerCarriers:', err);
       throw err;
     }
+  };
+
+  const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setLoading(true);
+    setError('');
+    
+    try {
+      // Read the file
+      const reader = new FileReader();
+      
+      reader.onload = async (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          
+          // Get the first sheet
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          
+          // Convert to JSON
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          
+          if (jsonData.length === 0) {
+            throw new Error('No data found in the file');
+          }
+          
+          // Determine the table based on the columns
+          let targetTable = '';
+          const firstRow = jsonData[0] as any;
+          
+          if ('Invoice #' in firstRow) {
+            targetTable = 'Shipments';
+          } else if ('MarkupId' in firstRow) {
+            targetTable = 'CustomerCarriers';
+          } else {
+            throw new Error('Unable to determine target table from file structure');
+          }
+          
+          // Insert the data
+          const { data: insertedData, error: insertError } = await supabase
+            .from(targetTable)
+            .insert(jsonData);
+          
+          if (insertError) {
+            throw insertError;
+          }
+          
+          showSuccessToast(`Successfully imported ${jsonData.length} records to ${targetTable}`);
+          
+          // Reload data
+          loadData();
+        } catch (error) {
+          console.error('Import error:', error);
+          setError(error instanceof Error ? error.message : 'Failed to import data');
+          showErrorToast('Failed to import data');
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      reader.onerror = () => {
+        setError('Failed to read file');
+        setLoading(false);
+        showErrorToast('Failed to read file');
+      };
+      
+      reader.readAsArrayBuffer(file);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to import data');
+      setLoading(false);
+      showErrorToast('Failed to import data');
+    }
+  };
+
+  const exportTableData = (tableName: 'Shipments' | 'CustomerCarriers') => {
+    setLoading(true);
+    
+    supabase
+      .from(tableName)
+      .select('*')
+      .then(({ data, error }) => {
+        if (error) {
+          setError(error.message);
+          showErrorToast(`Failed to export ${tableName}`);
+          return;
+        }
+        
+        if (!data || data.length === 0) {
+          setError(`No data found in ${tableName}`);
+          showErrorToast(`No data found in ${tableName}`);
+          return;
+        }
+        
+        // Convert to XLSX
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, tableName);
+        
+        // Generate file and trigger download
+        XLSX.writeFile(wb, `${tableName}-${new Date().toISOString().split('T')[0]}.xlsx`);
+        showSuccessToast(`Exported ${data.length} records from ${tableName}`);
+      })
+      .catch(err => {
+        setError(err.message);
+        showErrorToast('Export failed');
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
 
   const handlePageChange = (page: number) => {
@@ -828,7 +952,9 @@ export const DatabaseToolbox: React.FC = () => {
           {[
             { id: 'shipments', label: 'Shipments', icon: Package, count: activeTab === 'shipments' ? totalCount : null },
             { id: 'customercarriers', label: 'Customer Carriers', icon: Users, count: activeTab === 'customercarriers' ? totalCount : null },
-            { id: 'margin-tools', label: 'Margin Analysis', icon: Calculator, count: null }
+            { id: 'margin-tools', label: 'Margin Analysis', icon: Calculator, count: null },
+            { id: 'lane-analyzer', label: 'Lane Analyzer', icon: MapPin, count: null },
+            { id: 'data-import', label: 'Import/Export', icon: Upload, count: null }
           ].map((tab) => {
             const Icon = tab.icon;
             return (
@@ -890,6 +1016,82 @@ export const DatabaseToolbox: React.FC = () => {
           {activeTab === 'shipments' && renderShipmentsTab()}
           {activeTab === 'customercarriers' && renderCustomerCarriersTab()}
           {activeTab === 'margin-tools' && <MarginAnalysisTools />}
+          {activeTab === 'lane-analyzer' && <LaneAnalyzer />}
+          {activeTab === 'data-import' && (
+            <div className="space-y-6">
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+                  <Upload className="h-5 w-5 text-blue-500" />
+                  <span>Import Data</span>
+                </h3>
+                
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600">
+                    Import data from Excel files. The system will automatically detect the target table based on the file structure.
+                  </p>
+                  
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleFileImport}
+                      className="hidden"
+                      id="file-import"
+                    />
+                    <label
+                      htmlFor="file-import"
+                      className="cursor-pointer flex flex-col items-center justify-center"
+                    >
+                      <Upload className="h-12 w-12 text-gray-400 mb-3" />
+                      <span className="text-sm font-medium text-gray-900 mb-1">Click to upload</span>
+                      <span className="text-xs text-gray-500">XLSX or XLS</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+                  <Download className="h-5 w-5 text-green-500" />
+                  <span>Export Data</span>
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <button
+                    onClick={() => exportTableData('Shipments')}
+                    className="flex items-center justify-center space-x-2 p-4 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >
+                    <Package className="h-5 w-5 text-blue-500" />
+                    <span className="font-medium">Export Shipments</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => exportTableData('CustomerCarriers')}
+                    className="flex items-center justify-center space-x-2 p-4 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >
+                    <Users className="h-5 w-5 text-purple-500" />
+                    <span className="font-medium">Export Customer-Carriers</span>
+                  </button>
+                </div>
+              </div>
+              
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                <div className="flex items-start space-x-3">
+                  <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-blue-800 mb-2">Data Import/Export Tips</h4>
+                    <ul className="space-y-1 text-sm text-blue-700 list-disc list-inside">
+                      <li>For importing Shipments, ensure your file has an "Invoice #" column</li>
+                      <li>For importing CustomerCarriers, ensure your file has a "MarkupId" column</li>
+                      <li>Exported files maintain the exact database structure</li>
+                      <li>You can modify exported files and re-import them to update records</li>
+                      <li>Large files may take longer to process</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
