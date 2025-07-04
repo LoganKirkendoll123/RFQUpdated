@@ -88,32 +88,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadUserProfile = async (userId: string) => {
     try {
       console.log('Loading user profile for userId:', userId);
-      
-      // First check if the table exists
-      const { error: tableCheckError } = await supabase
-        .from('user_profiles')
-        .select('count(*)', { count: 'exact', head: true });
-      
-      if (tableCheckError) {
-        console.error('Error checking user_profiles table:', tableCheckError);
-        // If table doesn't exist, create a minimal profile in memory and stop loading
-        if (tableCheckError.code === '42P01') { // undefined_table
-          console.log('user_profiles table does not exist, using minimal profile');
-          const minimalProfile = {
-            id: userId,
-            user_id: userId,
-            email: user?.email || '',
-            is_verified: true,
-            is_active: true,
-            role: 'user',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
-          setProfile(minimalProfile);
-          setLoading(false);
-          return;
-        }
-      }
 
       // Try to get the user profile
       const { data, error } = await supabase
@@ -129,7 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Try to create a profile if it doesn't exist
         if (error?.code === 'PGRST116' || error?.code === '22P02') { // No rows returned or invalid input syntax
           console.log('No profile found, attempting to create one...');
-          const created = await createUserProfile(userId);
+          const created = await createNewUserProfile(userId);
           if (!created) {
             setLoading(false);
           }
@@ -141,7 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (!data) {
         console.error('No profile found despite no error');
-        const created = await createUserProfile(userId);
+        const created = await createNewUserProfile(userId);
         if (!created) {
           setLoading(false);
         }
@@ -158,7 +132,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Create a user profile if it doesn't exist
-  const createUserProfile = async (userId: string) => {
+  const createNewUserProfile = async (userId: string) => {
     try {
       console.log('Creating new user profile for userId:', userId);
       // Get user email from auth.users
