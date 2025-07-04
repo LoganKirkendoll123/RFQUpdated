@@ -488,71 +488,14 @@ export const MarginAnalysisTools: React.FC = () => {
         </div>
       </div>
       
-      {/* Analysis Parameters */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis Parameters</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Percent className="inline h-4 w-4 mr-1" />
-              Target Margin
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              max="1"
-              value={targetMargin}
-              onChange={(e) => setTargetMargin(parseFloat(e.target.value) || 0)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">Decimal format (0.15 = 15%)</p>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Filter className="inline h-4 w-4 mr-1" />
-              Outlier Threshold
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0.5"
-              max="5"
-              value={outlierThreshold}
-              onChange={(e) => setOutlierThreshold(parseFloat(e.target.value) || 2.0)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">Standard deviations</p>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Users className="inline h-4 w-4 mr-1" />
-              Min Competitors
-            </label>
-            <input
-              type="number"
-              min="1"
-              max="10"
-              value={minCompetitors}
-              onChange={(e) => setMinCompetitors(parseInt(e.target.value) || 3)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">Required for analysis</p>
-          </div>
-        </div>
-        
-        <button
-          onClick={runMarginAnalysis}
-          disabled={loading || shipmentData.length === 0}
-          className="mt-4 flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
-        >
-          {loading ? <Loader className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
-          <span>Run Margin Analysis</span>
-        </button>
-      </div>
+      <button
+        onClick={runMarginAnalysis}
+        disabled={loading || shipmentData.length === 0}
+        className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
+      >
+        {loading ? <Loader className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
+        <span>Run Margin Analysis</span>
+      </button>
     </div>
   );
 
@@ -674,7 +617,7 @@ export const MarginAnalysisTools: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-sm">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        margin >= targetMargin * 100 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        margin >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                       }`}>
                         {margin.toFixed(1)}%
                       </span>
@@ -716,12 +659,10 @@ export const MarginAnalysisTools: React.FC = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Target Rates</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Competitor Costs</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Margin</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current vs Target</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {customerAnalyses.map((customer, index) => {
-                const marginDiff = customer.recommendedMargin - targetMargin;
                 return (
                   <tr key={index} className="hover:bg-gray-50">
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">
@@ -741,16 +682,9 @@ export const MarginAnalysisTools: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-sm">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        customer.recommendedMargin >= targetMargin ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        customer.recommendedMargin >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                       }`}>
                         {(customer.recommendedMargin * 100).toFixed(1)}%
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        marginDiff >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                      }`}>
-                        {marginDiff >= 0 ? '+' : ''}{(marginDiff * 100).toFixed(1)}%
                       </span>
                     </td>
                   </tr>
@@ -801,7 +735,7 @@ export const MarginAnalysisTools: React.FC = () => {
       <div className="border-b border-gray-200">
         <nav className="flex space-x-8">
           {[
-            { id: 'setup', label: 'Setup & Configuration', icon: Calculator },
+            { id: 'setup', label: 'Setup & Analysis', icon: Calculator },
             { id: 'shipment-analysis', label: 'Shipment Analysis', icon: BarChart3 },
             { id: 'customer-analysis', label: 'Customer Analysis', icon: Users }
           ].map((tab) => {
