@@ -37,6 +37,9 @@ export const QuotePricingCard: React.FC<QuotePricingCardProps> = ({
   const allCharges = quote.rateQuoteDetail?.charges || [];
   const hasDetailedCharges = allCharges.length > 0;
 
+  // Check if this is a FreshX quote
+  const isFreshXQuote = quote.submittedBy === 'FreshX' || quote.temperature;
+
   // Get margin type icon and color
   const getMarginTypeIcon = () => {
     switch (quote.appliedMarginType) {
@@ -111,8 +114,10 @@ export const QuotePricingCard: React.FC<QuotePricingCardProps> = ({
           {/* Project44 Rate Summary */}
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-medium text-gray-700">Project44 Rate Details</h4>
-              {hasDetailedCharges && (
+              <h4 className="text-sm font-medium text-gray-700">
+                {isFreshXQuote ? 'FreshX Rate Details' : 'Project44 Rate Details'}
+              </h4>
+              {!isFreshXQuote && hasDetailedCharges && (
                 <button
                   onClick={() => setShowChargeDetails(!showChargeDetails)}
                   className="text-blue-600 hover:text-blue-700 transition-colors"
@@ -122,7 +127,28 @@ export const QuotePricingCard: React.FC<QuotePricingCardProps> = ({
               )}
             </div>
             
-            {showChargeDetails && hasDetailedCharges ? (
+            {isFreshXQuote ? (
+              // FreshX: Show baseRate + fuelSurcharge + premiums breakdown
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between text-gray-600">
+                  <span className="text-xs">Base Rate:</span>
+                  <span className="text-xs font-medium">{formatCurrency(quote.baseRate || 0)}</span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span className="text-xs">Fuel Surcharge:</span>
+                  <span className="text-xs font-medium">{formatCurrency(quote.fuelSurcharge || 0)}</span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span className="text-xs">Temperature Control & Accessorials:</span>
+                  <span className="text-xs font-medium">{formatCurrency(quote.premiumsAndDiscounts || 0)}</span>
+                </div>
+                <div className="border-t pt-2 flex justify-between font-bold">
+                  <span>Total:</span>
+                  <span>{formatCurrency(quote.carrierTotalRate)}</span>
+                </div>
+              </div>
+            ) : showChargeDetails && hasDetailedCharges ? (
+              // Project44: Show detailed charge breakdown
               <div className="space-y-2 text-sm">
                 {allCharges.map((charge, index) => (
                   <div key={index} className="flex justify-between text-gray-600">
@@ -136,6 +162,7 @@ export const QuotePricingCard: React.FC<QuotePricingCardProps> = ({
                 </div>
               </div>
             ) : (
+              // Project44: Show summary or fallback
               <div className="space-y-1 text-sm">
                 {hasDetailedCharges ? (
                   <div className="flex justify-between">
