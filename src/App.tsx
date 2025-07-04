@@ -20,7 +20,7 @@ import {
   Contact,
   HazmatDetail
 } from '../types';
-import { memoize, batchRequests } from './utils/performance';
+import { memoize, batchRequests } from './performance';
 
 // Carrier group interface for organizing carriers
 export interface CarrierGroup {
@@ -1247,7 +1247,7 @@ export async function processRFQBatch(
     loadPricingSettings, 
     loadSelectedModes,
     loadSelectedCustomer 
-  } = await import('./utils/credentialStorage');
+  } = await import('./credentialStorage');
   
   const project44Config = loadProject44Config();
   const freshxApiKey = loadFreshXApiKey();
@@ -1351,7 +1351,7 @@ export async function processRFQBatch(
       // Apply pricing if we have settings and a selected customer
       if (quotes.length > 0 && pricingSettings && selectedCustomer) {
         try {
-          const { calculatePricing } = await import('./utils/pricingCalculator');
+          const { calculatePricing } = await import('./pricingCalculator');
           
           // Apply pricing to each quote
           for (const quote of quotes) {
