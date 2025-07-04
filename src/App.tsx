@@ -9,7 +9,7 @@ import DatabaseManager from './components/DatabaseManager';
 import PricingSettings from './components/PricingSettings';
 import { Analytics } from './components/Analytics';
 import SpotQuote from './components/SpotQuote';
-import CustomerSelection from './components/CustomerSelection';
+import { CustomerSelection } from './components/CustomerSelection';
 import QuickActions from './components/QuickActions';
 import { RFQRow, QuoteResult } from './types';
 import { parseCSV, parseXLSX } from './utils/fileParser';
