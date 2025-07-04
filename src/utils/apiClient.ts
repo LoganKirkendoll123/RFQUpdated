@@ -1232,3 +1232,134 @@ export class FreshXAPIClient {
     return results;
   }
 }
+
+// Main function to process RFQ batches with smart routing and pricing
+export async function processRFQBatch(
+  rfqs: RFQRow[],
+  onProgress?: (progress: number, status: string) => void,
+  onQuoteReceived?: (rfqIndex: number, quotes: Quote[]) => void
+): Promise<{ [index: number]: Quote[] }> {
+  console.log(`🚀 Starting batch processing for ${rfqs.length} RFQs`);
+  
+  // Load configuration from local storage
+  const { 
+    loadProject44Config, 
+    loadFreshXApiKey, 
+    loadSelectedCarriers, 
+    loadPricingSettings, 
+    loadSelectedModes,
+    loadSelectedCustomer 
+  } = await import('./credentialStorage');
+  
+  const project44Config = loadProject44Config();
+  const freshxApiKey = loadFreshXApiKey();
+  const selectedCarriers = loadSelectedCarriers() || {};
+  const pricingSettings = loadPricingSettings() || {};
+  const selectedModes = loadSelectedModes() || {};
+  const selectedCustomer = loadSelectedCustomer();
+  
+  // Initialize API clients
+  let project44Client: Project44APIClient | null = null;
+  let freshxClient: FreshXAPIClient | null = null;
+  
+  if (project44Config) {
+    project44Client = new Project44APIClient(project44Config);
+  }
+  
+  if (freshxApiKey) {
+    freshxClient = new FreshXAPIClient(freshxApiKey);
+  }
+  
+  if (!project44Client && !freshxClient) {
+    throw new Error('No API credentials configured. Please set up Project44 or FreshX credentials.');
+  }
+  
+  // Get selected carrier IDs
+  const selectedCarrierIds = Object.keys(selectedCarriers).filter(id => selectedCarriers[id]);
+  
+  const allResults: { [index: number]: Quote[] } = {};
+  let processedCount = 0;
+  
+  // Process each RFQ
+  for (const rfq of rfqs) {
+    try {
+      onProgress?.(
+        (processedCount / rfqs.length) * 100,
+        `Processing RFQ ${processedCount + 1} of ${rfqs.length}: ${rfq.fromZip} → ${rfq.toZip}`
+      );
+      
+      const quotes: Quote[] = [];
+      
+      // Determine if this is a reefer shipment
+      const isReeferMode = rfq.temperature && ['CHILLED', 'FROZEN'].includes(rfq.temperature);
+      
+      // Smart routing: Use FreshX for reefer, Project44 for others
+      if (isReeferMode && freshxClient) {
+        console.log(`🌡️ Using FreshX for reefer shipment: ${rfq.fromZip} → ${rfq.toZip}`);
+        try {
+          const freshxQuotes = await freshxClient.getQuotes(rfq);
+          quotes.push(...freshxQuotes);
+        } catch (error) {
+          console.error('❌ FreshX quotes failed:', error);
+        }
+      }
+      
+      // Use Project44 for all shipments (including as backup for reefer)
+      if (project44Client) {
+        try {
+          // Determine mode based on selected modes and RFQ characteristics
+          const isVolumeMode = selectedModes.vltl && rfq.totalLinearFeet && rfq.totalLinearFeet > 12;
+          const isFTLMode = selectedModes.ftl && (rfq.pallets >= 26 || rfq.grossWeight >= 40000);
+          
+          console.log(`📦 Using Project44 for ${isVolumeMode ? 'VLTL' : isFTLMode ? 'FTL' : 'LTL'} shipment: ${rfq.fromZip} → ${rfq.toZip}`);
+          
+          const project44Quotes = await project44Client.getQuotes(
+            rfq,
+            selectedCarrierIds,
+            isVolumeMode,
+            isFTLMode,
+            isReeferMode
+          );
+          quotes.push(...project44Quotes);
+        } catch (error) {
+          console.error('❌ Project44 quotes failed:', error);
+        }
+      }
+      
+      // Apply pricing if we have settings and a selected customer
+      if (quotes.length > 0 && pricingSettings && selectedCustomer) {
+        try {
+          const { calculatePricing } = await import('./pricingCalculator');
+          
+          // Apply pricing to each quote
+          for (const quote of quotes) {
+            const pricedQuote = calculatePricing(quote, pricingSettings, selectedCustomer);
+            Object.assign(quote, pricedQuote);
+          }
+          
+          console.log(`💰 Applied pricing to ${quotes.length} quotes for customer ${selectedCustomer.name}`);
+        } catch (error) {
+          console.error('❌ Failed to apply pricing:', error);
+        }
+      }
+      
+      allResults[rfq.rowIndex] = quotes;
+      onQuoteReceived?.(rfq.rowIndex, quotes);
+      
+      console.log(`✅ Processed RFQ ${rfq.rowIndex}: ${quotes.length} quotes received`);
+      
+    } catch (error) {
+      console.error(`❌ Failed to process RFQ ${rfq.rowIndex}:`, error);
+      allResults[rfq.rowIndex] = [];
+    }
+    
+    processedCount++;
+  }
+  
+  onProgress?.(100, `Completed processing ${rfqs.length} RFQs`);
+  
+  const totalQuotes = Object.values(allResults).reduce((sum, quotes) => sum + quotes.length, 0);
+  console.log(`🎉 Batch processing complete: ${totalQuotes} total quotes for ${rfqs.length} RFQs`);
+  
+  return allResults;
+}

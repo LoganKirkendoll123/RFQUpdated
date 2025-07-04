@@ -6,7 +6,8 @@ const STORAGE_KEYS = {
   FRESHX_API_KEY: 'freshx_api_key',
   SELECTED_CARRIERS: 'selected_carriers',
   PRICING_SETTINGS: 'pricing_settings',
-  SELECTED_MODES: 'selected_modes'
+  SELECTED_MODES: 'selected_modes',
+  SELECTED_CUSTOMER: 'selected_customer'
 };
 
 // Save Project44 configuration to local storage
@@ -129,6 +130,31 @@ export const loadSelectedModes = (): any | null => {
     return modes;
   } catch (error) {
     console.error('❌ Failed to load selected modes:', error);
+    return null;
+  }
+};
+
+// Save selected customer to local storage
+export const saveSelectedCustomer = (customer: any): void => {
+  try {
+    localStorage.setItem(STORAGE_KEYS.SELECTED_CUSTOMER, JSON.stringify(customer));
+    console.log('✅ Selected customer saved to local storage');
+  } catch (error) {
+    console.error('❌ Failed to save selected customer:', error);
+  }
+};
+
+// Load selected customer from local storage
+export const loadSelectedCustomer = (): any | null => {
+  try {
+    const storedCustomer = localStorage.getItem(STORAGE_KEYS.SELECTED_CUSTOMER);
+    if (!storedCustomer) return null;
+    
+    const customer = JSON.parse(storedCustomer);
+    console.log('✅ Selected customer loaded from local storage');
+    return customer;
+  } catch (error) {
+    console.error('❌ Failed to load selected customer:', error);
     return null;
   }
 };
