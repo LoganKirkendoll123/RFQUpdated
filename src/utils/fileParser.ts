@@ -207,6 +207,9 @@ const parseRow = memoize((row: any, index: number, isProject44: boolean = false)
   // Parse multiple line items with different dimensions - ONLY itemized approach
   const lineItems = parseLineItems(row, index);
   
+  // Add rowIndex for batch processing
+  const rowIndex = index;
+  
   // Validation
   if (!fromDate || !isValidDate(fromDate)) {
     errors.push('Invalid or missing fromDate');
@@ -245,7 +248,8 @@ const parseRow = memoize((row: any, index: number, isProject44: boolean = false)
     isStackable,
     accessorial,
     // Add the new isReefer field for smart routing
-    isReefer
+    isReefer,
+    rowIndex
   };
 
   // Add optional fields only if they have values
