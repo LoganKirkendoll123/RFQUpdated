@@ -1039,10 +1039,8 @@ export class FreshXAPIClient {
       commodity: rfq.commodity
     });
 
-    const isDev = import.meta.env.DEV;
-    const apiUrl = isDev 
-      ? '/api/freshx/v1/quotes'
-      : '/.netlify/functions/freshx-proxy/v1/quotes';
+    // FreshX doesn't use CORS - call API directly
+    const apiUrl = 'https://api.getfreshx.com/v1/quotes';
 
     // Build the FreshX request payload
     const requestPayload = {
