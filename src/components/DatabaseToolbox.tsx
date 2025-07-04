@@ -26,7 +26,8 @@ import {
   Calculator,
   Building2,
   UserCheck,
-  TrendingUp
+  TrendingUp,
+  Percent
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
