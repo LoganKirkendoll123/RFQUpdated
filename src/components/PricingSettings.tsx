@@ -240,15 +240,15 @@ export const PricingSettingsComponent: React.FC<PricingSettingsProps> = ({
             </div>
             <div>
               Fallback Margin ({settings.fallbackMarkupPercentage || 23}%): $
-              {(1000 * (settings.fallbackMarkupPercentage || 23) / 100).toFixed(0)}
+              {(1000 / (1 - (settings.fallbackMarkupPercentage || 23) / 100) - 1000).toFixed(0)}
             </div>
             <div className="border-t pt-1 font-medium">
               Customer Price: $
-              {Math.max(1000 + (1000 * (settings.fallbackMarkupPercentage || 23) / 100), 1000 + settings.minimumProfit).toFixed(0)}
+              {Math.max(1000 / (1 - (settings.fallbackMarkupPercentage || 23) / 100), 1000 + settings.minimumProfit).toFixed(0)}
             </div>
             <div className="text-green-600">
               Profit: $
-              {Math.max((1000 * (settings.fallbackMarkupPercentage || 23) / 100), settings.minimumProfit).toFixed(0)}
+              {Math.max((1000 / (1 - (settings.fallbackMarkupPercentage || 23) / 100) - 1000), settings.minimumProfit).toFixed(0)}
             </div>
           </div>
         ) : (
@@ -256,21 +256,21 @@ export const PricingSettingsComponent: React.FC<PricingSettingsProps> = ({
             <div>Carrier Rate: $1,000</div>
             <div>
               {settings.markupType === 'percentage' 
-                ? `Markup (${settings.markupPercentage}%): $${(1000 * settings.markupPercentage / 100).toFixed(0)}`
+                ? `Markup (${settings.markupPercentage}%): $${(1000 / (1 - settings.markupPercentage / 100) - 1000).toFixed(0)}`
                 : `Fixed Markup: $${settings.markupPercentage}`
               }
             </div>
             <div className="border-t pt-1 font-medium">
               Customer Price: $
               {settings.markupType === 'percentage' 
-                ? Math.max(1000 + (1000 * settings.markupPercentage / 100), 1000 + settings.minimumProfit).toFixed(0)
+                ? Math.max(1000 / (1 - settings.markupPercentage / 100), 1000 + settings.minimumProfit).toFixed(0)
                 : Math.max(1000 + settings.markupPercentage, 1000 + settings.minimumProfit).toFixed(0)
               }
             </div>
             <div className="text-green-600">
               Profit: $
               {settings.markupType === 'percentage' 
-                ? Math.max((1000 * settings.markupPercentage / 100), settings.minimumProfit).toFixed(0)
+                ? Math.max((1000 / (1 - settings.markupPercentage / 100) - 1000), settings.minimumProfit).toFixed(0)
                 : Math.max(settings.markupPercentage, settings.minimumProfit).toFixed(0)
               }
             </div>

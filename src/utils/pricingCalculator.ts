@@ -172,25 +172,31 @@ export const calculatePricing = (
     // Determine which margin to apply
     if (settings.usesCustomerMargins && selectedCustomer) {
       // For customer margins mode, we'll need to do async lookup
-      // For now, use fallback margin and mark for async update
-      appliedMarginPercentage = settings.fallbackMarkupPercentage || 23;
+      // Use fallback margin with correct formula
+      const fallbackMargin = settings.fallbackMarkupPercentage || 23;
+      appliedMarginPercentage = fallbackMargin;
       appliedMarginType = 'fallback';
-      markupApplied = carrierTotalRate * (appliedMarginPercentage / 100);
+      customerPrice = carrierTotalRate / (1 - (fallbackMargin / 100));
+      markupApplied = customerPrice - carrierTotalRate;
     } else {
       // Apply flat markup
       if (settings.markupType === 'percentage') {
-        markupApplied = carrierTotalRate * (settings.markupPercentage / 100);
+        customerPrice = carrierTotalRate / (1 - (settings.markupPercentage / 100));
+        markupApplied = customerPrice - carrierTotalRate;
         appliedMarginPercentage = settings.markupPercentage;
       } else {
         markupApplied = settings.markupPercentage;
+        customerPrice = carrierTotalRate + markupApplied;
         appliedMarginPercentage = (settings.markupPercentage / carrierTotalRate) * 100; // Convert to percentage for display
       }
       appliedMarginType = 'flat';
     }
     
-    // Ensure minimum profit is met
-    markupApplied = Math.max(markupApplied, settings.minimumProfit);
-    customerPrice = carrierTotalRate + markupApplied;
+    // Ensure minimum profit is met (only adjust if below minimum)
+    if (markupApplied < settings.minimumProfit) {
+      markupApplied = settings.minimumProfit;
+      customerPrice = carrierTotalRate + markupApplied;
+    }
   }
 
   const profit = customerPrice - carrierTotalRate;
@@ -231,15 +237,15 @@ export const calculatePricingWithCustomerMargins = async (
       
       if (customerMargin !== null && customerMargin > 0) {
         // Apply customer-specific margin
-        const markupApplied = result.carrierTotalRate * (customerMargin / 100);
-        const customerPrice = result.carrierTotalRate + Math.max(markupApplied, settings.minimumProfit);
+        const customerPrice = result.carrierTotalRate / (1 - (customerMargin / 100));
+        const markupApplied = customerPrice - result.carrierTotalRate;
         const profit = customerPrice - result.carrierTotalRate;
         
         result = {
           ...result,
           customerPrice,
           profit,
-          markupApplied: Math.max(markupApplied, settings.minimumProfit),
+          markupApplied,
           appliedMarginType: 'customer',
           appliedMarginPercentage: customerMargin
         };
