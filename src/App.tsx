@@ -25,8 +25,9 @@ function App() {
   const [processingCompleted, setProcessingCompleted] = useState(0);
   const [processingSuccess, setProcessingSuccess] = useState(0);
   const [processingErrors, setProcessingErrors] = useState(0);
-  const [currentProcessingStatus, setCurrentProcessingStatus] = useState('');
+  const [currentProcessingStatus, setCurrentProcessingStatus] = useState<string>('');
   const [fileError, setFileError] = useState('');
+  const [filePreview, setFilePreview] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   const [selectedCarriers, setSelectedCarriers] = useState<string[]>([]);
   const [pricingSettings, setPricingSettings] = useState<PricingSettingsType>({
@@ -112,11 +113,40 @@ function App() {
     try {
       console.log('📁 Processing file:', file.name);
       let data: RFQRow[];
+      let preview: any[] = [];
       
       if (file.name.endsWith('.csv')) {
         data = await parseCSV(file, true); // Assume Project44 format
+        
+        // Generate preview for display
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const text = e.target?.result as string;
+          const lines = text.split('\n').slice(0, 6); // Get first 6 lines
+          preview = lines.map(line => line.split(','));
+          setFilePreview(preview);
+        };
+        reader.readAsText(file);
       } else {
         data = await parseXLSX(file, true); // Assume Project44 format
+        
+        // For Excel files, we'll show the parsed data
+        if (data.length > 0) {
+          // Create header row from first object keys
+          const headers = Object.keys(data[0]);
+          preview = [headers];
+          
+          // Add data rows
+          data.slice(0, 5).forEach(row => {
+            const rowData = headers.map(key => {
+              const value = (row as any)[key];
+              return value !== undefined ? String(value) : '';
+            });
+            preview.push(rowData);
+          });
+          
+          setFilePreview(preview);
+        }
       }
       
       setRfqData(data);
@@ -260,6 +290,38 @@ function App() {
             <div className="bg-white rounded-lg shadow p-6">
               <h2 className="text-lg font-medium text-gray-900 mb-4">Upload RFQ File</h2>
               <FileUpload onFileSelect={handleFileSelect} error={fileError} />
+
+              {/* File Preview */}
+              {filePreview.length > 0 && (
+                <div className="mt-6 overflow-x-auto">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-md font-medium text-gray-800">File Preview</h3>
+                    <span className="text-sm text-gray-500">Showing first 5 rows</span>
+                  </div>
+                  <table className="min-w-full divide-y divide-gray-200 border border-gray-200 rounded">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        {filePreview[0]?.map((header, i) => (
+                          <th key={i} className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 last:border-r-0">
+                            {header}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {filePreview.slice(1, 6).map((row, rowIndex) => (
+                        <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                          {row.map((cell, cellIndex) => (
+                            <td key={cellIndex} className="px-3 py-2 text-sm text-gray-500 border-r border-gray-200 last:border-r-0 truncate max-w-xs">
+                              {cell}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               
               {rfqData.length > 0 && (
                 <div className="mt-6">
