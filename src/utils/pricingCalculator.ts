@@ -22,19 +22,27 @@ export const getCustomerCarrierMargin = async (
   
   try {
     console.log(`🔍 Looking up margin for customer "${customerName}" and carrier "${carrierName}" (SCAC: ${carrierScac})`);
+
+    // First try to find the carrier by SCAC or name to get its account_code
+    const { data: carrierData, error: carrierError } = await supabase
+      .from('carriers')
+      .select('account_code')
+      .or(`scac.eq.${carrierScac},name.ilike.%${carrierName}%`)
+      .limit(1);
     
-    // Query CustomerCarriers table for matching customer and carrier
-    let query = supabase
+    if (carrierError) {
+      console.error('❌ Error finding carrier:', carrierError);
+      return null;
+    }
+    
+    const carrierCode = carrierData && carrierData.length > 0 ? carrierData[0].account_code : carrierScac || carrierName;
+    
+    // Now query CustomerCarriers table for matching customer and carrier code
+    const query = supabase
       .from('CustomerCarriers')
       .select('Percentage')
-      .eq('InternalName', customerName);
-    
-    // Try to match by carrier name first, then by SCAC if available
-    if (carrierScac) {
-      query = query.or(`P44CarrierCode.eq.${carrierScac},P44CarrierCode.ilike.%${carrierName}%`);
-    } else {
-      query = query.ilike('P44CarrierCode', `%${carrierName}%`);
-    }
+      .eq('InternalName', customerName)
+      .eq('P44CarrierCode', carrierCode);
     
     const { data, error } = await query.limit(1);
     
@@ -45,13 +53,13 @@ export const getCustomerCarrierMargin = async (
     
     if (data && data.length > 0) {
       const percentage = parseFloat(data[0].Percentage || '0');
-      console.log(`✅ Found customer margin: ${percentage}% for ${customerName} + ${carrierName}`);
+      console.log(`✅ Found customer margin: ${percentage}% for ${customerName} + ${carrierCode}`);
       
       // Cache the result
       marginCache.set(cacheKey, percentage);
       return percentage;
     } else {
-      console.log(`ℹ️ No margin found for customer "${customerName}" and carrier "${carrierName}"`);
+      console.log(`ℹ️ No margin found for customer "${customerName}" and carrier "${carrierCode}"`);
       
       // Cache null result to avoid repeated queries
       marginCache.set(cacheKey, 0);
