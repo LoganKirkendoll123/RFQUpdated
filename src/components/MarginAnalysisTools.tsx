@@ -81,8 +81,8 @@ interface CustomerCarrierMargin {
 }
 
 // Batch processing configuration
-const BATCH_SIZE = 10; // Process 10 shipments concurrently
-const BATCH_DELAY = 6000; // 6 second delay between batches (600 requests/minute = 10 requests/second)
+const BATCH_SIZE = 50; // Process 10 shipments concurrently
+const BATCH_DELAY = 500; // 6 second delay between batches (600 requests/minute = 10 requests/second)
 
 export const MarginAnalysisTools: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
