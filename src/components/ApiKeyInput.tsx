@@ -467,6 +467,8 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
               )}
             </button>
           </div>
+        </div>
+
         {validationMessage && (
           <div className={`mt-3 text-sm flex items-start space-x-2 ${getValidationMessageColor()}`}>
             {getValidationMessageIcon()}
