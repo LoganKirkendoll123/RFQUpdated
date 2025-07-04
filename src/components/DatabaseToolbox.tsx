@@ -151,13 +151,12 @@ export const DatabaseToolbox: React.FC = () => {
         return;
       }
       
-      // Load unique customers from Shipments
+      // Load unique customers from Shipments - REMOVED LIMIT
       console.log('📋 Loading unique customers...');
       const { data: customerData, error: customerError } = await supabase
         .from('Shipments')
         .select('"Customer"')
-        .not('"Customer"', 'is', null)
-        .limit(100);
+        .not('"Customer"', 'is', null);
       
       if (customerError) {
         console.error('❌ Error loading customers:', customerError);
@@ -167,13 +166,12 @@ export const DatabaseToolbox: React.FC = () => {
         console.log(`✅ Loaded ${customers.length} unique customers`);
       }
       
-      // Load unique branches
+      // Load unique branches - REMOVED LIMIT
       console.log('📋 Loading unique branches...');
       const { data: branchData, error: branchError } = await supabase
         .from('Shipments')
         .select('"Branch"')
-        .not('"Branch"', 'is', null)
-        .limit(100);
+        .not('"Branch"', 'is', null);
       
       if (branchError) {
         console.error('❌ Error loading branches:', branchError);
@@ -183,13 +181,12 @@ export const DatabaseToolbox: React.FC = () => {
         console.log(`✅ Loaded ${branches.length} unique branches`);
       }
       
-      // Load unique sales reps
+      // Load unique sales reps - REMOVED LIMIT
       console.log('📋 Loading unique sales reps...');
       const { data: salesRepData, error: salesRepError } = await supabase
         .from('Shipments')
         .select('"Sales Rep"')
-        .not('"Sales Rep"', 'is', null)
-        .limit(100);
+        .not('"Sales Rep"', 'is', null);
       
       if (salesRepError) {
         console.error('❌ Error loading sales reps:', salesRepError);
@@ -199,12 +196,11 @@ export const DatabaseToolbox: React.FC = () => {
         console.log(`✅ Loaded ${salesReps.length} unique sales reps`);
       }
       
-      // Load unique carriers
+      // Load unique carriers - REMOVED LIMIT
       console.log('📋 Loading unique carriers...');
       const { data: carrierData, error: carrierError } = await supabase
         .from('Shipments')
-        .select('"Booked Carrier", "Quoted Carrier"')
-        .limit(100);
+        .select('"Booked Carrier", "Quoted Carrier"');
       
       if (carrierError) {
         console.error('❌ Error loading carriers:', carrierError);
