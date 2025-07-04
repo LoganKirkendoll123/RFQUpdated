@@ -2,31 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Search, Users, Building2, CheckCircle, AlertCircle, History, Loader, RefreshCw } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 
-// Utility function to format charge descriptions
-export const formatChargeDescription = (charge: any): string => {
-  if (!charge) return '';
-  
-  // Handle different charge object structures
-  if (typeof charge === 'string') {
-    return charge;
-  }
-  
-  if (charge.description) {
-    return charge.description;
-  }
-  
-  if (charge.name) {
-    return charge.name;
-  }
-  
-  if (charge.type) {
-    return charge.type;
-  }
-  
-  // Fallback for unknown structure
-  return JSON.stringify(charge);
-};
-
 interface CustomerSelectionProps {
   selectedCustomer: string;
   onCustomerChange: (customer: string) => void;
@@ -48,6 +23,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
   const PAGE_SIZE = 200;
   const [loadedCount, setLoadedCount] = useState(0); 
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     loadCustomers();
@@ -138,54 +114,7 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
       setLoadingHistory(false);
     }
   };
-  const loadCustomersFromHistory = async () => {
-    setLoadingHistory(true);
-    setError('');
-    try {
-      // Get unique customers from Shipments table
-      console.log('🔍 Loading customers from shipment history...');
-      
-      const { data: shipmentCustomers, error: shipmentError } = await supabase
-        .from('Shipments')
-        .select('"Customer"')
-        .not('"Customer"', 'is', null);
-      
-      if (shipmentError) throw shipmentError;
-      
-      // Get unique customers from CustomerCarriers table
-      const { data: carrierCustomers, error: carrierError } = await supabase
-        .from('CustomerCarriers')
-        .select('InternalName')
-        .not('InternalName', 'is', null);
-      
-      if (carrierError) throw carrierError;
-      
-      // Combine and deduplicate
-  const loadCustomersFromHistory = async () => {
-    setLoadingHistory(true);
-    setError('');
-    try {
-      // Get unique customers from Shipments table
-      console.log('🔍 Loading customers from shipment history...');
-      
-      const { data: shipmentCustomers, error: shipmentError } = await supabase
-        .from('Shipments')
-        .select('"Customer"')
-        .not('"Customer"', 'is', null);
-      
-      if (shipmentError) throw shipmentError;
-      
-      // Get unique customers from CustomerCarriers table
-      const { data: carrierCustomers, error: carrierError } = await supabase
-        .from('CustomerCarriers')
-        .select('InternalName')
-        .not('InternalName', 'is', null);
-      
-      if (carrierError) throw carrierError;
-      
-      // Combine and deduplicate
 
-  const [page, setPage] = useState(0);
   const loadCustomerBatch = async (pageNum: number) => {
     try {
       const from = pageNum * PAGE_SIZE;
