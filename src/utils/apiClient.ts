@@ -501,7 +501,7 @@ export class Project44APIClient {
       // For now, we'll use "Default" but this should be the actual group code
       requestPayload.capacityProviderAccountGroup = {
         code: accountGroupCode, 
-        accounts: coed: selectedCarrierIds.map(carrierId => ({ code: carrierId }))
+        accounts: code: selectedCarrierIds.map(carrierId => ({ code: carrierId }))
       };
       console.log(`🎯 Filtering quotes to ${selectedCarrierIds.length} selected carriers:`, selectedCarrierIds);
     } else {
