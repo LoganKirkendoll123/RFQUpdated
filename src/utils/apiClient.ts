@@ -1020,27 +1020,24 @@ export class Project44APIClient {
   private buildAccessorialServices(rfq: RFQRow, isReeferMode: boolean = false): AccessorialService[] {
     const services: AccessorialService[] = [];
     
-    // Add user-specified accessorials, filtering out any reefer-specific ones for Project44
+    // Add user-specified accessorials
     if (rfq.accessorial && rfq.accessorial.length > 0) {
-      const reeferAccessorials = ['REEFER', 'TEMP_CONTROLLED', 'FROZEN_PROTECT', 'TEMP_PROTECT'];
-      
-      // Filter out reefer-specific accessorials when not using FreshX
-      const filteredAccessorials = isReeferMode 
-        ? rfq.accessorial 
-        : rfq.accessorial.filter(code => !reeferAccessorials.includes(code));
-      
-      filteredAccessorials.forEach(code => {
+      rfq.accessorial.forEach(code => {
         services.push({ code });
       });
     }
 
     // Add temperature-controlled accessorials for reefer mode
-    // NOTE: We're not adding any reefer-specific accessorials for Project44
-    // as they're not supported. These should only be used with FreshX.
-    if (isReeferMode && rfq.temperature && ['CHILLED', 'FROZEN'].includes(rfq.temperature) && false) {
-      // This code is intentionally disabled with the "false" condition
-      // We're keeping it for reference but ensuring it never executes
-      console.log('Reefer accessorials are only supported by FreshX, not Project44');
+    if (isReeferMode && rfq.temperature && ['CHILLED', 'FROZEN'].includes(rfq.temperature)) {
+      // Only add TEMP_CONTROLLED, not REEFER (which is unsupported)
+      services.push({ code: 'TEMP_CONTROLLED' });
+      
+      // Add temperature-specific codes
+      if (rfq.temperature === 'FROZEN') {
+        services.push({ code: 'FROZEN_PROTECT' });
+      } else if (rfq.temperature === 'CHILLED') {
+        services.push({ code: 'TEMP_PROTECT' });
+      }
     }
 
     return services;
@@ -1239,7 +1236,7 @@ export class FreshXAPIClient {
 // Main function to process RFQ batches with smart routing and pricing
 export async function processRFQBatch(
   rfqs: RFQRow[],
-  onProgress?: (progress: number, status: string) => void,
+  onProgress?: (progress: number, status: string) => void, 
   onQuoteReceived?: (rfqIndex: number, quotes: Quote[]) => void
 ): Promise<{ [index: number]: Quote[] }> {
   console.log(`🚀 Starting batch processing for ${rfqs.length} RFQs`);
@@ -1283,6 +1280,23 @@ export async function processRFQBatch(
   const allResults: { [index: number]: Quote[] } = {};
   let processedCount = 0;
   
+  // Check if we have the necessary clients
+  const hasProject44 = project44Client !== null;
+  const hasFreshX = freshxClient !== null;
+  
+  // Validate that we have the necessary clients for the RFQs
+  for (const rfq of rfqs) {
+    const isReeferShipment = rfq.isReefer === true;
+    
+    if (isReeferShipment && !hasFreshX) {
+      throw new Error('FreshX client is required for reefer shipments. Please configure your FreshX API key.');
+    }
+    
+    if (!isReeferShipment && !hasProject44) {
+      throw new Error('Project44 client is required for non-reefer shipments. Please configure your Project44 credentials.');
+    }
+  }
+  
   // Process each RFQ
   for (let i = 0; i < rfqs.length; i++) {
     const rfq = rfqs[i];
@@ -1292,29 +1306,30 @@ export async function processRFQBatch(
     }
     try {
       onProgress?.(
-        Math.floor((i / rfqs.length) * 100),
+        (processedCount / rfqs.length) * 100,
         `Processing RFQ ${processedCount + 1} of ${rfqs.length}: ${rfq.fromZip} → ${rfq.toZip}`
       );
       
       const quotes: Quote[] = [];
       
-      // Determine if this is a reefer shipment - check both isReefer flag and temperature
-      const isReeferShipment = rfq.isReefer === true || 
-                              (rfq.temperature && ['CHILLED', 'FROZEN'].includes(rfq.temperature));
+      // Determine if this is a reefer shipment
+      const isReeferMode = rfq.isReefer === true;
       
-      // Smart routing: Use FreshX for reefer shipments
-      if (isReeferShipment && freshxClient) {
+      // Smart routing: Use FreshX for reefer, Project44 for others
+      if (isReeferMode && freshxClient) {
         console.log(`🌡️ Using FreshX for reefer shipment: ${rfq.fromZip} → ${rfq.toZip}`);
         try {
           const freshxQuotes = await freshxClient.getQuotes(rfq);
           quotes.push(...freshxQuotes);
-        } catch (error: any) {
-          console.error('❌ FreshX quotes failed:', error);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.error('❌ FreshX quotes failed:', errorMessage);
+          throw new Error(`FreshX quotes failed: ${errorMessage}`);
         }
       }
       
-      // Use Project44 for non-reefer shipments, or as backup if FreshX is not available
-      if (project44Client) {
+      // Use Project44 for all shipments (including as backup for reefer)
+      if (project44Client && !isReeferMode) {
         try {
           // Determine mode based on selected modes and RFQ characteristics
           const isVolumeMode = selectedModes.vltl && rfq.totalLinearFeet && rfq.totalLinearFeet > 12;
@@ -1322,18 +1337,16 @@ export async function processRFQBatch(
           
           console.log(`📦 Using Project44 for ${isVolumeMode ? 'VLTL' : isFTLMode ? 'FTL' : 'LTL'} shipment: ${rfq.fromZip} → ${rfq.toZip}`);
           
-          // Only call Project44 if it's not a reefer shipment, or if FreshX is not available
-          if (!isReeferShipment || !freshxClient) {
-            const project44Quotes = await project44Client.getQuotes(
-              rfq,
-              selectedCarrierIds,
-              isVolumeMode,
-              isFTLMode,
-              false  // Always set isReeferMode to false for Project44 to avoid unsupported accessorials
-            );
-            quotes.push(...project44Quotes);
-          }
+          const project44Quotes = await project44Client.getQuotes(
+            rfq,
+            selectedCarrierIds,
+            isVolumeMode,
+            isFTLMode,
+            isReeferMode
+          );
+          quotes.push(...project44Quotes);
         } catch (error) {
+          // For non-reefer shipments, we should propagate the error
           console.error('❌ Project44 quotes failed:', error);
         }
       }
@@ -1355,17 +1368,16 @@ export async function processRFQBatch(
         }
       }
       
-      allResults[i] = quotes;
-      if (onQuoteReceived) {
-        onQuoteReceived(rfq.rowIndex || i, quotes);
-      }
+      allResults[rfq.rowIndex] = quotes;
+      onQuoteReceived?.(rfq.rowIndex || 0, quotes);
       
-      console.log(`✅ Processed RFQ ${i}: ${quotes.length} quotes received`);
+      console.log(`✅ Processed RFQ ${rfq.rowIndex}: ${quotes.length} quotes received`);
       
     } catch (error) {
-      console.error(`❌ Failed to process RFQ ${i}:`, error);
-      allResults[i] = [];
+      console.error(`❌ Failed to process RFQ ${rfq.rowIndex}:`, error);
+      allResults[rfq.rowIndex] = [];
     }
+    onQuoteReceived?.(rfq.rowIndex || 0, allResults[rfq.rowIndex] || []);
     
     processedCount++;
   }
