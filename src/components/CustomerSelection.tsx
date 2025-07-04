@@ -45,6 +45,24 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
     setSearchTerm('');
   };
 
+  const loadCustomers = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const customerList = await getCustomerList();
+      setCustomers(customerList);
+      setFilteredCustomers(customerList);
+    } catch (err) {
+      console.error('Error loading customers:', err);
+      setError('Failed to load customers. Please try again.');
+      setCustomers([]);
+      setFilteredCustomers([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="relative">
       <label className="block text-sm font-medium text-gray-700 mb-2">
