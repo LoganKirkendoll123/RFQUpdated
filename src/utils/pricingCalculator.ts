@@ -1,455 +1,290 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Users, Building2, CheckCircle, AlertCircle, History, Loader, RefreshCw } from 'lucide-react';
+import { supabase } from './supabase';
 
-interface CustomerSelectionProps {
-  selectedCustomer: string;
-  onCustomerChange: (customer: string) => void;
+interface Customer {
+  id: string;
+  name: string;
+  company_name?: string;
+  email?: string;
+  phone?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  country?: string;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
-export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
-  selectedCustomer,
-  onCustomerChange
-}) => {
-  const [customers, setCustomers] = useState<string[]>([]);
-  const [filteredCustomers, setFilteredCustomers] = useState<string[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isOpen, setIsOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string>('');
-  const [hasMore, setHasMore] = useState(true); 
-  const [totalCount, setTotalCount] = useState(0);
-  const PAGE_SIZE = 200;
-  const [loadedCount, setLoadedCount] = useState(0); 
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+interface Carrier {
+  id: string;
+  name: string;
+  scac?: string;
+  mc_number?: string;
+  dot_number?: string;
+  account_code: string;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  p44_group?: string;
+  display_name?: string;
+}
 
-  useEffect(() => {
-    loadCustomers();
-  }, []);
+interface CustomerCarrier {
+  MarkupId: number;
+  CarrierId?: number;
+  CustomerID?: number;
+  InternalName?: string;
+  P44CarrierCode?: string;
+  MinDollar?: number;
+  MaxDollar?: string;
+  Percentage?: string;
+  customer_id?: string;
+  carrier_id?: string;
+}
 
-  useEffect(() => {
-    if (searchTerm) {
-      const filtered = customers.filter(customer =>
-        customer.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-      setFilteredCustomers(filtered);
-    } else {
-      setFilteredCustomers(customers);
-    }
-  }, [searchTerm, customers]);
+interface Shipment {
+  'Invoice #': number;
+  Customer?: string;
+  Branch?: string;
+  'Scheduled Pickup Date'?: string;
+  'Actual Pickup Date'?: string;
+  'Scheduled Delivery Date'?: string;
+  'Actual Delivery Date'?: string;
+  'Origin City'?: string;
+  State?: string;
+  Zip?: string;
+  'Destination City'?: string;
+  State_1?: string;
+  Zip_1?: string;
+  'Sales Rep'?: string;
+  'Account Rep'?: string;
+  'Dispatch Rep'?: string;
+  'Quote Created By'?: string;
+  'Line Items'?: number;
+  'Tot Packages'?: number;
+  'Tot Weight'?: string;
+  'Max Freight Class'?: string;
+  'Max Length'?: string;
+  'Max Width'?: string;
+  'Max Height'?: string;
+  'Tot Linear Ft'?: string;
+  'Is VLTL'?: string;
+  Commodities?: string;
+  Accessorials?: string;
+  'Booked Carrier'?: string;
+  'Quoted Carrier'?: string;
+  'Service Level'?: string;
+  Revenue?: string;
+  'Carrier Quote'?: string;
+  'Carrier Expense'?: string;
+  'Other Expense'?: string;
+  Profit?: string;
+  'Revenue w/o Accessorials'?: string;
+  'Expense w/o Accessorials'?: string;
+  customer_id?: string;
+}
 
-  const loadCustomers = async () => {
-    setLoading(true);
-    setError('');
-    setCustomers([]);
-    setFilteredCustomers([]);
-    setPage(0); 
-    setLoadedCount(0);
+export class PricingCalculator {
+  private customers: Customer[] = [];
+  private carriers: Carrier[] = [];
+  private customerCarriers: CustomerCarrier[] = [];
+  private shipments: Shipment[] = [];
+
+  async loadCustomers(): Promise<Customer[]> {
     try {
-      // Get customers from customers table
-      console.log('🔍 Loading customers from customers table...');
-      
-      // First get the total count
-      const { count, error: countError } = await supabase
+      const { data, error } = await supabase
         .from('customers')
-        .select('*', { count: 'exact', head: true })
-        .eq('is_active', true);
-      
-      if (countError) throw countError;
-      
-      setTotalCount(count || 0);
-      console.log(`📊 Total customer count: ${count}`);
-      setHasMore(true);
-      setHasMore(true);
-
-      await loadCustomerBatch(0);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load customers';
-      setError(errorMsg);
-      console.error('❌ Failed to load customers:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadCustomersFromHistory = async () => {
-    setLoadingHistory(true);
-    setError('');
-    try {
-      // Get unique customers from Shipments table
-      console.log('🔍 Loading customers from shipment history...');
-      
-      const { data: shipmentCustomers, error: shipmentError } = await supabase
-        .from('Shipments')
-        .select('"Customer"')
-        .not('"Customer"', 'is', null);
-      
-      if (shipmentError) throw shipmentError;
-      
-      // Get unique customers from CustomerCarriers table
-      const { data: carrierCustomers, error: carrierError } = await supabase
-        .from('CustomerCarriers')
-        .select('InternalName')
-        .not('InternalName', 'is', null);
-      
-      if (carrierError) throw carrierError;
-      
-      // Combine and deduplicate
-      const shipmentNames = shipmentCustomers?.map(s => s.Customer).filter(Boolean) || [];
-      const carrierNames = carrierCustomers?.map(c => c.InternalName).filter(Boolean) || [];
-      const allHistoryNames = [...shipmentNames, ...carrierNames];
-      const uniqueHistoryNames = Array.from(new Set(allHistoryNames)).sort();
-      
-      console.log(`✅ Loaded ${uniqueHistoryNames.length} customers from history (${shipmentNames.length} from shipments, ${carrierNames.length} from carrier relationships)`);
-      
-      // Add to existing customers without duplicates
-      const combinedCustomers = Array.from(new Set([...customers, ...uniqueHistoryNames]));
-      setCustomers(combinedCustomers);
-      setFilteredCustomers(combinedCustomers);
-      setLoadedCount(combinedCustomers.length);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load customers from history');
-    } finally {
-      setLoadingHistory(false);
-    }
-  };
-
-  const loadCustomersFromHistory = async () => {
-    setLoadingHistory(true);
-    setError('');
-    try {
-      // Get unique customers from Shipments table
-      console.log('🔍 Loading customers from shipment history...');
-      
-      const { data: shipmentCustomers, error: shipmentError } = await supabase
-        .from('Shipments')
-        .select('"Customer"')
-        .not('"Customer"', 'is', null);
-      
-      if (shipmentError) throw shipmentError;
-      
-      // Get unique customers from CustomerCarriers table
-      const { data: carrierCustomers, error: carrierError } = await supabase
-        .from('CustomerCarriers')
-        .select('InternalName')
-        .not('InternalName', 'is', null);
-      
-      if (carrierError) throw carrierError;
-      
-      // Combine and deduplicate
-      const shipmentNames = shipmentCustomers?.map(s => s.Customer).filter(Boolean) || [];
-      const carrierNames = carrierCustomers?.map(c => c.InternalName).filter(Boolean) || [];
-      const allHistoryNames = [...shipmentNames, ...carrierNames];
-      const uniqueHistoryNames = Array.from(new Set(allHistoryNames)).sort();
-      
-      console.log(`✅ Loaded ${uniqueHistoryNames.length} customers from history (${shipmentNames.length} from shipments, ${carrierNames.length} from carrier relationships)`);
-      
-      // Add to existing customers without duplicates
-      const combinedCustomers = Array.from(new Set([...customers, ...uniqueHistoryNames]));
-      setCustomers(combinedCustomers);
-      setFilteredCustomers(combinedCustomers);
-      setLoadedCount(combinedCustomers.length);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load customers from history');
-    } finally {
-      setLoadingHistory(false);
-    }
-  };
-
-  const [page, setPage] = useState(0);
-  const loadCustomerBatch = async (pageNum: number) => {
-    try {
-      const from = pageNum * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
-      
-      console.log(`📋 Loading customers batch ${pageNum + 1} (${from}-${to})...`);
-      
-      if (pageNum > 0) {
-        setLoadingMore(true);
-      }
-      
-      const { data, error, count } = await supabase
-        .from('customers')
-        .select('name')
-        .not('name', 'is', null)
+        .select('*')
         .eq('is_active', true)
-        .order('name')
-        .range(from, to);
-      
-      if (error) {
-        throw error;
-      }
-      
-      if (!data || data.length === 0) {
-        setHasMore(false);
-        console.log('📋 No more customers to load');
-      } else {
-        // Extract customer names and append to existing list
-        const customerNames = data.map(customer => customer.name);
-        const uniqueNames = Array.from(new Set([...customers, ...customerNames]));
-        setCustomers(uniqueNames);
-        setFilteredCustomers(searchTerm ? uniqueNames.filter(name => name.toLowerCase().includes(searchTerm.toLowerCase())) : uniqueNames);
-        setPage(pageNum);
-        setLoadedCount(uniqueNames.length);
-        console.log(`✅ Loaded ${customerNames.length} more customers (batch ${pageNum + 1}), total: ${uniqueNames.length}`);
-        
-        // Check if we should load more
-        setHasMore(data.length === PAGE_SIZE);
-      }
-      
-      // Update total count if we have it
-      if (count !== null) setTotalCount(count);
-      
-      // Update total count if we have it
-      if (count !== null) setTotalCount(count);
-    } catch (err) {
-      console.error(`❌ Failed to load customers batch ${pageNum + 1}:`, err);
-      throw err;
-    } finally {
-      setLoadingMore(false);
-    }
-  };
+        .order('name');
 
-  // Function to search customers directly from the database
-  const searchCustomers = async (term: string) => {
-    if (!term || term.length < 2) return;
-    
-    setLoading(true);
-    try {
-      console.log(`🔍 Searching for customers with term: "${term}"...`);
-      
-      const { data, error, count } = await supabase
-        .from('customers')
-        .select('name')
-        .eq('is_active', true)
-        .ilike('name', `%${term}%`) 
-        .limit(100);
-      
       if (error) throw error;
       
-      if (data && data.length > 0) {
-        const searchResults = data.map(c => c.name);
-        console.log(`✅ Found ${searchResults.length} customers matching "${term}"`);
-        
-        // Add search results to the existing list without duplicates
-        const combinedResults = Array.from(new Set([...customers, ...searchResults]));
-        setCustomers(combinedResults);
-        setFilteredCustomers(searchResults);
-      } else {
-        console.log(`ℹ️ No customers found matching "${term}"`);
-        setFilteredCustomers([]);
-      }
-    } catch (err) {
-      console.error('Search error:', err);
-    } finally {
-      setLoading(false);
+      this.customers = data || [];
+      return this.customers;
+    } catch (error) {
+      console.error('Error loading customers:', error);
+      throw error;
     }
-  };
+  }
 
-  const handleCustomerSelect = (customer: string) => {
-    onCustomerChange(customer);
-    setIsOpen(false);
-    setSearchTerm('');
-  };
+  async loadCarriers(): Promise<Carrier[]> {
+    try {
+      const { data, error } = await supabase
+        .from('carriers')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
 
-  const clearSelection = () => {
-    onCustomerChange('');
-    setIsOpen(false);
-    setSearchTerm('');
-  };
-
-  const loadMoreCustomers = () => {
-    if (hasMore && !loadingMore) {
-      loadCustomerBatch(page + 1);
-    }
-  };
-
-  const handleSearchChange = (term: string) => {
-    setSearchTerm(term);
-    if (term.length >= 2) {
-      // For longer search terms, search directly in the database
-      searchCustomers(term);
-    } else if (term.length > 0) {
-      // For shorter terms, filter the already loaded customers
-      const filtered = customers.filter(customer =>
-        customer.toLowerCase().includes(term.toLowerCase())
-      );
-      setFilteredCustomers(filtered);
-    } else {
-      // If search is cleared, show all loaded customers
-      setFilteredCustomers(customers);
-    }
-  };
-
-  return (
-    <div className="relative">
-      <label className="block text-sm font-medium text-gray-700 mb-2">
-        <Building2 className="inline h-4 w-4 mr-1" />
-        Customer Selection
-      </label>
+      if (error) throw error;
       
-      <div className="relative">
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="w-full px-4 py-3 text-left border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white hover:bg-gray-50 transition-colors"
-        >
-          <div className="flex items-center justify-between">
-            <span className={selectedCustomer ? 'text-gray-900' : 'text-gray-500'}>
-              {selectedCustomer || 'Select a customer...'}
-            </span>
-            <div className="flex items-center space-x-2">
-              {selectedCustomer && (
-                <CheckCircle className="h-4 w-4 text-green-500" />
-              )}
-              <Users className="h-4 w-4 text-gray-400" />
-            </div>
-          </div>
-        </button> 
+      this.carriers = data || [];
+      return this.carriers;
+    } catch (error) {
+      console.error('Error loading carriers:', error);
+      throw error;
+    }
+  }
 
-        {isOpen && (
-          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-64 overflow-hidden">
-            {/* Search Input */}
-            <div className="p-3 border-b border-gray-200 bg-gray-50">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => handleSearchChange(e.target.value)}
-                  placeholder="Search customers..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  autoFocus
-                />
-              </div>
-              <div className="text-xs text-gray-500 mt-1 flex justify-between">
-                Type 3+ characters to search all customers
-              </div>
-            </div>
+  async loadCustomerCarriers(): Promise<CustomerCarrier[]> {
+    try {
+      const { data, error } = await supabase
+        .from('CustomerCarriers')
+        .select('*');
 
-            {/* Customer List */}
-            <div className="max-h-80 overflow-y-auto">
-              {loading ? (
-                <div className="p-4 text-center text-gray-500 flex items-center justify-center space-x-2">
-                  <Loader className="h-4 w-4 animate-spin" />
-                  <span>Loading customers...</span>
-                </div>
-              ) : error ? (
-                <div className="p-4 text-center text-red-600 flex items-center justify-center space-x-2">
-                  <AlertCircle className="h-4 w-4" />
-                  <span>{error}</span>
-                </div>
-              ) : filteredCustomers.length === 0 ? (
-                <div className="p-4 text-center text-gray-500 text-sm"> 
-                  {searchTerm ? 'No customers found' : 'No customers available'}
-                </div>
-              ) : searchTerm.length >= 3 ? (
-                <>
-                  {/* Clear Selection Option */}
-                  <button
-                    onClick={clearSelection}
-                    className="w-full px-4 py-2 text-left hover:bg-gray-100 transition-colors border-b border-gray-100"
-                  >
-                    <span className="text-gray-500 italic">No customer selected</span>
-                  </button>
-                  
-                  <div className="p-2 text-xs text-blue-600 bg-blue-50 border-b border-blue-100">
-                    Showing {filteredCustomers.length} search results for "{searchTerm}" 
-                  </div>
-                  
-                  {/* Search Results */}
-                  {filteredCustomers.map((customer) => (
-                    <button
-                      key={customer}
-                      onClick={() => handleCustomerSelect(customer)}
-                      className={`w-full px-4 py-2 text-left hover:bg-blue-50 transition-colors ${
-                        selectedCustomer === customer ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span>{customer}</span>
-                        {selectedCustomer === customer && (
-                          <CheckCircle className="h-4 w-4 text-blue-600" />
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </>
-              ) : (
-                <>
-                  {/* Clear Selection Option */}
-                  <button
-                    onClick={clearSelection}
-                    className="w-full px-4 py-2 text-left hover:bg-gray-100 transition-colors border-b border-gray-100"
-                  >
-                    <span className="text-gray-500 italic">No customer selected</span>
-                  </button>
-                  
-                  {/* Customer Options */}
-                  {filteredCustomers.map((customer) => (
-                    <button
-                      key={customer}
-                      onClick={() => handleCustomerSelect(customer)}
-                      className={`w-full px-4 py-2 text-left hover:bg-blue-50 transition-colors ${
-                        selectedCustomer === customer ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span>{customer}</span>
-                        {selectedCustomer === customer && (
-                          <CheckCircle className="h-4 w-4 text-blue-600" />
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </>
-              )}
-            </div>
-            
-            {hasMore && (
-              <div className="p-3 text-center border-t border-gray-200 bg-gray-50">
-                <button
-                  onClick={loadMoreCustomers} 
-                  disabled={loadingMore}
-                  className="text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 px-4 py-2 rounded-md transition-colors flex items-center justify-center space-x-2 w-full"
-                > 
-                  {loadingMore ? (
-                    <>
-                      <Loader className="h-3 w-3 animate-spin" />
-                      <span>Loading more ({loadedCount} of {totalCount})...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Load more customers</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      if (error) throw error;
+      
+      this.customerCarriers = data || [];
+      return this.customerCarriers;
+    } catch (error) {
+      console.error('Error loading customer carriers:', error);
+      throw error;
+    }
+  }
 
-      {selectedCustomer && (
-        <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-          <div className="flex items-center space-x-2 text-green-800">
-            <CheckCircle className="h-4 w-4" />
-            <span className="text-sm font-medium">
-              Customer selected: {selectedCustomer}
-            </span>
-          </div>
-          <p className="text-xs text-green-700 mt-1">
-            Customer-specific margins will be applied where available
-          </p>
-        </div>
-      )}
+  async loadShipments(): Promise<Shipment[]> {
+    try {
+      const { data, error } = await supabase
+        .from('Shipments')
+        .select('*');
 
-      {customers.length > 0 && (
-        <p className="mt-2 text-xs text-gray-500">
-          Loaded {loadedCount} of {totalCount} customer{totalCount !== 1 ? 's' : ''} from customers table
-          {hasMore && ' (type 3+ characters to search all customers)'}
-        </p>
-      )}
-    </div>
-  );
-};
+      if (error) throw error;
+      
+      this.shipments = data || [];
+      return this.shipments;
+    } catch (error) {
+      console.error('Error loading shipments:', error);
+      throw error;
+    }
+  }
+
+  getCustomerMargin(customerName: string, carrierName: string): number | null {
+    const customerCarrier = this.customerCarriers.find(cc => 
+      cc.InternalName === customerName && 
+      this.carriers.find(c => c.id === cc.carrier_id)?.name === carrierName
+    );
+
+    if (customerCarrier && customerCarrier.Percentage) {
+      const percentage = parseFloat(customerCarrier.Percentage);
+      return isNaN(percentage) ? null : percentage;
+    }
+
+    return null;
+  }
+
+  calculatePricing(basePrice: number, customerName?: string, carrierName?: string): {
+    basePrice: number;
+    margin: number;
+    finalPrice: number;
+    marginSource: 'customer-specific' | 'default' | 'none';
+  } {
+    let margin = 0;
+    let marginSource: 'customer-specific' | 'default' | 'none' = 'none';
+
+    // Try to get customer-specific margin first
+    if (customerName && carrierName) {
+      const customerMargin = this.getCustomerMargin(customerName, carrierName);
+      if (customerMargin !== null) {
+        margin = customerMargin;
+        marginSource = 'customer-specific';
+      }
+    }
+
+    // If no customer-specific margin, use default (could be configurable)
+    if (marginSource === 'none') {
+      margin = 15; // Default 15% margin
+      marginSource = 'default';
+    }
+
+    const finalPrice = basePrice * (1 + margin / 100);
+
+    return {
+      basePrice,
+      margin,
+      finalPrice,
+      marginSource
+    };
+  }
+
+  async searchCustomers(searchTerm: string): Promise<string[]> {
+    try {
+      // Search in customers table
+      const { data: customerData, error: customerError } = await supabase
+        .from('customers')
+        .select('name')
+        .eq('is_active', true)
+        .ilike('name', `%${searchTerm}%`)
+        .limit(50);
+
+      if (customerError) throw customerError;
+
+      // Search in shipments history
+      const { data: shipmentData, error: shipmentError } = await supabase
+        .from('Shipments')
+        .select('"Customer"')
+        .not('"Customer"', 'is', null)
+        .ilike('"Customer"', `%${searchTerm}%`)
+        .limit(50);
+
+      if (shipmentError) throw shipmentError;
+
+      // Search in customer carriers
+      const { data: carrierData, error: carrierError } = await supabase
+        .from('CustomerCarriers')
+        .select('InternalName')
+        .not('InternalName', 'is', null)
+        .ilike('InternalName', `%${searchTerm}%`)
+        .limit(50);
+
+      if (carrierError) throw carrierError;
+
+      // Combine and deduplicate results
+      const customerNames = customerData?.map(c => c.name) || [];
+      const shipmentNames = shipmentData?.map(s => s.Customer).filter(Boolean) || [];
+      const carrierNames = carrierData?.map(c => c.InternalName).filter(Boolean) || [];
+
+      const allNames = [...customerNames, ...shipmentNames, ...carrierNames];
+      const uniqueNames = Array.from(new Set(allNames)).sort();
+
+      return uniqueNames;
+    } catch (error) {
+      console.error('Error searching customers:', error);
+      throw error;
+    }
+  }
+
+  async getCustomerHistory(customerName: string): Promise<{
+    shipments: Shipment[];
+    carrierRelationships: CustomerCarrier[];
+  }> {
+    try {
+      // Get shipments for this customer
+      const { data: shipmentData, error: shipmentError } = await supabase
+        .from('Shipments')
+        .select('*')
+        .eq('"Customer"', customerName);
+
+      if (shipmentError) throw shipmentError;
+
+      // Get carrier relationships for this customer
+      const { data: carrierData, error: carrierError } = await supabase
+        .from('CustomerCarriers')
+        .select('*')
+        .eq('InternalName', customerName);
+
+      if (carrierError) throw carrierError;
+
+      return {
+        shipments: shipmentData || [],
+        carrierRelationships: carrierData || []
+      };
+    } catch (error) {
+      console.error('Error getting customer history:', error);
+      throw error;
+    }
+  }
+}
+
+export const pricingCalculator = new PricingCalculator();
