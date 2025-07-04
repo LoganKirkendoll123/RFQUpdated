@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, LogOut, Settings, Shield, ChevronDown, Clock } from 'lucide-react';
+import { User, LogOut, Settings, Shield, ChevronDown, Clock, Users } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { supabase } from '../../utils/supabase';
 
@@ -99,6 +99,19 @@ export const UserMenu: React.FC = () => {
           </div>
 
           <div className="p-2">
+            {profile.is_admin && (
+              <button
+                onClick={() => {
+                  window.location.href = '/admin';
+                  setIsOpen(false);
+                }}
+                className="w-full flex items-center space-x-3 px-3 py-2 text-left text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                <Users className="h-4 w-4" />
+                <span>Admin Dashboard</span>
+              </button>
+            )}
+            
             <button
               onClick={() => {
                 window.location.href = '/account';

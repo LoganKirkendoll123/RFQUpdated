@@ -3,7 +3,7 @@ import { Mail, Lock, Eye, EyeOff, Loader, AlertCircle, LogIn } from 'lucide-reac
 import { useAuth } from './AuthProvider';
 
 interface LoginFormProps {
-  onSwitchToSignup: () => void;
+  onSwitchToSignup: () => void; 
 }
 
 export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignup }) => {
@@ -20,6 +20,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignup }) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+
+    if (!formData.email || !formData.password) {
+      setError('Email and password are required');
+      setLoading(false);
+      return;
+    }
 
     const { error } = await signIn(formData.email, formData.password);
     
@@ -65,6 +71,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignup }) => {
                 <input
                   type="email"
                   required
+                  autoComplete="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
@@ -82,6 +89,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToSignup }) => {
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
+                  autoComplete="current-password"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"

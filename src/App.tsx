@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AuthProvider } from './components/auth/AuthProvider';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { UserMenu } from './components/auth/UserMenu';
+import { AdminApprovalPanel } from './components/auth/AdminApprovalPanel';
 import { AccountSettings } from './components/auth/AccountSettings';
 import { FileUpload } from './components/FileUpload';
 import { CarrierSelection } from './components/CarrierSelection';
@@ -75,7 +76,7 @@ interface SmartQuotingResult extends ProcessingResult {
 
 // Main App Component (now wrapped with auth)
 const AppContent: React.FC = () => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   // Core state
   const [rfqData, setRfqData] = useState<RFQRow[]>([]);
   const [results, setResults] = useState<SmartQuotingResult[]>([]);
@@ -85,6 +86,9 @@ const AppContent: React.FC = () => {
   const [currentCarrier, setCurrentCarrier] = useState<string>('');
   const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [carrierProgress, setCarrierProgress] = useState<{ current: number; total: number } | undefined>();
+  
+  // Show admin panel state
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   
   // API configuration
   const [project44Config, setProject44Config] = useState<Project44OAuthConfig>({
@@ -122,14 +126,20 @@ const AppContent: React.FC = () => {
     const path = window.location.pathname;
     if (path === '/account') {
       setShowAccountSettings(true);
+      setShowAdminPanel(false);
+    } else if (path === '/admin') {
+      setShowAdminPanel(true);
+      setShowAccountSettings(false);
     } else {
       setShowAccountSettings(false);
+      setShowAdminPanel(false);
     }
 
     // Listen for URL changes
     const handleLocationChange = () => {
       const newPath = window.location.pathname;
       setShowAccountSettings(newPath === '/account');
+      setShowAdminPanel(newPath === '/admin');
     };
 
     window.addEventListener('popstate', handleLocationChange);
@@ -591,7 +601,9 @@ const AppContent: React.FC = () => {
               <div className="flex items-center space-x-3 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl px-4 py-2 border border-emerald-200">
                 <div className="flex items-center space-x-2">
                   <Shield className="h-4 w-4 text-emerald-600" />
-                  <span className="text-sm font-semibold text-emerald-800">Enterprise Edition</span>
+                  <span className="text-sm font-semibold text-emerald-800">
+                    {profile?.is_admin ? 'Admin Account' : 'Enterprise Edition'}
+                  </span>
                 </div>
                 <div className="h-4 w-px bg-emerald-300"></div>
                 <div className="flex items-center space-x-1">
@@ -619,7 +631,15 @@ const AppContent: React.FC = () => {
         </div>
       </header>
       
-      {showAccountSettings ? (
+      {showAdminPanel && profile?.is_admin ? (
+        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Admin Dashboard</h1>
+            <p className="text-gray-600">Manage user accounts and approvals</p>
+          </div>
+          <AdminApprovalPanel />
+        </main>
+      ) : showAccountSettings ? (
         <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <AccountSettings />
         </main>
@@ -1134,6 +1154,7 @@ const AppContent: React.FC = () => {
 
 // Main App with Auth Wrapper
 function App() {
+  console.log('Rendering App component');
   return (
     <AuthProvider>
       <AuthGuard>

@@ -49,7 +49,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        await loadUserProfile(session.user.id);
+        await loadUserProfile(session.user);
       } else {
         setLoading(false);
       }
@@ -63,12 +63,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          await loadUserProfile(session.user.id);
+          await loadUserProfile(session.user);
           
           // Update last login
           if (event === 'SIGNED_IN') {
-            // Last login is now updated via database trigger
-            console.log('User signed in:', session.user.email);
+            await supabase
+              .from('simple_users')
+              .update({ last_login: new Date().toISOString() })
+              .eq('auth_id', session.user.id);
+            console.log('✅ User signed in and last_login updated:', session.user.email);
           }
         } else {
           setProfile(null);
@@ -80,15 +83,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadUserProfile = async (userId: string) => {
+  const loadUserProfile = async (authUser: User) => {
     try {
-      console.log('Loading user profile for userId:', userId);
+      console.log('Loading user profile for userId:', authUser.id);
 
       // Try to get the user profile
       const { data, error } = await supabase
         .from('simple_users')
         .select('*')
-        .eq('auth_id', userId)
+        .eq('auth_id', authUser.id)
         .single();
       
       console.log('User profile query result:', data ? 'Found profile' : 'No profile found', 'Error:', error?.code);
@@ -99,13 +102,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Try to create a profile if it doesn't exist
         if (error.code === 'PGRST116') { // No rows returned
           console.log('No profile found, creating one...');
-          await createSimpleUser(userId);
+          await createSimpleUser(authUser);
         } else {
           // Use fallback profile
           const fallbackProfile = {
-            id: userId,
-            auth_id: userId,
-            email: user?.email || 'unknown@example.com',
+            id: authUser.id,
+            auth_id: authUser.id,
+            email: authUser.email || 'unknown@example.com',
             is_verified: false,
             is_active: false,
             is_admin: false,
@@ -119,7 +122,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (!data) {
         console.log('No profile found, creating one...');
-        await createSimpleUser(userId);
+        await createSimpleUser(authUser);
         return;
       }
       
@@ -130,6 +133,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Error in loadUserProfile:', error);
       
       // Use fallback profile
+      const userId = user?.id || 'unknown';
       const fallbackProfile = {
         id: userId,
         auth_id: userId,
@@ -144,19 +148,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Create a simple user if it doesn't exist
-  const createSimpleUser = async (userId: string): Promise<boolean> => {
+  // Create a simple user profile if it doesn't exist
+  const createSimpleUser = async (authUser: User): Promise<boolean> => {
     try {
-      console.log('Creating new simple user for userId:', userId);
-      // Get user email from auth.users
-      const { data: userData } = await supabase.auth.getUser();
-      
-      const email = userData?.user?.email;
+      console.log('Creating new simple user for userId:', authUser.id);
+      const email = authUser.email;
+
       if (!email) {
         console.error('Cannot create simple user: user email not found, using fallback');
         const fallbackUser = {
-          id: userId,
-          auth_id: userId,
+          id: authUser.id,
+          auth_id: authUser.id,
           email: 'unknown@example.com',
           is_verified: false,
           is_active: false,
@@ -173,7 +175,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data, error } = await supabase
           .from('simple_users')
           .insert({
-            auth_id: userId,
+            auth_id: authUser.id,
             email: email,
             is_verified: false,
             is_active: false
@@ -187,8 +189,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Error creating simple user:', error);
           // If we can't create the user in the database, create a fallback one in memory
           const fallbackUser = {
-            id: userId,
-            auth_id: userId,
+            id: authUser.id,
+            auth_id: authUser.id,
             email: email,
             is_verified: false,
             is_active: false,
@@ -217,8 +219,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Exception creating simple user:', insertError);
         // Create a fallback user in memory
         const fallbackUser = {
-          id: userId,
-          auth_id: userId,
+          id: authUser.id,
+          auth_id: authUser.id,
           email: email,
           is_verified: false,
           is_active: false,
@@ -232,6 +234,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.error('Error in createSimpleUser:', error);
       // Create a fallback user in memory for any error
+      const userId = user?.id || 'unknown';
       const fallbackUser = {
         id: userId,
         auth_id: userId,
@@ -266,7 +269,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data.user) {
         const { data: userData } = await supabase
           .from('simple_users')
-          .select('is_verified, is_active')
+          .select('is_verified, is_active, is_admin')
           .eq('auth_id', data.user.id)
           .single();
 
@@ -279,7 +282,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await supabase.auth.signOut();
           return { error: { message: 'Your account is pending admin approval.' } };
         }
-        
+
         // Update last login
         await supabase
           .from('simple_users')
@@ -297,7 +300,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signUp = async (email: string, password: string, userData: any) => {
     try {
-      setLoading(true);
+      console.log('Signing up user:', email);
 
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -314,7 +317,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data.user) {
         // Create simple user record
         const { data: simpleUser, error: userError } = await supabase
-          .from('simple_users')
+          .from('simple_users') 
           .insert({
             auth_id: data.user.id,
             email: email,
@@ -343,10 +346,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       return { error: null };
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Error in signUp:', error);
       return { error };
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -370,7 +372,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Create new approval request
       const { error } = await supabase
-        .from('admin_approvals')
+        .from('admin_approvals') 
         .insert({
           user_id: profile.id,
           status: 'pending'
@@ -384,12 +386,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateProfile = async (updates: Partial<SimpleUser>) => {
     try {
-      if (!user) return { error: { message: 'No user logged in' } };
+      if (!user || !profile) return { error: { message: 'No user logged in' } };
 
       const { error } = await supabase
         .from('simple_users')
         .update(updates)
-        .eq('auth_id', user.id);
+        .eq('id', profile.id);
 
       if (!error) {
         setProfile(prev => prev ? { ...prev, ...updates } : null);
@@ -403,12 +405,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = async () => {
     try {
-      setLoading(true);
       await supabase.auth.signOut();
-    } catch (error) {
+      console.log('User signed out');
+    } catch (error: any) {
       console.error('Error signing out:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -422,7 +422,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signOut,
     updateProfile,
     requestApproval
-  };
+  }; 
 
   return (
     <AuthContext.Provider value={value}>
