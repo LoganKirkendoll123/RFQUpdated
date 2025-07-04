@@ -75,7 +75,7 @@ export const MarginAnalysisTools: React.FC = () => {
     try {
       console.log('🔍 Loading all customers for margin analysis...');
       
-      // Remove the limit to load ALL customers
+      // FIXED: Remove any limit to load ALL customers
       const { data, error } = await supabase
         .from('Shipments')
         .select('"Customer"')
