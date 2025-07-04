@@ -125,21 +125,32 @@ export const CarrierManagement: React.FC = () => {
     setError('');
 
     try {
-      // First check if carrier is referenced in shipments
-      const { data: shipments, error: checkError } = await supabase
+      // First check if carrier is referenced in shipments by name
+      const { data: bookedShipments, error: bookedCheckError } = await supabase
         .from('Shipments')
-        .select('count')
-        .eq('carrier_id', carrier.id)
-        .single();
+        .select('*', { count: 'exact', head: true })
+        .eq('Booked Carrier', carrier.name);
 
-      if (checkError && checkError.code !== 'PGRST116') {
-        // PGRST116 is "no rows returned" which is fine
-        throw checkError;
+      if (bookedCheckError) {
+        throw bookedCheckError;
       }
 
+      const { data: quotedShipments, error: quotedCheckError } = await supabase
+        .from('Shipments')
+        .select('*', { count: 'exact', head: true })
+        .eq('Quoted Carrier', carrier.name);
+
+      if (quotedCheckError) {
+        throw quotedCheckError;
+      }
+
+      const bookedCount = bookedShipments?.length || 0;
+      const quotedCount = quotedShipments?.length || 0;
+      const totalShipments = bookedCount + quotedCount;
+
       // If shipments exist, show specific error
-      if (shipments && shipments.count > 0) {
-        setError(`Cannot delete carrier "${carrier.name}" because it is linked to ${shipments.count} existing shipment(s). Please remove or reassign all shipments for this carrier before deleting.`);
+      if (totalShipments > 0) {
+        setError(`Cannot delete carrier "${carrier.name}" because it is referenced in ${totalShipments} existing shipment(s) (${bookedCount} as booked carrier, ${quotedCount} as quoted carrier). Please remove or reassign all shipments for this carrier before deleting.`);
         setLoading(false);
         return;
       }
