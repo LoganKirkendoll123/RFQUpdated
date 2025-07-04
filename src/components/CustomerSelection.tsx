@@ -33,18 +33,6 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
     }
   }, [searchTerm, customers]);
 
-  const handleCustomerSelect = (customer: string) => {
-    onCustomerChange(customer);
-    setIsOpen(false);
-    setSearchTerm('');
-  };
-
-  const clearSelection = () => {
-    onCustomerChange('');
-    setIsOpen(false);
-    setSearchTerm('');
-  };
-
   const loadCustomers = async () => {
     setLoading(true);
     setError('');
@@ -61,6 +49,18 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCustomerSelect = (customer: string) => {
+    onCustomerChange(customer);
+    setIsOpen(false);
+    setSearchTerm('');
+  };
+
+  const clearSelection = () => {
+    onCustomerChange('');
+    setIsOpen(false);
+    setSearchTerm('');
   };
 
   return (

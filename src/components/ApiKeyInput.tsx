@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Key, Eye, EyeOff, CheckCircle, XCircle, Loader, Shield, RefreshCw, AlertTriangle, Globe, HelpCircle, CheckSquare } from 'lucide-react';
 import { Project44OAuthConfig } from '../types';
 import { saveProject44Config, saveFreshXApiKey } from '../utils/credentialStorage';
+import { saveProject44Config, saveFreshXApiKey } from '../utils/credentialStorage';
 
 interface ApiKeyInputProps {
-  value: string;
-  onChange: (value: string) => void;
+  value?: string;
+  onChange?: (value: string) => void;
   placeholder?: string;
   onValidation?: (isValid: boolean) => void;
   isProject44?: boolean;
@@ -55,6 +56,11 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
 
   const validateOAuthConfig = () => {
     const { clientId, clientSecret } = oauthConfig;
+    
+    // Save the config regardless of validation status
+    if (clientId.trim()) {
+      saveProject44Config(oauthConfig);
+    }
     
     // Save the config regardless of validation status
     if (clientId.trim()) {
@@ -209,6 +215,11 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
       saveFreshXApiKey(apiKey);
     }
     
+    // Save the API key regardless of validation status
+    if (apiKey && apiKey.length > 5) {
+      saveFreshXApiKey(apiKey);
+    }
+    
     if (!isProject44 && (!apiKey || apiKey.length < 10)) {
       setValidationStatus('idle');
       setValidationMessage('');
@@ -294,6 +305,11 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
       saveFreshXApiKey(newValue);
     }
     
+    // Save FreshX API key
+    if (!isProject44 && newValue && newValue.length > 5) {
+      saveFreshXApiKey(newValue);
+    }
+    
     if (!isProject44) {
       // Debounce validation for FreshX
       const timeoutId = setTimeout(() => {
@@ -307,6 +323,12 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
   const handleOAuthConfigChange = (field: keyof Project44OAuthConfig, value: string) => {
     const newConfig = { ...oauthConfig, [field]: value };
     setOauthConfig(newConfig);
+    
+    // Save Project44 config when client ID or secret changes
+    if ((field === 'clientId' || field === 'clientSecret') && value.trim()) {
+      saveProject44Config(newConfig);
+    }
+    
     
     // Save Project44 config when client ID or secret changes
     if ((field === 'clientId' || field === 'clientSecret') && value.trim()) {
@@ -403,6 +425,15 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
                     }}
                     placeholder="Enter your Project44 Client ID"
                     className={`w-full px-3 py-2 pr-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${getInputBorderColor()}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
                   />
                   <button
                     type="button"
@@ -554,8 +585,26 @@ export const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
             {showKey ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-          </button>
-        </div>
+          <div className="pt-4 border-t border-gray-200">
+            <button
+              onClick={testOAuthConnection}
+              disabled={isValidating || !oauthConfig.clientId.trim() || !oauthConfig.clientSecret.trim()}
+              className="w-full py-3 px-4 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+            >
+              {isValidating ? (
+                <>
+                  <Loader className="h-5 w-5 animate-spin" />
+                  <span>Testing OAuth...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-5 w-5" />
+                  <span>Test OAuth Connection</span>
+                </>
+              )}
+            </button>
+          </div>
+        </button>
       </div>
 
       <div className="pt-4 border-t border-gray-200">
