@@ -1,10 +1,58 @@
 import React, { useState } from 'react';
-import { User, LogOut, Settings, Shield, ChevronDown } from 'lucide-react';
+import { User, LogOut, Settings, Shield, ChevronDown, Clock } from 'lucide-react';
 import { useAuth } from './AuthProvider';
+import { supabase } from '../../utils/supabase';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../utils/supabase';
+import { useState, useEffect } from 'react';
 
 export const UserMenu: React.FC = () => {
   const { user, profile, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const [sessionCount, setSessionCount] = useState(0);
+  
+  useEffect(() => {
+    if (user) {
+      loadUserSessions();
+    }
+  }, [user]);
+  
+  const loadUserSessions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('user_sessions')
+        .select('id')
+        .eq('user_id', user?.id);
+        
+      if (!error && data) {
+        setSessionCount(data.length);
+      }
+    } catch (error) {
+      console.error('Error loading user sessions:', error);
+    }
+  };
+  const [sessionCount, setSessionCount] = useState(0);
+  
+  useEffect(() => {
+    if (user) {
+      loadUserSessions();
+    }
+  }, [user]);
+  
+  const loadUserSessions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('user_sessions')
+        .select('id')
+        .eq('user_id', user?.id);
+        
+      if (!error && data) {
+        setSessionCount(data.length);
+      }
+    } catch (error) {
+      console.error('Error loading user sessions:', error);
+    }
+  };
 
   if (!user || !profile) return null;
 
@@ -66,10 +114,31 @@ export const UserMenu: React.FC = () => {
               )}
             </div>
           </div>
+          
+          <div className="mt-2 flex items-center space-x-2 text-xs text-gray-500">
+            <Clock className="h-3 w-3" />
+            <span>
+              {sessionCount > 1 
+                ? `${sessionCount} active sessions` 
+                : '1 active session'}
+            </span>
+          </div>
+          
+          <div className="mt-2 flex items-center space-x-2 text-xs text-gray-500">
+            <Clock className="h-3 w-3" />
+            <span>
+              {sessionCount > 1 
+                ? `${sessionCount} active sessions` 
+                : '1 active session'}
+            </span>
+          </div>
 
           <div className="p-2">
             <button
-              onClick={() => setIsOpen(false)}
+              onClick={() => {
+                window.location.href = '/account';
+                setIsOpen(false);
+              }}
               className="w-full flex items-center space-x-3 px-3 py-2 text-left text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
             >
               <Settings className="h-4 w-4" />

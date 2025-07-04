@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AuthProvider } from './components/auth/AuthProvider';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { UserMenu } from './components/auth/UserMenu';
+import { AccountSettings } from './components/auth/AccountSettings';
 import { FileUpload } from './components/FileUpload';
 import { CarrierSelection } from './components/CarrierSelection';
 import { PricingSettingsComponent } from './components/PricingSettings';
@@ -82,6 +83,7 @@ const AppContent: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [totalSteps, setTotalSteps] = useState(0);
   const [currentCarrier, setCurrentCarrier] = useState<string>('');
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [carrierProgress, setCarrierProgress] = useState<{ current: number; total: number } | undefined>();
   
   // API configuration
@@ -114,6 +116,25 @@ const AppContent: React.FC = () => {
   // UI state
   const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database' | 'spot-quote'>('upload');
   const [fileError, setFileError] = useState<string>('');
+
+  // Check if URL path is /account to show account settings
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (path === '/account') {
+      setShowAccountSettings(true);
+    } else {
+      setShowAccountSettings(false);
+    }
+
+    // Listen for URL changes
+    const handleLocationChange = () => {
+      const newPath = window.location.pathname;
+      setShowAccountSettings(newPath === '/account');
+    };
+
+    window.addEventListener('popstate', handleLocationChange);
+    return () => window.removeEventListener('popstate', handleLocationChange);
+  }, []);
   
   // API clients - store as instance variables to maintain token state
   const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
@@ -597,9 +618,16 @@ const AppContent: React.FC = () => {
           </div>
         </div>
       </header>
+      
+      {showAccountSettings ? (
+        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <AccountSettings />
+        </main>
+      ) : (
+        <>
+          {/* Smart Quoting Hero Banner */}
+          <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 shadow-xl">
 
-      {/* Smart Quoting Hero Banner */}
-      <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 shadow-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
@@ -631,9 +659,13 @@ const AppContent: React.FC = () => {
           </div>
         </div>
       </div>
+        </>
+      )}
 
-      {/* Professional Workflow Progress */}
-      <div className="bg-white border-b border-slate-200 shadow-sm">
+      {!showAccountSettings && (
+        <>
+          {/* Professional Workflow Progress */}
+          <div className="bg-white border-b border-slate-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-slate-900">Workflow Progress</h2>
@@ -694,9 +726,11 @@ const AppContent: React.FC = () => {
           </div>
         </div>
       </div>
+        </>
+      )}
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {!showAccountSettings && (
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Professional Tab Navigation */}
         <div className="mb-8">
           <nav className="flex space-x-1 bg-slate-100 rounded-xl p-1">
@@ -1093,6 +1127,7 @@ const AppContent: React.FC = () => {
           <DatabaseToolbox />
         )}
       </main>
+      )}
     </div>
   );
 };

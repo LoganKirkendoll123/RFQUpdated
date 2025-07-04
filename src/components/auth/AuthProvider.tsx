@@ -72,7 +72,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
           // Update last login
           if (event === 'SIGNED_IN') {
-            await updateLastLogin(session.user.id);
+            // Last login is now updated via database trigger
+            console.log('User signed in:', session.user.email);
           }
         } else {
           setProfile(null);
@@ -101,17 +102,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Error loading user profile:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const updateLastLogin = async (userId: string) => {
-    try {
-      await supabase
-        .from('user_profiles')
-        .update({ last_login: new Date().toISOString() })
-        .eq('user_id', userId);
-    } catch (error) {
-      console.error('Error updating last login:', error);
     }
   };
 
