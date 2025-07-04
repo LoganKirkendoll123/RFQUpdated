@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Key, Eye, EyeOff, CheckCircle, XCircle, Loader, Shield, RefreshCw, AlertTriangle, Globe, HelpCircle, CheckSquare } from 'lucide-react';
 import { Project44OAuthConfig } from '../types';
 import { saveProject44Config, saveFreshXApiKey } from '../utils/credentialStorage';
-import { saveProject44Config, saveFreshXApiKey } from '../utils/credentialStorage';
 
 interface ApiKeyInputProps {
   value?: string;
