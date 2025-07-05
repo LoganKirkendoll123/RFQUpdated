@@ -309,7 +309,7 @@ export const MarginAnalysisTools: React.FC = () => {
   const runMarginAnalysis = async () => {
     const selectedCarrierIds = Object.keys(selectedCarriers).filter(id => selectedCarriers[id]);
     if (selectedCarrierIds.length !== 1) {
-      setError('Please select exactly one carrier for analysis');
+      setError('Please select exactly one carrier to analyze');
       return;
     }
 
@@ -368,33 +368,8 @@ export const MarginAnalysisTools: React.FC = () => {
         throw new Error(`No shipments found in the selected date range`);
       }
 
-      // Filter shipments for the selected carrier
-      const carrierShipments = allShipments.filter(shipment => {
-        const bookedCarrier = shipment["Booked Carrier"];
-        const quotedCarrier = shipment["Quoted Carrier"];
-        
-        // Match by carrier name, account code, or SCAC
-        const matchesName = bookedCarrier === selectedCarrier.name || quotedCarrier === selectedCarrier.name;
-        const matchesAccount = selectedCarrier.accountCode && (
-          bookedCarrier === selectedCarrier.accountCode || 
-          quotedCarrier === selectedCarrier.accountCode
-        );
-        const matchesSCAC = selectedCarrier.scac && (
-          bookedCarrier === selectedCarrier.scac || 
-          quotedCarrier === selectedCarrier.scac
-        );
-        
-        return matchesName || matchesAccount || matchesSCAC;
-      });
-
-      console.log(`🎯 Found ${carrierShipments.length} shipments for carrier: ${selectedCarrier.name}`);
-
-      if (carrierShipments.length === 0) {
-        throw new Error(`No shipments found for carrier ${selectedCarrier.name} in the selected date range`);
-      }
-
       // Group shipments by customer
-      const customerShipments = carrierShipments.reduce((groups, shipment) => {
+      const customerShipments = allShipments.reduce((groups, shipment) => {
         const customer = shipment["Customer"] || 'Unknown';
         if (!groups[customer]) {
           groups[customer] = [];
@@ -403,7 +378,7 @@ export const MarginAnalysisTools: React.FC = () => {
         return groups;
       }, {} as Record<string, typeof carrierShipments>);
       
-      console.log(`👥 Found ${Object.keys(customerShipments).length} customers with shipments for carrier ${selectedCarrier.name}`);
+      console.log(`👥 Found ${Object.keys(customerShipments).length} customers with shipments in date range`);
       
       // Process each customer separately
       const customerResults = [];
@@ -414,7 +389,7 @@ export const MarginAnalysisTools: React.FC = () => {
         // Get customer-specific margin from CustomerCarriers table
         const { data: customerCarriers, error: ccError } = await supabase
           .from('CustomerCarriers')
-          .select('Percentage')
+          .select('Percentage, P44CarrierCode')
           .eq('InternalName', customer)
           .ilike('P44CarrierCode', `%${selectedCarrier.name}%`);
         
@@ -503,17 +478,11 @@ export const MarginAnalysisTools: React.FC = () => {
         .update({
           status: 'completed',
           completed_at: new Date().toISOString(),
-          shipment_count: carrierShipments.length,
+          shipment_count: allShipments.length,
           benchmark_data: {
             customer_count: Object.keys(customerShipments).length,
-            total_shipments: carrierShipments.length,
+            total_shipments: allShipments.length,
             customer_results: customerResults,
-            date_range: dateRange
-          }
-          benchmark_data: {
-            avg_revenue: avgRevenue,
-            avg_profit: avgProfit,
-            shipment_count: carrierShipments.length,
             date_range: dateRange
           }
         })
@@ -657,12 +626,12 @@ export const MarginAnalysisTools: React.FC = () => {
             <div className="text-sm text-blue-800">
               <p className="font-medium mb-1">How Margin Analysis Works:</p>
               <ol className="list-decimal list-inside space-y-1">
-                <li>Select a carrier and date range</li>
-                <li>System finds ALL shipments for that carrier in the date range</li>
-                <li>For EACH customer, system calculates current margin performance</li>
-                <li>System looks up target margin from CustomerCarriers table</li>
-                <li>Recommendations are generated for each customer-carrier pair</li>
-                <li>Results show potential revenue impact of optimizing each customer's margin</li>
+                <li>Select a carrier to analyze and date range</li>
+                <li>System processes <strong>ALL shipments</strong> in the date range regardless of carrier</li>
+                <li>For EACH customer, system calculates current margin performance on all shipments</li>
+                <li>System looks up target margin from CustomerCarriers table for the selected carrier</li>
+                <li>Recommendations are generated for each customer based on the selected carrier's target margin</li>
+                <li>Results show potential revenue impact of applying the selected carrier's margin to all shipments</li>
               </ol>
             </div>
           </div>
