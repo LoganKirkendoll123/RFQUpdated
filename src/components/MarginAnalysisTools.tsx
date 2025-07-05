@@ -19,14 +19,27 @@ import {
   Calendar,
   Package,
   Clock,
-  Info
+  Info,
+  MapPin
 } from 'lucide-react';
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { loadProject44Config } from '../utils/credentialStorage';
 import { supabase } from '../utils/supabase';
+import { RFQRow } from '../types';
 
 interface MarginAnalysisToolsProps {}
+
+interface HistoricalShipment {
+  id: number;
+  date: string;
+  origin: string;
+  destination: string;
+  weight: number;
+  pallets: number;
+  oldPrice: number;
+  oldCost: number;
+}
 
 export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
   const [activeTab, setActiveTab] = useState<'carrier-vs-group' | 'negotiated-rates'>('carrier-vs-group');
@@ -39,6 +52,11 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
   const [selectedCarrier, setSelectedCarrier] = useState<string>('');
   const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
   
+  // Customer data
+  const [customers, setCustomers] = useState<string[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<string>('');
+  const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
+  
   // Date range
   const [dateRange, setDateRange] = useState({
     start: new Date(new Date().setFullYear(new Date().getFullYear() - 1)).toISOString().split('T')[0],
@@ -48,6 +66,10 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
   // Analysis results
   const [analysisResults, setAnalysisResults] = useState<any>(null);
   const [negotiatedRatesResults, setNegotiatedRatesResults] = useState<any>(null);
+  
+  // Historical shipments
+  const [historicalShipments, setHistoricalShipments] = useState<HistoricalShipment[]>([]);
+  const [isLoadingShipments, setIsLoadingShipments] = useState(false);
   
   // Project44 client
   const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
@@ -60,6 +82,83 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
       setProject44Client(client);
     }
   }, []);
+
+  // Load customers from database
+  const loadCustomers = async () => {
+    setIsLoadingCustomers(true);
+    setError('');
+    
+    try {
+      const { data, error } = await supabase
+        .from('Shipments')
+        .select('"Customer"')
+        .not('"Customer"', 'is', null)
+        .order('"Customer"');
+      
+      if (error) throw error;
+      
+      // Get unique customer names
+      const uniqueCustomers = [...new Set(data?.map(d => d.Customer) || [])];
+      setCustomers(uniqueCustomers.filter(Boolean));
+      
+      if (uniqueCustomers.length > 0) {
+        setSelectedCustomer(uniqueCustomers[0]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load customers');
+    } finally {
+      setIsLoadingCustomers(false);
+    }
+  };
+
+  // Load historical shipments for a customer and carrier
+  const loadHistoricalShipments = async (customer: string, carrier: string) => {
+    setIsLoadingShipments(true);
+    setError('');
+    
+    try {
+      // Query Shipments table for matching customer and carrier
+      const { data, error } = await supabase
+        .from('Shipments')
+        .select('*')
+        .eq('"Customer"', customer)
+        .or(`"Booked Carrier".eq.${carrier},"Quoted Carrier".eq.${carrier}`)
+        .gte('"Scheduled Pickup Date"', dateRange.start)
+        .lte('"Scheduled Pickup Date"', dateRange.end)
+        .order('"Scheduled Pickup Date"', { ascending: false });
+      
+      if (error) throw error;
+      
+      // Transform to HistoricalShipment format
+      const shipments: HistoricalShipment[] = data?.map((shipment, index) => {
+        // Parse numeric values from string fields
+        const parseNumeric = (value: string | null | undefined): number => {
+          if (!value) return 0;
+          const cleaned = value.toString().replace(/[^\d.-]/g, '');
+          return parseFloat(cleaned) || 0;
+        };
+        
+        return {
+          id: index + 1,
+          date: shipment["Scheduled Pickup Date"] || '',
+          origin: shipment["Zip"] || '',
+          destination: shipment["Zip_1"] || '',
+          weight: parseNumeric(shipment["Tot Weight"]),
+          pallets: shipment["Tot Packages"] || 0,
+          oldPrice: parseNumeric(shipment["Revenue"]),
+          oldCost: parseNumeric(shipment["Carrier Expense"])
+        };
+      }) || [];
+      
+      setHistoricalShipments(shipments);
+      return shipments;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load historical shipments');
+      return [];
+    } finally {
+      setIsLoadingShipments(false);
+    }
+  };
 
   // Load carrier groups from Project44 API
   const loadCarrierGroups = async () => {
@@ -83,6 +182,9 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
           setSelectedCarrier(groups[0].carriers[0].id);
         }
       }
+      
+      // Also load customers
+      await loadCustomers();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load carrier groups');
     } finally {
@@ -90,15 +192,15 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
     }
   };
 
-  // Run carrier margin analysis
+  // Run carrier margin analysis with real API calls
   const runMarginAnalysis = async () => {
     if (!project44Client) {
       setError('Project44 client not available. Please configure your API credentials first.');
       return;
     }
 
-    if (!selectedGroup || !selectedCarrier) {
-      setError('Please select both a carrier group and a specific carrier to analyze');
+    if (!selectedGroup || !selectedCarrier || !selectedCustomer) {
+      setError('Please select a carrier group, specific carrier, and customer to analyze');
       return;
     }
 
@@ -118,91 +220,98 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
         throw new Error('Selected carrier not found');
       }
       
-      // In a real implementation, this would:
-      // 1. Load historical shipments for the selected carrier from the last year
-      // 2. Get current rates from Project44 API for the exact same shipments
-      // 3. Calculate the sum of old prices and new costs
-      // 4. Calculate margin as (old price - new cost) / old price
+      // Load historical shipments for this customer and carrier
+      const shipments = await loadHistoricalShipments(selectedCustomer, carrier.name);
       
-      // Generate mock historical shipments for the selected carrier
-      const mockHistoricalShipments = [
-        {
-          id: 1,
-          date: '2023-05-15',
-          origin: '60607',
-          destination: '30033',
-          weight: 2500,
-          pallets: 3,
-          oldPrice: 950,
-          oldCost: 850
-        },
-        {
-          id: 2,
-          date: '2023-06-22',
-          origin: '90210',
-          destination: '10001',
-          weight: 5000,
-          pallets: 5,
-          oldPrice: 1450,
-          oldCost: 1250
-        },
-        {
-          id: 3,
-          date: '2023-07-10',
-          origin: '33101',
-          destination: '75201',
-          weight: 1800,
-          pallets: 2,
-          oldPrice: 820,
-          oldCost: 720
-        },
-        {
-          id: 4,
-          date: '2023-08-05',
-          origin: '94102',
-          destination: '02101',
-          weight: 3200,
-          pallets: 4,
-          oldPrice: 1250,
-          oldCost: 1100
-        },
-        {
-          id: 5,
-          date: '2023-09-18',
-          origin: '77001',
-          destination: '30309',
-          weight: 12000,
-          pallets: 8,
-          oldPrice: 2200,
-          oldCost: 1900
-        }
-      ];
+      if (shipments.length === 0) {
+        throw new Error(`No historical shipments found for customer "${selectedCustomer}" and carrier "${carrier.name}"`);
+      }
       
-      // Mock new costs from Project44 API (in a real implementation, these would come from actual API calls)
-      const mockNewCosts = [780, 1150, 680, 980, 1750];
+      // For each historical shipment, get current rates from Project44 API
+      const processedShipments = [];
       
-      // Calculate savings and margin for each shipment
-      const shipmentsWithCalculations = mockHistoricalShipments.map((shipment, index) => {
-        const newCost = mockNewCosts[index];
-        const savings = shipment.oldCost - newCost;
-        const savingsPercentage = (savings / shipment.oldCost) * 100;
-        const margin = ((shipment.oldPrice - newCost) / shipment.oldPrice) * 100;
-        
-        return {
-          ...shipment,
-          newCost,
-          savings,
-          savingsPercentage,
-          margin
+      for (const shipment of shipments) {
+        // Create RFQ from historical shipment
+        const rfq: RFQRow = {
+          fromDate: new Date().toISOString().split('T')[0], // Use current date for quotes
+          fromZip: shipment.origin,
+          toZip: shipment.destination,
+          pallets: shipment.pallets,
+          grossWeight: shipment.weight,
+          isStackable: false,
+          isReefer: false,
+          accessorial: []
         };
-      });
+        
+        try {
+          // Get quotes from Project44 API for this shipment
+          const quotes = await project44Client.getQuotes(rfq, [selectedCarrier], false, false, false);
+          
+          // Find the best (lowest) quote
+          const bestQuote = quotes.length > 0 ? 
+            quotes.reduce((best, current) => {
+              const bestTotal = best.rateQuoteDetail?.total || 
+                (best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts);
+              
+              const currentTotal = current.rateQuoteDetail?.total || 
+                (current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts);
+              
+              return currentTotal < bestTotal ? current : best;
+            }) : null;
+          
+          // Calculate the new cost from the quote
+          const newCost = bestQuote ? 
+            (bestQuote.rateQuoteDetail?.total || 
+              (bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts)) : 
+            null;
+          
+          // Add to processed shipments with calculations
+          if (newCost) {
+            const savings = shipment.oldCost - newCost;
+            const savingsPercentage = (savings / shipment.oldCost) * 100;
+            const margin = ((shipment.oldPrice - newCost) / shipment.oldPrice) * 100;
+            
+            processedShipments.push({
+              ...shipment,
+              newCost,
+              savings,
+              savingsPercentage,
+              margin,
+              quoteDetails: bestQuote
+            });
+          } else {
+            // No quote available, use old cost
+            processedShipments.push({
+              ...shipment,
+              newCost: shipment.oldCost,
+              savings: 0,
+              savingsPercentage: 0,
+              margin: ((shipment.oldPrice - shipment.oldCost) / shipment.oldPrice) * 100,
+              quoteDetails: null
+            });
+          }
+        } catch (quoteError) {
+          console.error(`Failed to get quote for shipment ${shipment.id}:`, quoteError);
+          
+          // Add to processed shipments with error
+          processedShipments.push({
+            ...shipment,
+            newCost: shipment.oldCost,
+            savings: 0,
+            savingsPercentage: 0,
+            margin: ((shipment.oldPrice - shipment.oldCost) / shipment.oldPrice) * 100,
+            quoteDetails: null,
+            error: quoteError instanceof Error ? quoteError.message : 'Failed to get quote'
+          });
+        }
+      }
       
       // Calculate summary statistics
       const summary = {
-        totalOldPrice: shipmentsWithCalculations.reduce((sum, s) => sum + s.oldPrice, 0),
-        totalOldCost: shipmentsWithCalculations.reduce((sum, s) => sum + s.oldCost, 0),
-        totalNewCost: shipmentsWithCalculations.reduce((sum, s) => sum + s.newCost, 0),
-        totalSavings: shipmentsWithCalculations.reduce((sum, s) => sum + s.savings, 0),
+        totalOldPrice: processedShipments.reduce((sum, s) => sum + s.oldPrice, 0),
+        totalOldCost: processedShipments.reduce((sum, s) => sum + s.oldCost, 0),
+        totalNewCost: processedShipments.reduce((sum, s) => sum + s.newCost, 0),
+        totalSavings: processedShipments.reduce((sum, s) => sum + s.savings, 0),
         avgSavingsPercentage: 0,
         overallMargin: 0
       };
@@ -224,8 +333,9 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
           name: group.groupName,
           carrierCount: group.carriers.length
         },
+        customer: selectedCustomer,
         dateRange,
-        shipments: shipmentsWithCalculations,
+        shipments: processedShipments,
         summary
       });
     } catch (err) {
@@ -235,7 +345,7 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
     }
   };
 
-  // Run negotiated rates analysis
+  // Run negotiated rates analysis with real API calls
   const runNegotiatedRatesAnalysis = async () => {
     if (!project44Client) {
       setError('Project44 client not available. Please configure your API credentials first.');
@@ -263,73 +373,134 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
         throw new Error('Selected carrier not found');
       }
       
-      // In a real implementation, this would:
-      // 1. Load all historical shipments for the selected carrier from the database
-      // 2. Get current rates from Project44 API for the exact same shipments
-      // 3. Calculate the sum of old prices and new costs
-      // 4. Calculate margin as (old price - new cost) / old price
+      // Load all customers with shipments for this carrier
+      const { data: customerData, error: customerError } = await supabase
+        .from('Shipments')
+        .select('DISTINCT "Customer"')
+        .or(`"Booked Carrier".eq.${carrier.name},"Quoted Carrier".eq.${carrier.name}`)
+        .not('"Customer"', 'is', null)
+        .order('"Customer"');
       
-      // Mock data for customers
-      const mockCustomers = [
-        { id: 1, name: 'Acme Corporation' },
-        { id: 2, name: 'Global Logistics Inc.' },
-        { id: 3, name: 'Midwest Distribution' },
-        { id: 4, name: 'East Coast Shipping' },
-        { id: 5, name: 'Western Transport' }
-      ];
+      if (customerError) throw customerError;
       
-      // Generate mock shipment data for each customer
-      const mockCustomerShipments = mockCustomers.map(customer => {
-        // Generate 3-5 shipments per customer
-        const shipmentCount = Math.floor(Math.random() * 3) + 3;
-        const shipments = [];
+      const customerNames = customerData?.map(d => d.Customer).filter(Boolean) || [];
+      
+      if (customerNames.length === 0) {
+        throw new Error(`No customers found with shipments for carrier "${carrier.name}"`);
+      }
+      
+      // Process each customer
+      const customerResults = [];
+      
+      for (const customerName of customerNames) {
+        // Load historical shipments for this customer and carrier
+        const shipments = await loadHistoricalShipments(customerName, carrier.name);
         
-        let totalOldPrice = 0;
-        let totalNewCost = 0;
+        if (shipments.length === 0) continue;
         
-        for (let i = 0; i < shipmentCount; i++) {
-          const weight = Math.floor(Math.random() * 10000) + 1000;
-          const pallets = Math.floor(Math.random() * 8) + 1;
-          const oldPrice = Math.floor(Math.random() * 1500) + 500;
-          const oldCost = Math.floor(oldPrice * 0.85);
-          const newCost = Math.floor(oldCost * (Math.random() * 0.3 + 0.7)); // 70-100% of old cost
+        // For each historical shipment, get current rates from Project44 API
+        const processedShipments = [];
+        
+        for (const shipment of shipments) {
+          // Create RFQ from historical shipment
+          const rfq: RFQRow = {
+            fromDate: new Date().toISOString().split('T')[0], // Use current date for quotes
+            fromZip: shipment.origin,
+            toZip: shipment.destination,
+            pallets: shipment.pallets,
+            grossWeight: shipment.weight,
+            isStackable: false,
+            isReefer: false,
+            accessorial: []
+          };
           
-          totalOldPrice += oldPrice;
-          totalNewCost += newCost;
-          
-          shipments.push({
-            id: `${customer.id}-${i}`,
-            date: new Date(Date.now() - Math.floor(Math.random() * 30000000000)).toISOString().split('T')[0],
-            origin: ['60607', '90210', '33101', '94102', '77001'][Math.floor(Math.random() * 5)],
-            destination: ['30033', '10001', '75201', '02101', '30309'][Math.floor(Math.random() * 5)],
-            weight,
-            pallets,
-            oldPrice,
-            oldCost,
-            newCost,
-            savings: oldCost - newCost,
-            savingsPercentage: ((oldCost - newCost) / oldCost) * 100,
-            margin: ((oldPrice - newCost) / oldPrice) * 100
-          });
+          try {
+            // Get quotes from Project44 API for this shipment
+            const quotes = await project44Client.getQuotes(rfq, [selectedCarrier], false, false, false);
+            
+            // Find the best (lowest) quote
+            const bestQuote = quotes.length > 0 ? 
+              quotes.reduce((best, current) => {
+                const bestTotal = best.rateQuoteDetail?.total || 
+                  (best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts);
+                
+                const currentTotal = current.rateQuoteDetail?.total || 
+                  (current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts);
+                
+                return currentTotal < bestTotal ? current : best;
+              }) : null;
+            
+            // Calculate the new cost from the quote
+            const newCost = bestQuote ? 
+              (bestQuote.rateQuoteDetail?.total || 
+                (bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts)) : 
+              null;
+            
+            // Add to processed shipments with calculations
+            if (newCost) {
+              const savings = shipment.oldCost - newCost;
+              const savingsPercentage = (savings / shipment.oldCost) * 100;
+              const margin = ((shipment.oldPrice - newCost) / shipment.oldPrice) * 100;
+              
+              processedShipments.push({
+                ...shipment,
+                newCost,
+                savings,
+                savingsPercentage,
+                margin,
+                quoteDetails: bestQuote
+              });
+            } else {
+              // No quote available, use old cost
+              processedShipments.push({
+                ...shipment,
+                newCost: shipment.oldCost,
+                savings: 0,
+                savingsPercentage: 0,
+                margin: ((shipment.oldPrice - shipment.oldCost) / shipment.oldPrice) * 100,
+                quoteDetails: null
+              });
+            }
+          } catch (quoteError) {
+            console.error(`Failed to get quote for shipment ${shipment.id}:`, quoteError);
+            
+            // Add to processed shipments with error
+            processedShipments.push({
+              ...shipment,
+              newCost: shipment.oldCost,
+              savings: 0,
+              savingsPercentage: 0,
+              margin: ((shipment.oldPrice - shipment.oldCost) / shipment.oldPrice) * 100,
+              quoteDetails: null,
+              error: quoteError instanceof Error ? quoteError.message : 'Failed to get quote'
+            });
+          }
         }
         
-        return {
-          customer,
-          shipments,
-          summary: {
-            shipmentCount,
-            totalOldPrice,
-            totalNewCost,
-            optimalMargin: ((totalOldPrice - totalNewCost) / totalOldPrice) * 100
-          }
+        // Calculate customer summary
+        const customerSummary = {
+          shipmentCount: processedShipments.length,
+          totalOldPrice: processedShipments.reduce((sum, s) => sum + s.oldPrice, 0),
+          totalOldCost: processedShipments.reduce((sum, s) => sum + s.oldCost, 0),
+          totalNewCost: processedShipments.reduce((sum, s) => sum + s.newCost, 0),
+          optimalMargin: 0
         };
-      });
+        
+        // Calculate optimal margin for this customer
+        customerSummary.optimalMargin = ((customerSummary.totalOldPrice - customerSummary.totalNewCost) / customerSummary.totalOldPrice) * 100;
+        
+        customerResults.push({
+          customer: { name: customerName },
+          shipments: processedShipments,
+          summary: customerSummary
+        });
+      }
       
       // Calculate overall summary
       const overallSummary = {
-        totalShipments: mockCustomerShipments.reduce((sum, c) => sum + c.summary.shipmentCount, 0),
-        totalOldPrice: mockCustomerShipments.reduce((sum, c) => sum + c.summary.totalOldPrice, 0),
-        totalNewCost: mockCustomerShipments.reduce((sum, c) => sum + c.summary.totalNewCost, 0),
+        totalShipments: customerResults.reduce((sum, c) => sum + c.summary.shipmentCount, 0),
+        totalOldPrice: customerResults.reduce((sum, c) => sum + c.summary.totalOldPrice, 0),
+        totalNewCost: customerResults.reduce((sum, c) => sum + c.summary.totalNewCost, 0),
         weightedAvgMargin: 0
       };
       
@@ -346,7 +517,7 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
           name: group.groupName
         },
         dateRange,
-        customerShipments: mockCustomerShipments,
+        customerShipments: customerResults,
         summary: overallSummary
       });
     } catch (err) {
@@ -448,6 +619,26 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
               </div>
             )}
             
+            {/* Customer Dropdown */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Customer
+              </label>
+              <select
+                value={selectedCustomer}
+                onChange={(e) => setSelectedCustomer(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                disabled={isLoadingCustomers}
+              >
+                <option value="">-- Select a customer --</option>
+                {customers.map(customer => (
+                  <option key={customer} value={customer}>
+                    {customer}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
             {/* Date Range */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div>
@@ -478,7 +669,7 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
             <div className="flex justify-center mt-6">
               <button
                 onClick={runMarginAnalysis}
-                disabled={isLoading || !selectedGroup || !selectedCarrier}
+                disabled={isLoading || !selectedGroup || !selectedCarrier || !selectedCustomer}
                 className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
@@ -511,7 +702,7 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Margin Analysis Summary</h3>
                 <p className="text-sm text-gray-600">
-                  {analysisResults.carrier.name} - {analysisResults.shipments.length} historical shipments analyzed
+                  {analysisResults.carrier.name} - {analysisResults.customer} - {analysisResults.shipments.length} historical shipments analyzed
                 </p>
               </div>
             </div>
@@ -618,6 +809,11 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {formatCurrency(shipment.newCost)}
+                        {shipment.error && (
+                          <div className="text-xs text-red-600 mt-1">
+                            Error: Using old cost
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-green-600">
@@ -1014,7 +1210,7 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {negotiatedRatesResults.customerShipments.map((customerData: any) => (
-                      <tr key={customerData.customer.id} className="hover:bg-gray-50">
+                      <tr key={customerData.customer.name} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {customerData.customer.name}
                         </td>
@@ -1057,16 +1253,60 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
               
               <div className="p-6">
                 <div className="text-sm text-gray-600 mb-4">
-                  Detailed shipment-by-shipment analysis would be shown here, including:
+                  This analysis reprocesses historical shipments through the Project44 API to get current market rates.
                 </div>
                 
-                <ul className="list-disc list-inside space-y-2 text-sm text-gray-700">
-                  <li>Historical shipment details (origin, destination, weight, etc.)</li>
-                  <li>Historical price and cost</li>
-                  <li>Current market rates from Project44 API</li>
-                  <li>Calculated margin to maintain revenue</li>
-                  <li>Comparison against group average rates</li>
-                </ul>
+                <div className="space-y-4">
+                  {negotiatedRatesResults.customerShipments.slice(0, 1).map((customerData: any) => (
+                    <div key={customerData.customer.name} className="space-y-3">
+                      <div className="font-medium text-gray-900">{customerData.customer.name}</div>
+                      
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Route</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Old Price</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">New Cost</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Margin</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {customerData.shipments.slice(0, 3).map((shipment: any) => (
+                              <tr key={shipment.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-2 whitespace-nowrap">{shipment.date}</td>
+                                <td className="px-4 py-2 whitespace-nowrap">
+                                  <div className="flex items-center space-x-1">
+                                    <MapPin className="h-3 w-3 text-gray-400" />
+                                    <span>{shipment.origin} → {shipment.destination}</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-2 whitespace-nowrap">{formatCurrency(shipment.oldPrice)}</td>
+                                <td className="px-4 py-2 whitespace-nowrap">{formatCurrency(shipment.newCost)}</td>
+                                <td className="px-4 py-2 whitespace-nowrap text-green-600 font-medium">
+                                  {shipment.margin.toFixed(1)}%
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      
+                      {customerData.shipments.length > 3 && (
+                        <div className="text-center text-sm text-gray-500">
+                          + {customerData.shipments.length - 3} more shipments
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                
+                {negotiatedRatesResults.customerShipments.length > 1 && (
+                  <div className="mt-4 text-center text-sm text-gray-500">
+                    + {negotiatedRatesResults.customerShipments.length - 1} more customers
+                  </div>
+                )}
                 
                 <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-start space-x-2">
