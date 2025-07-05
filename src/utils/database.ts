@@ -475,20 +475,39 @@ export const getShipmentAnalytics = async (customerName?: string, branch?: strin
 
 export const getCustomerList = async (): Promise<string[]> => {
   try {
-    const { data, error } = await supabase
-      .from('Shipments')
-      .select('"Customer"')
-      .not('"Customer"', 'is', null)
-      .order('"Customer"');
+    // Load all customers without any limits
+    console.log('🔍 Loading all unique customers from Shipments...');
+    let allCustomers: any[] = [];
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
     
-    if (error) {
-      console.error('Error fetching customer list:', error);
-      throw error;
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('Shipments')
+        .select('"Customer"')
+        .not('"Customer"', 'is', null)
+        .range(from, from + batchSize - 1);
+      
+      if (error) {
+        console.error('Error fetching customer batch:', error);
+        throw error;
+      }
+      
+      if (data && data.length > 0) {
+        allCustomers = [...allCustomers, ...data];
+        from += batchSize;
+        hasMore = data.length === batchSize; // Continue if we got a full batch
+        console.log(`📋 Loaded batch: ${data.length} customers (total: ${allCustomers.length})`);
+      } else {
+        hasMore = false;
+      }
     }
     
     // Get unique customer names
-    const uniqueCustomers = [...new Set(data?.map(d => d.Customer) || [])];
-    return uniqueCustomers.filter(Boolean);
+    const uniqueCustomers = [...new Set(allCustomers.map(d => d.Customer).filter(Boolean))].sort();
+    console.log(`✅ Loaded ${uniqueCustomers.length} unique customers from ${allCustomers.length} total records`);
+    return uniqueCustomers;
   } catch (error) {
     console.error('Failed to fetch customer list:', error);
     throw error;
@@ -497,25 +516,86 @@ export const getCustomerList = async (): Promise<string[]> => {
 
 export const getBranchList = async (): Promise<string[]> => {
   try {
-    const { data, error } = await supabase
-      .from('Shipments')
-      .select('"Branch"')
-      .not('"Branch"', 'is', null)
-      .order('"Branch"');
+    // Load all branches without any limits
+    console.log('🔍 Loading all unique branches from Shipments...');
+    let allBranches: any[] = [];
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
     
-    if (error) {
-      console.error('Error fetching branch list:', error);
-      throw error;
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('Shipments')
+        .select('"Branch"')
+        .not('"Branch"', 'is', null)
+        .range(from, from + batchSize - 1);
+      
+      if (error) {
+        console.error('Error fetching branch batch:', error);
+        throw error;
+      }
+      
+      if (data && data.length > 0) {
+        allBranches = [...allBranches, ...data];
+        from += batchSize;
+        hasMore = data.length === batchSize; // Continue if we got a full batch
+        console.log(`📋 Loaded batch: ${data.length} branches (total: ${allBranches.length})`);
+      } else {
+        hasMore = false;
+      }
     }
     
     // Get unique branch names
-    const uniqueBranches = [...new Set(data?.map(d => d.Branch) || [])];
-    return uniqueBranches.filter(Boolean);
+    const uniqueBranches = [...new Set(allBranches.map(d => d.Branch).filter(Boolean))].sort();
+    console.log(`✅ Loaded ${uniqueBranches.length} unique branches from ${allBranches.length} total records`);
+    return uniqueBranches;
   } catch (error) {
     console.error('Failed to fetch branch list:', error);
     throw error;
   }
 };
+
+export const getSalesRepList = async (): Promise<string[]> => {
+  try {
+    // Load all sales reps without any limits
+    console.log('🔍 Loading all unique sales reps from Shipments...');
+    let allSalesReps: any[] = [];
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('Shipments')
+        .select('"Sales Rep"')
+        .not('"Sales Rep"', 'is', null)
+        .range(from, from + batchSize - 1);
+      
+      if (error) {
+        console.error('Error fetching sales rep batch:', error);
+        throw error;
+      }
+      
+      if (data && data.length > 0) {
+        allSalesReps = [...allSalesReps, ...data];
+        from += batchSize;
+        hasMore = data.length === batchSize; // Continue if we got a full batch
+        console.log(`📋 Loaded batch: ${data.length} sales reps (total: ${allSalesReps.length})`);
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    // Get unique branch names
+    const uniqueSalesReps = [...new Set(allSalesReps.map(d => d["Sales Rep"]).filter(Boolean))].sort();
+    console.log(`✅ Loaded ${uniqueSalesReps.length} unique sales reps from ${allSalesReps.length} total records`);
+    return uniqueSalesReps;
+  } catch (error) {
+    console.error('Failed to fetch sales rep list:', error);
+    throw error;
+  }
+};
+
 
 export const getSalesRepList = async (): Promise<string[]> => {
   try {

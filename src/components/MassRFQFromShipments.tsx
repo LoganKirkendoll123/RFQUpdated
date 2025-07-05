@@ -29,6 +29,11 @@ import { RFQCard } from './RFQCard';
 import { CarrierSelection } from './CarrierSelection';
 import * as XLSX from 'xlsx';
 
+// Rate limiting constants
+const BATCH_SIZE = 50; // Process 50 RFQs at a time
+const BATCH_DELAY_MS = 5000; // 5 seconds between batches
+const REQUEST_DELAY_MS = 500; // 500ms between individual requests
+
 interface MassRFQFromShipmentsProps {
   project44Client: Project44APIClient | null;
   freshxClient: FreshXAPIClient | null;
@@ -59,11 +64,6 @@ interface MassRFQJob {
   startTime?: Date;
   endTime?: Date;
 }
-
-// Rate limiting constants
-const BATCH_SIZE = 50; // Process 50 RFQs at a time
-const BATCH_DELAY_MS = 5000; // 5 seconds between batches
-const REQUEST_DELAY_MS = 500; // 500ms between individual requests
 
 export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
   project44Client,
@@ -102,6 +102,9 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
 
   useEffect(() => {
     loadFilterOptions();
+    // Initialize local selected carriers from props
+    setLocalSelectedCarriers(selectedCarriers);
+    
     if (project44Client) {
       loadCarriers();
     }
@@ -194,7 +197,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       console.log('🔍 Loading customer shipments for mass RFQ analysis...');
       
       let query = supabase
-        .from('Shipments')
+        .from('Shipments') 
         .select('*')
         .gte('"Scheduled Pickup Date"', dateRange.start)
         .lte('"Scheduled Pickup Date"', dateRange.end)
@@ -209,22 +212,51 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
         query = query.eq('"Sales Rep"', selectedSalesRep);
       }
       
-      const { data: shipments, error } = await query;
+      // Load shipments in batches to handle large datasets
+      console.log('📦 Loading shipments in batches...');
+      let allShipments: any[] = [];
+      let from = 0;
+      const dbBatchSize = 1000; // Supabase's max limit per request
+      let hasMore = true;
       
-      if (error) {
-        throw error;
+      while (hasMore) {
+        try {
+          console.log(`📋 Loading batch of shipments from ${from} to ${from + dbBatchSize - 1}...`);
+          const { data, error, count } = await query
+            .range(from, from + dbBatchSize - 1)
+            .order('"Invoice #"', { ascending: false });
+          
+          if (error) {
+            console.error('❌ Error loading shipment batch:', error);
+            throw error;
+          }
+          
+          if (data && data.length > 0) {
+            console.log(`✅ Loaded batch of ${data.length} shipments`);
+            allShipments = [...allShipments, ...data];
+            from += dbBatchSize;
+            hasMore = data.length === dbBatchSize; // Continue if we got a full batch
+          } else {
+            console.log('📋 No more shipments to load');
+            hasMore = false;
+          }
+        } catch (batchError) {
+          console.error('❌ Failed to load shipment batch:', batchError);
+          hasMore = false;
+        }
       }
       
-      if (!shipments || shipments.length === 0) {
-        setCustomerSummaries([]);
+      if (allShipments.length === 0) {
+        console.log('⚠️ No shipments found matching criteria');
+        setCustomerSummaries([]); 
         return;
       }
       
-      console.log(`📦 Loaded ${shipments.length} shipments for analysis`);
+      console.log(`📦 Loaded ${allShipments.length} shipments for analysis`);
       
       // Group shipments by customer
-      const customerGroups = shipments.reduce((groups, shipment) => {
-        const customer = shipment.Customer;
+      const customerGroups = allShipments.reduce((groups, shipment) => {
+        const customer = shipment["Customer"];
         if (!customer) return groups;
         
         if (!groups[customer]) {
@@ -233,7 +265,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
         groups[customer].push(shipment);
         return groups;
       }, {} as Record<string, any[]>);
-      
+
       // Create customer summaries
       const summaries: CustomerShipmentSummary[] = Object.entries(customerGroups)
         .map(([customerName, customerShipments]) => {
@@ -349,7 +381,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     const estimatedPallets = Math.max(1, Math.ceil(packages / 4)); // Rough estimate
     
     // Filter out any problematic accessorial codes
-    let accessorialCodes: string[] = [];
+    let accessorialCodes: string[] = []; 
     if (shipment["Accessorials"]) {
       accessorialCodes = shipment["Accessorials"]
         .split(';')
@@ -936,10 +968,10 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 <div className="text-purple-800">
                   <span className="font-medium">{selectedCount} customers selected</span>
                   <span className="ml-2 text-sm">({totalShipments} total shipments)</span>
-                </div>
+                </div> 
                 <button
                   onClick={processMassRFQ}
-                  disabled={isProcessing || !project44Client || !carriersLoaded}
+                  disabled={isProcessing || !project44Client || !carriersLoaded || Object.values(localSelectedCarriers).filter(Boolean).length === 0}
                   className="flex items-center space-x-2 px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors"
                 >
                   {isProcessing ? (
