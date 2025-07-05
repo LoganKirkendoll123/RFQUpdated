@@ -23,7 +23,6 @@ import {
   History,
   Trash2,
   Copy,
-  Save,
   FolderOpen,
   X,
   TrendingUp
