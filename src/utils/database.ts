@@ -594,18 +594,4 @@ export const getSalesRepList = async (): Promise<string[]> => {
     console.error('Failed to fetch sales rep list:', error);
     throw error;
   }
-      .order('"Sales Rep"');
-    
-    if (error) {
-      console.error('Error fetching sales rep list:', error);
-      throw error;
-    }
-    
-    // Get unique sales rep names
-    const uniqueSalesReps = [...new Set(data?.map(d => d["Sales Rep"]) || [])];
-    return uniqueSalesReps.filter(Boolean);
-  } catch (error) {
-    console.error('Failed to fetch sales rep list:', error);
-    throw error;
-  }
 };
