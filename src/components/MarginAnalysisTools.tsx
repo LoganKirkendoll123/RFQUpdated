@@ -153,7 +153,7 @@ export const MarginAnalysisTools: React.FC = () => {
       const { data, error } = await supabase
         .from('Shipments')
         .select('"Booked Carrier", "Quoted Carrier"')
-        .or('"Booked Carrier".not.is.null.and."Booked Carrier".not.eq."", "Quoted Carrier".not.is.null.and."Quoted Carrier".not.eq.""');
+        .or('and("Booked Carrier".not.is.null,"Booked Carrier".not.eq.""),and("Quoted Carrier".not.is.null,"Quoted Carrier".not.eq."")');
       
       if (error) {
         console.error('❌ Error loading carriers:', error);
