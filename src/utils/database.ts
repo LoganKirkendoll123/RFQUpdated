@@ -477,7 +477,7 @@ export const getCustomerList = async (): Promise<string[]> => {
   try {
     const { data, error } = await supabase
       .from('Shipments')
-      .select('"Customer"')
+      .select('"Customer"', { distinct: true })
       .not('"Customer"', 'is', null)
       .order('"Customer"');
     
@@ -499,7 +499,7 @@ export const getBranchList = async (): Promise<string[]> => {
   try {
     const { data, error } = await supabase
       .from('Shipments')
-      .select('"Branch"')
+      .select('"Branch"', { distinct: true })
       .not('"Branch"', 'is', null)
       .order('"Branch"');
     
@@ -521,7 +521,7 @@ export const getSalesRepList = async (): Promise<string[]> => {
   try {
     const { data, error } = await supabase
       .from('Shipments')
-      .select('"Sales Rep"')
+      .select('"Sales Rep"', { distinct: true })
       .not('"Sales Rep"', 'is', null)
       .order('"Sales Rep"');
     

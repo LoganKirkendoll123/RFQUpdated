@@ -100,7 +100,7 @@ export const DatabaseToolbox: React.FC = () => {
       // Load unique customers
       const { data: customerData } = await supabase
         .from('Shipments')
-        .select('"Customer"')
+        .select('"Customer"', { distinct: true })
         .not('"Customer"', 'is', null)
         .limit(100);
       
@@ -112,7 +112,7 @@ export const DatabaseToolbox: React.FC = () => {
       // Load unique branches
       const { data: branchData } = await supabase
         .from('Shipments')
-        .select('"Branch"')
+        .select('"Branch"', { distinct: true })
         .not('"Branch"', 'is', null)
         .limit(100);
       
@@ -124,7 +124,7 @@ export const DatabaseToolbox: React.FC = () => {
       // Load unique sales reps
       const { data: salesRepData } = await supabase
         .from('Shipments')
-        .select('"Sales Rep"')
+        .select('"Sales Rep"', { distinct: true })
         .not('"Sales Rep"', 'is', null)
         .limit(100);
       
