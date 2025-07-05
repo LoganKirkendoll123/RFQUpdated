@@ -50,6 +50,9 @@ interface CustomerShipmentSummary {
 
 interface MassRFQJob {
   id: string;
+  const BATCH_SIZE = 5; // Process 5 RFQs at a time
+  const BATCH_DELAY = 2000; // 2 second delay between batches
+  
   customerName: string;
   shipmentCount: number;
   status: 'pending' | 'processing' | 'completed' | 'error';
@@ -320,9 +323,82 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     setSelectedCustomers(prev => ({
       ...prev,
       [customerName]: selected
-    }));
-  };
+  // Process shipments in batches
+  for (let i = 0; i < filteredShipments.length; i += BATCH_SIZE) {
+    const batch = filteredShipments.slice(i, i + BATCH_SIZE);
+    console.log(`🔄 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(filteredShipments.length / BATCH_SIZE)}`);
+    
+    // Process batch in parallel
+    const batchPromises = batch.map(async (shipment, batchIndex) => {
+      const globalIndex = i + batchIndex;
+      try {
+        onProgress(globalIndex + 1, filteredShipments.length, `Processing RFQ ${globalIndex + 1}: ${shipment.Customer}`);
+        
+        const rfqData = convertShipmentToRFQ(shipment);
+        console.log(`📋 RFQ ${globalIndex + 1} data:`, rfqData);
+        
+        const quotes = await apiClient.getQuotes([rfqData], false);
+        console.log(`✅ RFQ ${globalIndex + 1} completed for ${shipment.Customer}:`, quotes);
+        
+        const result = {
+          shipment,
+          rfqData,
+          quotes,
+          success: true,
+          index: globalIndex + 1
+        };
+        
+        onResult(result);
+        return result;
+      } catch (error) {
+        console.error(`❌ RFQ ${globalIndex + 1} failed for ${shipment.Customer}:`, error);
+        const result = {
+          shipment,
+          rfqData: convertShipmentToRFQ(shipment),
+          error: error instanceof Error ? error.message : String(error),
+          success: false,
+          index: globalIndex + 1
+        };
+        
+        onResult(result);
+        return result;
+      }
+    });
+    
+    // Wait for batch to complete
+    const batchResults = await Promise.allSettled(batchPromises);
+    
+    // Add results to main results array
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+    
+    processedCount += batch.length;
+    
+    // Add delay between batches (except for the last batch)
+    if (i + BATCH_SIZE < filteredShipments.length) {
+      console.log(`⏳ Waiting ${BATCH_DELAY}ms before next batch...`);
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+    }
+  }
+  
+  console.log(`🎉 Mass RFQ processing completed! Processed ${processedCount} shipments`);
+  return results;
+};
 
+// Legacy single-shipment processing (kept for reference but not used)
+const processSingleRFQ = async (
+  shipment: ShipmentData,
+  index: number,
+  total: number,
+  apiClient: Project44APIClient,
+  onProgress: (current: number, total: number, message: string) => void,
+  onResult: (result: any) => void
+) => {
+  };
+    onProgress(index + 1, total, `Processing RFQ ${index + 1}: ${shipment.Customer}`);
   const handleSelectAllCustomers = (selected: boolean) => {
     const newSelection: { [customer: string]: boolean } = {};
     customerSummaries.forEach(summary => {
@@ -348,9 +424,8 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       fromZip: shipment["Zip"] || '00000',
       toZip: shipment["Zip_1"] || '00000',
       pallets: estimatedPallets,
-      grossWeight: weight,
       isStackable: false, // Conservative default
-      isReefer: false, // Default to dry goods
+    return result;
       accessorial: shipment["Accessorials"] ? shipment["Accessorials"].split(';').filter(Boolean) : [],
       freightClass: shipment["Max Freight Class"] || '70',
       commodityDescription: shipment["Commodities"] || 'General Freight',
@@ -1090,12 +1165,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       {/* Error Display */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
             <AlertCircle className="h-5 w-5 text-red-600" />
-            <span className="text-red-800">{error}</span>
+    return result;
           </div>
-        </div>
-      )}
-    </div>
-  );
 };

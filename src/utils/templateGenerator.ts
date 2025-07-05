@@ -39,7 +39,6 @@ const PROJECT44_ACCESSORIALS = [
   // Delivery Accessorial Services
   { code: 'AIRDEL', label: 'Airport Delivery' },
   { code: 'APPT', label: 'Delivery Appointment' },
-  { code: 'APPTDEL', label: 'Delivery Appointment' },
   { code: 'CAMPDEL', label: 'Camp Delivery' },
   { code: 'CFSDEL', label: 'Container Freight Station Delivery' },
   { code: 'CHRCDEL', label: 'Church Delivery' },
@@ -257,7 +256,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       '', '', '', '', '', '', '', '', '', '', '',
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['LGDEL', 'APPTDEL'].includes(acc.code) ? true : false
+        ['LGDEL', 'APPT'].includes(acc.code) ? true : false
       )
     ],
     // Row 2: Volume LTL - Multiple items with different dimensions
@@ -297,7 +296,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       '', '', '', '', '', '', '', '', '', '', '',
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['LGPU', 'LGDEL', 'NOTIFY', 'APPTPU', 'APPTDEL'].includes(acc.code) ? true : false
+        ['LGPU', 'LGDEL', 'NOTIFY', 'APPTPU', 'APPT'].includes(acc.code) ? true : false
       )
     ],
     // Row 4: Construction materials with varying sizes
