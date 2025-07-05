@@ -104,6 +104,12 @@ export const MarginAnalysisTools: React.FC = () => {
   // Carrier selection
   const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
   const [selectedCarrier, setSelectedCarrier] = useState<string>('');
+  const [availableCarriers, setAvailableCarriers] = useState<Array<{
+    id: string;
+    name: string;
+    accountCode: string;
+    p44Code?: string;
+  }>>([]);
   const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
   const [carriersLoaded, setCarriersLoaded] = useState(false);
   const [showCarrierSelection, setShowCarrierSelection] = useState(false);
@@ -168,6 +174,116 @@ export const MarginAnalysisTools: React.FC = () => {
     } catch (error) {
       console.error('❌ Failed to load carriers:', error);
       setError(error instanceof Error ? error.message : 'Failed to load carriers');
+    } finally {
+      setIsLoadingCarriers(false);
+    }
+  };
+
+  const loadCarriersForCustomer = async (customerName: string) => {
+    if (!customerName || !project44Client) return;
+    
+    setIsLoadingCarriers(true);
+    setAvailableCarriers([]);
+    setSelectedCarrier('');
+    
+    try {
+      console.log(`🔍 Step 1: Loading all carriers from Project44 API...`);
+      
+      // Step 1: Call Project44 for all available carriers
+      const carrierGroups = await project44Client.getAvailableCarriersByGroup(false, false);
+      console.log(`📋 Found ${carrierGroups.length} carrier groups from Project44`);
+      
+      // Extract all carriers with their account codes
+      const allP44Carriers = carrierGroups.flatMap(group => 
+        group.carriers.map(carrier => ({
+          accountCode: carrier.accountCode || carrier.id,
+          name: carrier.name,
+          scac: carrier.scac,
+          mcNumber: carrier.mcNumber,
+          dotNumber: carrier.dotNumber
+        }))
+      );
+      
+      console.log(`🚛 Found ${allP44Carriers.length} total carriers from Project44`);
+      
+      // Step 2: Get customer-carrier pairs from database
+      console.log(`🔍 Step 2: Loading customer-carrier pairs for: ${customerName}`);
+      
+      const { data: customerCarrierPairs, error } = await supabase
+        .from('CustomerCarriers')
+        .select('P44CarrierCode, InternalName')
+        .eq('InternalName', customerName)
+        .not('P44CarrierCode', 'is', null);
+      
+      if (error) {
+        console.error('❌ Error loading customer-carrier pairs:', error);
+        setError('Failed to load customer-carrier relationships');
+        return;
+      }
+      
+      if (!customerCarrierPairs || customerCarrierPairs.length === 0) {
+        console.log(`ℹ️ No carrier relationships found for customer: ${customerName}`);
+        setError(`No carrier relationships found for customer "${customerName}". Please add carriers to the CustomerCarriers table.`);
+        return;
+      }
+      
+      console.log(`📋 Found ${customerCarrierPairs.length} customer-carrier pairs`);
+      
+      // Step 3: Match Account Codes from P44 to CustomerCarrier table
+      console.log(`🔍 Step 3: Matching P44 account codes to CustomerCarrier P44CarrierCodes...`);
+      
+      const matchedCarriers: Array<{
+        id: string;
+        name: string;
+        accountCode: string;
+        p44Code?: string;
+      }> = [];
+      
+      customerCarrierPairs.forEach(pair => {
+        const dbP44Code = pair.P44CarrierCode;
+        console.log(`🔍 Looking for P44 carrier with account code matching: ${dbP44Code}`);
+        
+        // Find P44 carrier where account code matches the P44CarrierCode from database
+        const matchedP44Carrier = allP44Carriers.find(p44Carrier => {
+          // Try exact account code match first
+          if (p44Carrier.accountCode === dbP44Code) {
+            console.log(`✅ Found exact account code match: ${p44Carrier.name} (${p44Carrier.accountCode})`);
+            return true;
+          }
+          
+          // Try SCAC match as fallback
+          if (p44Carrier.scac === dbP44Code) {
+            console.log(`✅ Found SCAC match: ${p44Carrier.name} (SCAC: ${p44Carrier.scac})`);
+            return true;
+          }
+          
+          return false;
+        });
+        
+        if (matchedP44Carrier) {
+          matchedCarriers.push({
+            id: matchedP44Carrier.accountCode,
+            name: matchedP44Carrier.name,
+            accountCode: matchedP44Carrier.accountCode,
+            p44Code: dbP44Code
+          });
+          console.log(`✅ Added matched carrier: ${matchedP44Carrier.name} (Account: ${matchedP44Carrier.accountCode}, DB Code: ${dbP44Code})`);
+        } else {
+          console.log(`⚠️ No P44 carrier found with account code matching: ${dbP44Code}`);
+        }
+      });
+      
+      if (matchedCarriers.length === 0) {
+        setError(`No matching carriers found between CustomerCarriers table and Project44 API for customer "${customerName}". Please verify the P44CarrierCode values in your database match actual account codes from Project44.`);
+        return;
+      }
+      
+      setAvailableCarriers(matchedCarriers);
+      console.log(`✅ Successfully matched ${matchedCarriers.length} carriers for ${customerName}`);
+      
+    } catch (err) {
+      console.error('❌ Error loading carriers:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load carriers for customer');
     } finally {
       setIsLoadingCarriers(false);
     }
@@ -482,6 +598,77 @@ export const MarginAnalysisTools: React.FC = () => {
         return 'bg-red-50 text-red-800 border-red-200';
       default:
         return 'bg-gray-50 text-gray-800 border-gray-200';
+    }
+  };
+
+  const runMarginAnalysis = async () => {
+    if (!selectedCustomer || !selectedCarrier) return;
+    
+    const carrier = availableCarriers.find(c => c.id === selectedCarrier);
+    if (!carrier) return;
+    
+    setIsAnalyzing(true);
+    setAnalysisResults(null);
+    setError('');
+    
+    try {
+      console.log(`📊 Starting margin analysis for ${selectedCustomer} + ${carrier.name}`);
+      
+      // Get shipments for the selected customer and date range
+      let shipmentsQuery = supabase
+        .from('Shipments')
+        .select('*')
+        .eq('"Customer"', selectedCustomer);
+      
+      if (dateRange.start) {
+        shipmentsQuery = shipmentsQuery.gte('"Scheduled Pickup Date"', dateRange.start);
+      }
+      
+      if (dateRange.end) {
+        shipmentsQuery = shipmentsQuery.lte('"Scheduled Pickup Date"', dateRange.end);
+      }
+      
+      const { data: shipments, error: shipmentsError } = await shipmentsQuery;
+      
+      if (shipmentsError) {
+        throw new Error(`Failed to load shipments: ${shipmentsError.message}`);
+      }
+      
+      if (!shipments || shipments.length === 0) {
+        setError(`No shipments found for customer "${selectedCustomer}" in the selected date range.`);
+        return;
+      }
+      
+      console.log(`📦 Found ${shipments.length} total shipments for ${selectedCustomer}`);
+      
+      // Filter shipments for the selected carrier (match by carrier name and account code)
+      const carrierShipments = shipments.filter(shipment => {
+        const bookedCarrier = shipment["Booked Carrier"];
+        const quotedCarrier = shipment["Quoted Carrier"];
+        
+        // Check if either booked or quoted carrier matches our carrier name or account code
+        return (
+          bookedCarrier === carrier.name ||
+          quotedCarrier === carrier.name ||
+          bookedCarrier === carrier.accountCode ||
+          quotedCarrier === carrier.accountCode ||
+          (carrier.p44Code && (bookedCarrier === carrier.p44Code || quotedCarrier === carrier.p44Code))
+        );
+      });
+      
+      console.log(`🎯 Found ${carrierShipments.length} shipments for carrier ${carrier.name}`);
+      
+      if (carrierShipments.length === 0) {
+        setError(`No shipments found for carrier "${carrier.name}" (${carrier.accountCode}) for customer "${selectedCustomer}" in the selected date range.`);
+        return;
+      }
+
+      // Continue with analysis...
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to run margin analysis');
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
