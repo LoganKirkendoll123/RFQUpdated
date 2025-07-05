@@ -24,8 +24,7 @@ import {
   Trash2,
   Copy,
   FolderOpen,
-  X,
-  TrendingUp
+  X
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { Project44APIClient, FreshXAPIClient } from '../utils/apiClient';
