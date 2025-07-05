@@ -253,7 +253,7 @@ export const calculatePricing = (
     }
   }
 
-  const profit = customerPrice - carrierTotalRate;
+    appliedMarginPercentage = customerPrice > 0 ? (settings.minimumProfit / customerPrice) * 100 : 0;
 
   return {
     ...quote,
@@ -310,7 +310,7 @@ export const calculatePricingWithCustomerMargins = async (
           profit,
           markupApplied,
           appliedMarginType: 'customer',
-          appliedMarginPercentage: result.carrierTotalRate > 0 ? (profit / result.carrierTotalRate) * 100 : 0
+          appliedMarginPercentage: finalCustomerPrice > 0 ? (profit / finalCustomerPrice) * 100 : 0
         };
         
         console.log(`💰 Applied customer margin: ${customerMargin}% (final: ${result.appliedMarginPercentage.toFixed(1)}%) for ${selectedCustomer} + ${carrierName}`);
