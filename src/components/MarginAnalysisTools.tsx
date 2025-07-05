@@ -58,7 +58,6 @@ export const MarginAnalysisTools: React.FC = () => {
   const [error, setError] = useState<string>('');
   
   // Preliminary Report State
-  const [carrierName, setCarrierName] = useState('');
   const [dateRange, setDateRange] = useState({
     start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days ago
     end: new Date().toISOString().split('T')[0] // today
@@ -162,8 +161,8 @@ export const MarginAnalysisTools: React.FC = () => {
   };
 
   const runPhaseOneAnalysis = async () => {
-    if (!carrierName || !project44Client) {
-      setError('Please enter a carrier name and ensure Project44 is connected');
+    if (!project44Client) {
+      setError('Please ensure Project44 is connected');
       return;
     }
 
@@ -175,6 +174,19 @@ export const MarginAnalysisTools: React.FC = () => {
       setError('Please select at least one carrier');
       return;
     }
+    
+    // Get the selected carrier name from the first selected carrier
+    const selectedCarrierId = selectedCarrierIds[0];
+    const selectedCarrier = carrierGroups
+      .flatMap(group => group.carriers)
+      .find(carrier => carrier.id === selectedCarrierId);
+      
+    if (!selectedCarrier) {
+      setError('Could not find selected carrier information');
+      return;
+    }
+    
+    const carrierName = selectedCarrier.name;
 
     setIsRunningPhaseOne(true);
     setError('');
@@ -322,8 +334,7 @@ export const MarginAnalysisTools: React.FC = () => {
       // Switch to queue tab to show the pending job
       setActiveTab('queue');
 
-      // Clear form
-      setCarrierName('');
+      // Clear carrier selection
       setSelectedCarriers({});
 
     } catch (error) {
@@ -486,18 +497,7 @@ export const MarginAnalysisTools: React.FC = () => {
       <div className="bg-white rounded-lg shadow-md p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis Configuration</h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Carrier Name</label>
-            <input
-              type="text"
-              value={carrierName}
-              onChange={(e) => setCarrierName(e.target.value)}
-              placeholder="Enter carrier name for analysis"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
             <input
@@ -516,6 +516,12 @@ export const MarginAnalysisTools: React.FC = () => {
               onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
             />
+          </div>
+          
+          <div>
+            <p className="text-sm text-gray-600 mt-1">
+              Select a single carrier below for analysis. The system will analyze all shipments for this carrier across all customers in the specified date range.
+            </p>
           </div>
         </div>
       </div>
@@ -550,6 +556,7 @@ export const MarginAnalysisTools: React.FC = () => {
               onToggleCarrier={handleCarrierToggle}
               onSelectAll={handleSelectAll}
               onSelectAllInGroup={handleSelectAllInGroup}
+              singleSelect={true}
               isLoading={isLoadingCarriers}
             />
           </div>
@@ -567,7 +574,7 @@ export const MarginAnalysisTools: React.FC = () => {
           </div>
           <button
             onClick={runPhaseOneAnalysis}
-            disabled={isRunningPhaseOne || !carrierName || Object.values(selectedCarriers).every(v => !v)}
+            disabled={isRunningPhaseOne || Object.values(selectedCarriers).every(v => !v)}
             className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             {isRunningPhaseOne ? (
