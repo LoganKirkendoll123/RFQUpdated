@@ -58,7 +58,6 @@ export const MarginAnalysisTools: React.FC = () => {
   const [error, setError] = useState<string>('');
   
   // Preliminary Report State
-  const [customerName, setCustomerName] = useState('');
   const [carrierName, setCarrierName] = useState('');
   const [dateRange, setDateRange] = useState({
     start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days ago
@@ -163,8 +162,8 @@ export const MarginAnalysisTools: React.FC = () => {
   };
 
   const runPhaseOneAnalysis = async () => {
-    if (!customerName || !carrierName || !project44Client) {
-      setError('Please fill in all required fields and ensure Project44 is connected');
+    if (!carrierName || !project44Client) {
+      setError('Please enter a carrier name and ensure Project44 is connected');
       return;
     }
 
@@ -185,7 +184,7 @@ export const MarginAnalysisTools: React.FC = () => {
       const { data: job, error: jobError } = await supabase
         .from('MarginAnalysisJobs')
         .insert({
-          customer_name: customerName,
+          customer_name: 'All Customers', // Use a placeholder for all customers
           carrier_name: carrierName,
           analysis_type: 'benchmark',
           status: 'running',
@@ -201,18 +200,17 @@ export const MarginAnalysisTools: React.FC = () => {
 
       console.log('🚀 Starting Phase One Analysis for job:', job.id);
 
-      // Get shipments for the customer and date range
+      // Get shipments for the date range (all customers)
       const { data: shipments, error: shipmentsError } = await supabase
         .from('Shipments')
         .select('*')
-        .eq('"Customer"', customerName)
         .gte('"Scheduled Pickup Date"', dateRange.start)
         .lte('"Scheduled Pickup Date"', dateRange.end);
 
       if (shipmentsError) throw shipmentsError;
 
       if (!shipments || shipments.length === 0) {
-        throw new Error('No shipments found for the specified customer and date range');
+        throw new Error('No shipments found for the specified date range');
       }
 
       console.log(`📦 Found ${shipments.length} shipments for analysis`);
@@ -325,7 +323,6 @@ export const MarginAnalysisTools: React.FC = () => {
       setActiveTab('queue');
 
       // Clear form
-      setCustomerName('');
       setCarrierName('');
       setSelectedCarriers({});
 
@@ -489,18 +486,7 @@ export const MarginAnalysisTools: React.FC = () => {
       <div className="bg-white rounded-lg shadow-md p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis Configuration</h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Customer Name</label>
-            <input
-              type="text"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="Enter customer name"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Carrier Name</label>
             <input
@@ -576,12 +562,12 @@ export const MarginAnalysisTools: React.FC = () => {
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Run Phase One Analysis</h3>
             <p className="text-sm text-gray-600 mt-1">
-              This will capture current market rates for the selected shipments and carriers
+              This will capture current market rates for all shipments in the date range
             </p>
           </div>
           <button
             onClick={runPhaseOneAnalysis}
-            disabled={isRunningPhaseOne || !customerName || !carrierName || Object.values(selectedCarriers).every(v => !v)}
+            disabled={isRunningPhaseOne || !carrierName || Object.values(selectedCarriers).every(v => !v)}
             className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             {isRunningPhaseOne ? (
@@ -642,7 +628,7 @@ export const MarginAnalysisTools: React.FC = () => {
                 <div className="flex-1">
                   <div className="flex items-center space-x-3 mb-2">
                     <h3 className="text-lg font-semibold text-gray-900">
-                      {job.customer_name} - {job.carrier_name}
+                      {job.carrier_name}
                     </h3>
                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                       Phase One Complete
@@ -730,7 +716,7 @@ export const MarginAnalysisTools: React.FC = () => {
                 <div className="flex-1">
                   <div className="flex items-center space-x-3 mb-2">
                     <h3 className="text-lg font-semibold text-gray-900">
-                      {job.customer_name} - {job.carrier_name}
+                      {job.carrier_name}
                     </h3>
                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                       Both Phases Complete
