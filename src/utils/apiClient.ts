@@ -994,19 +994,9 @@ export class Project44APIClient {
       return codes.filter(code => !problematicCodes.includes(code));
     };
     
-    // Filter out problematic accessorial codes that cause API errors
-    const filterProblematicCodes = (codes: string[]): string[] => {
-      const problematicCodes = ['APPT', 'APPTDEL', 'LGDEL', 'LTDDEL', 'UNLOADDEL', 'LTDDEL'];
-      return codes.filter(code => !problematicCodes.includes(code));
-    };
-    
     // Add user-specified accessorials
     if (rfq.accessorial && rfq.accessorial.length > 0) {
       // Filter out problematic codes before adding to services
-      const filteredAccessorials = filterProblematicCodes(rfq.accessorial);
-      console.log(`🔍 Filtered accessorials: ${rfq.accessorial.length} → ${filteredAccessorials.length}. Original: [${rfq.accessorial.join(', ')}], Filtered: [${filteredAccessorials.join(', ')}]`);
-      
-      filteredAccessorials.forEach(code => {
       const filteredAccessorials = filterProblematicCodes(rfq.accessorial);
       console.log(`🔍 Filtered accessorials: ${rfq.accessorial.length} → ${filteredAccessorials.length}. Original: [${rfq.accessorial.join(', ')}], Filtered: [${filteredAccessorials.join(', ')}]`);
       
@@ -1028,9 +1018,8 @@ export class Project44APIClient {
       }
     }
     
-    if (services.length > 0) {
-    }
 
+    console.log(`🔧 Final accessorial services: [${services.map(s => s.code).join(', ')}]`);
     return services;
   }
 

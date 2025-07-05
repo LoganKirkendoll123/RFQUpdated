@@ -435,78 +435,6 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       return mappedAccessorials;
     };
     
-    // Parse accessorials from semicolon-separated string
-    const parseAccessorials = (accessorialString: string | null | undefined): string[] => {
-      if (!accessorialString) return [];
-      
-      // Map common accessorial names to Project44 codes
-      const accessorialMap: Record<string, string> = {
-        'Limited Access Delivery': 'LTDPU', // Use pickup version to avoid API errors
-        'Delivery Appointment': 'NOTIFY', // Use notification instead of APPT/APPTDEL
-        'Liftgate Delivery': 'LGPU', // Use pickup version to avoid API errors
-        'Residential Delivery': 'RESDEL',
-        'Hazmat': 'HAZM',
-        'Liftgate Pickup': 'LGPU',
-        'Inside Delivery': 'INDEL',
-        'Airport Delivery': 'AIRDEL',
-        'Limited Access Pickup': 'LTDPU',
-        'Convention/Tradeshow Delivery': 'CNVDEL',
-        'Residential Pickup': 'RESPU',
-        'Airport Pickup': 'AIRPU',
-        'Convention/Tradeshow Pickup': 'CNVPU',
-        'Farm Delivery': 'FARMDEL',
-        'Military Installation Pickup': 'MILPU',
-        'Grocery Warehouse Delivery': 'GRODEL',
-        'Protect From Freezing': 'PFZ',
-        'Pier Delivery': 'PIERDEL',
-        'Inside Pickup': 'INPU',
-        'Grocery Warehouse Pickup': 'GROPU',
-        'Sort/Segregate Delivery': 'SORTDEL',
-        'Pier Pickup': 'PIERPU'
-      };
-      
-      // Map excessive length codes
-      const excessiveLengthMap: Record<string, string> = {
-        'Excessive Length, 8ft': 'ELS_8',
-        'Excessive Length, 9ft': 'ELS_9',
-        'Excessive Length, 10ft': 'ELS_10',
-        'Excessive Length, 11ft': 'ELS_11',
-        'Excessive Length, 12ft': 'ELS_12',
-        'Excessive Length, 13ft': 'ELS_13',
-        'Excessive Length, 14ft': 'ELS_14',
-        'Excessive Length, 15ft': 'ELS_15',
-        'Excessive Length, 16ft': 'ELS_16',
-        'Excessive Length, 17ft': 'ELS_17',
-        'Excessive Length, 18ft': 'ELS_18',
-        'Excessive Length, 19ft': 'ELS_19',
-        'Excessive Length, 20ft': 'ELS_20'
-      };
-      
-      // Split by semicolon and trim each accessorial
-      const accessorials = accessorialString.split(';').map(acc => acc.trim()).filter(Boolean);
-      console.log(`📦 Parsed ${accessorials.length} accessorials from string: ${accessorialString}`);
-      
-      // Map to Project44 codes
-      const mappedAccessorials = accessorials.map(acc => {
-        // Check for excessive length first
-        if (excessiveLengthMap[acc]) {
-          return excessiveLengthMap[acc];
-        }
-        
-        // Then check regular accessorials
-        if (accessorialMap[acc]) {
-          return accessorialMap[acc];
-        }
-        
-        // If no mapping found, return as is (will be filtered by API client)
-        console.log(`⚠️ No mapping found for accessorial: ${acc}`);
-        return acc;
-      });
-      
-      console.log(`🔄 Mapped ${mappedAccessorials.length} accessorials to Project44 codes`);
-      return mappedAccessorials;
-    };
-    
     // Estimate pallets from weight if not available
     const weight = parseNumeric(shipment["Tot Weight"]);
     const packages = parseNumeric(shipment["Tot Packages"]) || 1;
@@ -538,79 +466,8 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       return '';
     };
     
-    // Clean and validate ZIP codes
-    const cleanZip = (zip: string | null | undefined): string => {
-      if (!zip) return '00000';
-      const cleaned = zip.toString().replace(/\D/g, '');
-      return cleaned.substring(0, 5).padEnd(5, '0');
-    };
-    
-    // Clean and validate state codes
-    const cleanState = (state: string | null | undefined): string => {
-      if (!state) return '';
-      const cleaned = state.toString().trim().toUpperCase();
-      // Check if it's a valid 2-letter state code
-      const validStates = new Set([
-        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
-        'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
-        'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT',
-        'VA', 'WA', 'WV', 'WI', 'WY', 'AS', 'DC', 'FM', 'GU', 'MH', 'MP', 'PW', 'PR', 'VI'
-      ]);
-      
-      if (validStates.has(cleaned)) {
-        return cleaned;
-      }
-      
-      // If not valid, return empty string
-      console.log(`⚠️ Invalid state code: ${state} - removing`);
-      return '';
-    };
-    
     // Parse accessorials from the Accessorials field
     const accessorials = parseAccessorials(shipment["Accessorials"]);
-    
-    // Parse accessorials from semicolon-separated string
-    let accessorialCodes: string[] = [];
-    if (shipment["Accessorials"]) {
-      console.log(`🔍 Parsing accessorials from: "${shipment["Accessorials"]}"`);
-      
-      // Split by semicolons and clean up each code
-      accessorialCodes = shipment["Accessorials"]
-        .split(';')
-        .map((code: string) => code.trim())
-        .filter((code: string) => code !== '');
-      
-      console.log(`📋 Parsed ${accessorialCodes.length} accessorial codes: ${accessorialCodes.join(', ')}`);
-    }
-    
-    // Clean up state codes
-    const cleanStateCode = (state: string | undefined): string => {
-      if (!state) return '';
-      
-      // Convert to uppercase and trim
-      const cleaned = state.trim().toUpperCase();
-      
-      // Check if it's a valid 2-letter state code
-      const validStates = new Set([
-        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
-        'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
-        'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT',
-        'VA', 'WA', 'WV', 'WI', 'WY', 'AS', 'DC', 'FM', 'GU', 'MH', 'MP', 'PW', 'PR', 'VI'
-      ]);
-      
-      return validStates.has(cleaned) ? cleaned : '';
-    };
-    
-    // Clean up ZIP codes
-    const cleanZipCode = (zip: string | undefined): string => {
-      if (!zip) return '00000';
-      
-      // Remove non-digits and take first 5 digits
-      const cleaned = zip.replace(/\D/g, '').substring(0, 5);
-      
-      // Pad with zeros if needed
-      return cleaned.padEnd(5, '0');
-    };
     
     return {
       fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
