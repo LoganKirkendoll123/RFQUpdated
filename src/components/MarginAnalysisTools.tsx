@@ -101,10 +101,11 @@ export const MarginAnalysisTools: React.FC = () => {
     endDate: new Date().toISOString().split('T')[0] // Today
   });
   
-  // Customer-carrier pairs state
-  const [availableCarriers, setAvailableCarriers] = useState<string[]>([]);
+  // Carrier selection
+  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
   const [selectedCarrier, setSelectedCarrier] = useState<string>('');
   const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
+  const [carriersLoaded, setCarriersLoaded] = useState(false);
   const [showCarrierSelection, setShowCarrierSelection] = useState(false);
   
   // Filters
@@ -144,37 +145,29 @@ export const MarginAnalysisTools: React.FC = () => {
     }
   };
 
-  const loadAvailableCarriers = async () => {
+  const loadCarriers = async () => {
     setIsLoadingCarriers(true);
     try {
-      console.log(`🔍 Loading carriers for customer: ${customerFilter}`);
+      console.log('🚛 Loading real carriers for margin analysis...');
       
-      // Get all customer-carrier pairs for this customer
-      const { data, error } = await supabase
-        .from('CustomerCarriers')
-        .select('P44CarrierCode')
-        .eq('InternalName', customerFilter)
-        .not('P44CarrierCode', 'is', null);
-      
-      if (error) {
-        console.error('❌ Error loading customer carriers:', error);
-        throw error;
+      // Load Project44 config
+      const config = loadProject44Config();
+      if (!config) {
+        throw new Error('Project44 configuration not found');
       }
       
-      // Extract unique carrier codes
-      const carriers = [...new Set(data?.map(d => d.P44CarrierCode).filter(Boolean))];
-      setAvailableCarriers(carriers);
+      // Create Project44 client
+      const project44Client = new Project44APIClient(config);
       
-      console.log(`✅ Found ${carriers.length} carriers for customer ${customerFilter}:`, carriers);
+      // Get available carriers
+      const groups = await project44Client.getAvailableCarriersByGroup(false, false);
       
-      // Clear selected carrier if it's not in the available list
-      if (selectedCarrier && !carriers.includes(selectedCarrier)) {
-        setSelectedCarrier('');
-      }
+      setCarrierGroups(groups);
+      setCarriersLoaded(true);
+      console.log(`✅ Loaded ${groups.length} carrier groups with ${groups.reduce((sum, g) => sum + g.carriers.length, 0)} carriers`);
     } catch (error) {
-      console.error('❌ Failed to load available carriers:', error);
+      console.error('❌ Failed to load carriers:', error);
       setError(error instanceof Error ? error.message : 'Failed to load carriers');
-      setAvailableCarriers([]);
     } finally {
       setIsLoadingCarriers(false);
     }
@@ -249,8 +242,8 @@ export const MarginAnalysisTools: React.FC = () => {
   };
 
   const startBenchmarkAnalysis = async () => {
-    if (!selectedCarrier || !availableCarriers.includes(selectedCarrier)) {
-      setError('Please select a valid carrier');
+    if (!selectedCarrier) {
+      setError('Please select a carrier for analysis');
       return;
     }
     
@@ -297,8 +290,8 @@ export const MarginAnalysisTools: React.FC = () => {
         carriers.forEach(carrier => {
           if (carrier && selectedCarrier) {
             // Find the carrier object to get the name
-            const carrierObj = availableCarriers.find(c => c === selectedCarrier);
-            if (carrierObj && (carrierObj === carrier)) {
+            const carrierObj = carrierGroups.flatMap(g => g.carriers).find(c => c.id === selectedCarrier);
+            if (carrierObj && (carrierObj.name === carrier || carrierObj.scac === carrier)) {
               pairs.add(`${customer}|${carrier}`);
             }
           }
@@ -501,6 +494,20 @@ export const MarginAnalysisTools: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900">Analysis Configuration</h3>
             <p className="text-sm text-gray-600">Configure date range and carrier selection for margin analysis</p>
           </div>
+          {!carriersLoaded && (
+            <button
+              onClick={loadCarriers}
+              disabled={isLoadingCarriers}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+            >
+              {isLoadingCarriers ? (
+                <Loader className="h-4 w-4 animate-spin" />
+              ) : (
+                <Truck className="h-4 w-4" />
+              )}
+              <span>{isLoadingCarriers ? 'Loading...' : 'Load Carriers'}</span>
+            </button>
+          )}
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -582,7 +589,7 @@ export const MarginAnalysisTools: React.FC = () => {
                 <Truck className="h-5 w-5 text-green-600" />
                 <h4 className="font-medium text-gray-900">Carrier Selection</h4>
               </div>
-              {availableCarriers.length > 0 && (
+              {carriersLoaded && (
                 <button
                   onClick={() => setShowCarrierSelection(!showCarrierSelection)}
                   className="flex items-center space-x-2 px-3 py-1 text-sm bg-green-100 text-green-700 rounded-md hover:bg-green-200"
@@ -593,16 +600,18 @@ export const MarginAnalysisTools: React.FC = () => {
               )}
             </div>
             
-            {availableCarriers.length > 0 ? (
+            {carriersLoaded ? (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                 <div className="text-sm text-green-800">
-                  <strong>Selected Carrier:</strong> {getSelectedCarrierCount()} of {availableCarriers.length}
+                  <strong>Selected Carrier:</strong> {getSelectedCarrierCount()} of {carrierGroups.reduce((sum, group) => sum + group.carriers.length, 0)}
                 </div>
                 {getSelectedCarrierCount() > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {selectedCarrier && (
                       <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        {selectedCarrier}
+                        {carrierGroups
+                          .flatMap(g => g.carriers)
+                          .find(c => c.id === selectedCarrier)?.name || selectedCarrier}
                       </span>
                     )}
                   </div>
@@ -611,12 +620,27 @@ export const MarginAnalysisTools: React.FC = () => {
             ) : (
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                 <div className="text-sm text-gray-600">
-                  Select a customer to load available carriers
+                  Load carriers to configure selection for analysis
                 </div>
               </div>
             )}
           </div>
         </div>
+        
+        {/* Carrier Selection Panel */}
+        {showCarrierSelection && carriersLoaded && (
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <CarrierSelection
+              carrierGroups={carrierGroups}
+              selectedCarriers={{ [selectedCarrier]: true }}
+              onToggleCarrier={handleCarrierToggle}
+              onSelectAll={handleSelectAll}
+              onSelectAllInGroup={handleSelectAllInGroup}
+              isLoading={isLoadingCarriers}
+              singleSelect={true}
+            />
+          </div>
+        )}
       </div>
 
       {/* Analysis Workflow */}
@@ -848,8 +872,8 @@ export const MarginAnalysisTools: React.FC = () => {
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
           >
             <option value="">All Carriers</option>
-            {availableCarriers.map(carrier => (
-              <option key={carrier} value={carrier}>{carrier}</option>
+            {carrierGroups.flatMap(group => group.carriers).map(carrier => (
+              <option key={carrier.id} value={carrier.name}>{carrier.name}</option>
             ))}
           </select>
           
@@ -877,66 +901,6 @@ export const MarginAnalysisTools: React.FC = () => {
           </button>
         </div>
       </div>
-
-      {/* Customer Selection - Only show if customer is selected */}
-      {customerFilter && (
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Carrier Selection</h3>
-            <p className="text-sm text-gray-600 mt-1">
-              Select a carrier that has existing margin data for {customerFilter}
-            </p>
-          </div>
-          <div className="p-6">
-            {isLoadingCarriers ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader className="h-8 w-8 animate-spin text-blue-500" />
-                <span className="ml-2 text-gray-600">Loading carriers...</span>
-              </div>
-            ) : availableCarriers.length === 0 ? (
-              <div className="text-center py-8">
-                <Truck className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No Carriers Found</h3>
-                <p className="text-gray-600">
-                  No carriers found for customer "{customerFilter}". 
-                  Please ensure there are customer-carrier relationships in the CustomerCarriers table.
-                </p>
-              </div>
-            ) : (
-              <div>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Available Carriers ({availableCarriers.length})
-                  </label>
-                  <select
-                    value={selectedCarrier}
-                    onChange={(e) => setSelectedCarrier(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">Select a carrier...</option>
-                    {availableCarriers.map(carrier => (
-                      <option key={carrier} value={carrier}>
-                        {carrier}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                
-                {selectedCarrier && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                    <div className="flex items-center space-x-2 text-green-800">
-                      <CheckCircle className="h-4 w-4" />
-                      <span className="text-sm font-medium">
-                        Selected: {selectedCarrier} for customer {customerFilter}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Jobs List */}
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
