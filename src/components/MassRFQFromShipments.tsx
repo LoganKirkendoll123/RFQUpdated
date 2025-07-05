@@ -81,6 +81,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
   const [selectedCustomers, setSelectedCustomers] = useState<{ [customer: string]: boolean }>({});
   const [isLoadingShipments, setIsLoadingShipments] = useState(false);
   const [massRFQJobs, setMassRFQJobs] = useState<MassRFQJob[]>([]);
+  const [results, setResults] = useState<ProcessingResult[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string>('');
   
@@ -462,7 +463,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     
     // Initialize jobs
     const jobs: MassRFQJob[] = selectedCustomerNames.map(customerName => ({
-      id: `${customerName}-${Date.now()}`,
+      id: `${customerName}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       customerName,
       shipmentCount: customerSummaries.find(s => s.customerName === customerName)?.shipmentCount || 0,
       status: 'pending',
@@ -470,6 +471,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     }));
     
     setMassRFQJobs(jobs);
+    setResults([]);
     
     try {
       console.log(`🚀 Starting mass RFQ for ${selectedCustomerNames.length} customers`);
@@ -624,7 +626,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           // Update job completion
           setMassRFQJobs(prev => prev.map(job => 
             job.id === jobId 
-              ? { 
+              ? {
                   ...job, 
                   status: 'completed', 
                   progress: 100, 
@@ -633,6 +635,9 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 }
               : job
           ));
+          
+          // Important: Create a new array to avoid reference issues
+          setResults(prevResults => [...prevResults]);
           
           console.log(`✅ Completed customer ${customerName}: ${customerResults.length} results`);
           
@@ -1102,7 +1107,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       )}
 
       {/* Results Display */}
-      {massRFQJobs.some(job => job.status === 'completed' && job.results) && (
+      {results.length > 0 || massRFQJobs.some(job => job.status === 'completed' && job.results) && (
         <div className="space-y-6">
           {massRFQJobs
             .filter(job => job.status === 'completed' && job.results)
