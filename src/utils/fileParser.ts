@@ -465,8 +465,8 @@ const parseBoolean = (value: string): boolean => {
 
 const parseAccessorial = (value: string): string[] => {
   if (!value) return [];
-  // Handle both comma and semicolon separators
-  const accessorials = value.split(/[,;]/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  // Handle comma, semicolon, and slash separators
+  const accessorials = value.split(/[,;\/]/).map(s => s.trim().toUpperCase()).filter(Boolean);
   
   // Map common accessorial names to Project44 codes
   const accessorialMap: Record<string, string> = {

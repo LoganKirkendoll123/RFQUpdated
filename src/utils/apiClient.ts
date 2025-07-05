@@ -355,6 +355,7 @@ export class Project44APIClient {
       }
     }
 
+    console.log(`🔧 Final accessorial services: [${services.map(s => s.code).join(', ')}]`);
     // Fallback to SCAC or account code
     return scac || accountInfo.code || 'Unknown Carrier';
   }
@@ -989,6 +990,12 @@ export class Project44APIClient {
     
     // Filter out problematic accessorial codes that cause API errors
     const filterProblematicCodes = (codes: string[]): string[] => {
+      const problematicCodes = ['APPT', 'APPTDEL', 'LGDEL', 'LTDDEL', 'UNLOADDEL'];
+      return codes.filter(code => !problematicCodes.includes(code));
+    };
+    
+    // Filter out problematic accessorial codes that cause API errors
+    const filterProblematicCodes = (codes: string[]): string[] => {
       const problematicCodes = ['APPT', 'APPTDEL', 'LGDEL', 'LTDDEL', 'UNLOADDEL', 'LTDDEL'];
       return codes.filter(code => !problematicCodes.includes(code));
     };
@@ -996,6 +1003,10 @@ export class Project44APIClient {
     // Add user-specified accessorials
     if (rfq.accessorial && rfq.accessorial.length > 0) {
       // Filter out problematic codes before adding to services
+      const filteredAccessorials = filterProblematicCodes(rfq.accessorial);
+      console.log(`🔍 Filtered accessorials: ${rfq.accessorial.length} → ${filteredAccessorials.length}. Original: [${rfq.accessorial.join(', ')}], Filtered: [${filteredAccessorials.join(', ')}]`);
+      
+      filteredAccessorials.forEach(code => {
       const filteredAccessorials = filterProblematicCodes(rfq.accessorial);
       console.log(`🔍 Filtered accessorials: ${rfq.accessorial.length} → ${filteredAccessorials.length}. Original: [${rfq.accessorial.join(', ')}], Filtered: [${filteredAccessorials.join(', ')}]`);
       
