@@ -477,9 +477,9 @@ export const getCustomerList = async (): Promise<string[]> => {
   try {
     const { data, error } = await supabase
       .from('Shipments')
-      .select('"Customer"', { distinct: true })
-      .not('"Customer"', 'is', null)
-      .order('"Customer"');
+      .select('Customer', { distinct: true })
+      .not('Customer', 'is', null)
+      .order('Customer');
     
     if (error) {
       console.error('Error fetching customer list:', error);
@@ -499,9 +499,9 @@ export const getBranchList = async (): Promise<string[]> => {
   try {
     const { data, error } = await supabase
       .from('Shipments')
-      .select('"Branch"', { distinct: true })
-      .not('"Branch"', 'is', null)
-      .order('"Branch"');
+      .select('Branch', { distinct: true })
+      .not('Branch', 'is', null)
+      .order('Branch');
     
     if (error) {
       console.error('Error fetching branch list:', error);
@@ -521,9 +521,9 @@ export const getSalesRepList = async (): Promise<string[]> => {
   try {
     const { data, error } = await supabase
       .from('Shipments')
-      .select('"Sales Rep"', { distinct: true })
-      .not('"Sales Rep"', 'is', null)
-      .order('"Sales Rep"');
+      .select('Sales Rep', { distinct: true })
+      .not('Sales Rep', 'is', null)
+      .order('Sales Rep');
     
     if (error) {
       console.error('Error fetching sales rep list:', error);

@@ -100,8 +100,8 @@ export const DatabaseToolbox: React.FC = () => {
       // Load unique customers
       const { data: customerData } = await supabase
         .from('Shipments')
-        .select('"Customer"', { distinct: true })
-        .not('"Customer"', 'is', null)
+        .select('Customer', { distinct: true })
+        .not('Customer', 'is', null)
         .limit(100);
       
       if (customerData) {
@@ -112,8 +112,8 @@ export const DatabaseToolbox: React.FC = () => {
       // Load unique branches
       const { data: branchData } = await supabase
         .from('Shipments')
-        .select('"Branch"', { distinct: true })
-        .not('"Branch"', 'is', null)
+        .select('Branch', { distinct: true })
+        .not('Branch', 'is', null)
         .limit(100);
       
       if (branchData) {
@@ -124,8 +124,8 @@ export const DatabaseToolbox: React.FC = () => {
       // Load unique sales reps
       const { data: salesRepData } = await supabase
         .from('Shipments')
-        .select('"Sales Rep"', { distinct: true })
-        .not('"Sales Rep"', 'is', null)
+        .select('Sales Rep', { distinct: true })
+        .not('Sales Rep', 'is', null)
         .limit(100);
       
       if (salesRepData) {
@@ -136,7 +136,7 @@ export const DatabaseToolbox: React.FC = () => {
       // Load unique carriers
       const { data: carrierData } = await supabase
         .from('Shipments')
-        .select('"Booked Carrier", "Quoted Carrier"')
+        .select('Booked Carrier, Quoted Carrier')
         .limit(100);
       
       if (carrierData) {
