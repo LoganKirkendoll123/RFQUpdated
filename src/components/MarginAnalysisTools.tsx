@@ -15,7 +15,8 @@ import {
   Download,
   Target,
   Zap,
-  Building2
+  Building2,
+  Info
 } from 'lucide-react';
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { supabase } from '../utils/supabase';
