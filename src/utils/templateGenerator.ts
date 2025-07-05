@@ -38,7 +38,6 @@ const PROJECT44_ACCESSORIALS = [
 
   // Delivery Accessorial Services
   { code: 'AIRDEL', label: 'Airport Delivery' },
-  { code: 'APPT', label: 'Delivery Appointment' },
   { code: 'CAMPDEL', label: 'Camp Delivery' },
   { code: 'CFSDEL', label: 'Container Freight Station Delivery' },
   { code: 'CHRCDEL', label: 'Church Delivery' },
@@ -58,8 +57,6 @@ const PROJECT44_ACCESSORIALS = [
   { code: 'INEDEL', label: 'Inside Delivery - With Elevator' },
   { code: 'INGDEL', label: 'Inside Delivery - Ground Floor' },
   { code: 'INNEDEL', label: 'Inside Delivery - No Elevator' },
-  { code: 'LGDEL', label: 'Liftgate Delivery' },
-  { code: 'LTDDEL', label: 'Limited Access Delivery' },
   { code: 'MALLDEL', label: 'Mall Delivery' },
   { code: 'MILDEL', label: 'Military Installation Delivery' },
   { code: 'MINEDEL', label: 'Mine Site Delivery' },
@@ -77,7 +74,6 @@ const PROJECT44_ACCESSORIALS = [
   { code: 'SORTDEL', label: 'Sort/Segregate Delivery' },
   { code: 'SSTORDEL', label: 'Self-Storage Delivery' },
   { code: 'SUNDEL', label: 'Sunday Delivery' },
-  { code: 'UNLOADDEL', label: 'Unload at Destination' },
   { code: 'UTLDEL', label: 'Utility Site Delivery' },
   { code: 'WEDEL', label: 'Weekend Delivery' }
 ];
@@ -256,7 +252,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       '', '', '', '', '', '', '', '', '', '', '',
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['LGDEL', 'APPT'].includes(acc.code) ? true : false
+        ['LGPU', 'NOTIFY'].includes(acc.code) ? true : false
       )
     ],
     // Row 2: Volume LTL - Multiple items with different dimensions
@@ -276,7 +272,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       // Item 5 empty
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['LGDEL', 'NOTIFY'].includes(acc.code) ? true : false
+        ['LGPU', 'NOTIFY'].includes(acc.code) ? true : false
       )
     ],
     // Row 3: FreshX Reefer - Temperature-controlled with mixed items
@@ -296,7 +292,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       '', '', '', '', '', '', '', '', '', '', '',
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['LGPU', 'LGDEL', 'NOTIFY', 'APPTPU', 'APPT'].includes(acc.code) ? true : false
+        ['LGPU', 'NOTIFY', 'APPTPU'].includes(acc.code) ? true : false
       )
     ],
     // Row 4: Construction materials with varying sizes
@@ -316,7 +312,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       // Item 5 empty
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['LGDEL', 'NOTIFY'].includes(acc.code) ? true : false
+        ['LGPU', 'NOTIFY'].includes(acc.code) ? true : false
       )
     ],
     // Row 5: High-value electronics with precise dimensions
@@ -336,7 +332,7 @@ export const generateUnifiedSmartTemplate = (): ArrayBuffer => {
       // Item 5 empty
       '', '', '', '', '', '', '', '', '', '', '',
       ...PROJECT44_ACCESSORIALS.map(acc => 
-        ['LGDEL', 'RESDEL', 'NOTIFY'].includes(acc.code) ? true : false
+        ['LGPU', 'RESDEL', 'NOTIFY'].includes(acc.code) ? true : false
       )
     ]
   ];

@@ -385,8 +385,13 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     if (shipment["Accessorials"]) {
       accessorialCodes = shipment["Accessorials"]
         .split(';')
-        .filter((code: string) => code.trim() !== '' && code.trim() !== 'APPTDEL')
-        .map((code: string) => code.trim() === 'APPT' ? 'APPT' : code.trim());
+        .filter((code: string) => {
+          const trimmedCode = code.trim();
+          // Filter out unsupported accessorial codes
+          const unsupportedCodes = ['APPT', 'APPTDEL', 'LGDEL', 'LTDDEL', 'UNLOADDEL'];
+          return trimmedCode !== '' && !unsupportedCodes.includes(trimmedCode);
+        })
+        .map((code: string) => code.trim());
     }
     
     return {
