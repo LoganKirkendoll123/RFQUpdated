@@ -37,7 +37,8 @@ import {
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { CarrierSelection } from './CarrierSelection';
-import { CarrierGroup } from '../utils/apiClient';
+import { CarrierGroup, Project44APIClient } from '../utils/apiClient';
+import { loadProject44Config } from '../utils/credentialStorage';
 
 interface MarginAnalysisJob {
   id: string;
@@ -108,41 +109,65 @@ export const MarginAnalysisTools: React.FC = () => {
   const [showCarrierSelection, setShowCarrierSelection] = useState(false);
   
   // Filters
-  const [customerFilter, setCustomerFilter] = useState('');
+  const [customerFilter, setCustomerFilter] = useState<string>('');
   const [carrierFilter, setCarrierFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
+  const [customerList, setCustomerList] = useState<string[]>([]);
 
   useEffect(() => {
     loadAnalysisData();
+    loadCustomerList();
   }, []);
+
+  const loadCustomerList = async () => {
+    try {
+      console.log('🔍 Loading customer list for margin analysis...');
+      
+      // Get unique customers from CustomerCarriers table
+      const { data, error } = await supabase
+        .from('CustomerCarriers')
+        .select('InternalName')
+        .not('InternalName', 'is', null);
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Get unique customer names
+      const uniqueCustomers = [...new Set(data?.map(d => d.InternalName).filter(Boolean))].sort();
+      setCustomerList(uniqueCustomers);
+      console.log(`✅ Loaded ${uniqueCustomers.length} unique customers`);
+    } catch (err) {
+      console.error('❌ Failed to load customer list:', err);
+      setError('Failed to load customer list');
+    }
+  };
 
   const loadCarriers = async () => {
     setIsLoadingCarriers(true);
     try {
-      // Mock carrier data - replace with actual API call
-      const mockCarrierGroups: CarrierGroup[] = [
-        {
-          groupCode: 'LTL_CARRIERS',
-          groupName: 'LTL Carriers',
-          carriers: [
-            { id: 'FXFE', name: 'FedEx Freight', scac: 'FXFE' },
-            { id: 'ODFL', name: 'Old Dominion Freight Line', scac: 'ODFL' },
-            { id: 'SAIA', name: 'Saia LTL Freight', scac: 'SAIA' },
-            { id: 'RLCA', name: 'R+L Carriers', scac: 'RLCA' },
-            { id: 'ABFS', name: 'ABF Freight', scac: 'ABFS' },
-            { id: 'EXLA', name: 'Estes Express Lines', scac: 'EXLA' }
-          ]
-        }
-      ];
+      console.log('🚛 Loading real carriers for margin analysis...');
       
-      setCarrierGroups(mockCarrierGroups);
+      // Load Project44 config
+      const config = loadProject44Config();
+      if (!config) {
+        throw new Error('Project44 configuration not found');
+      }
+      
+      // Create Project44 client
+      const project44Client = new Project44APIClient(config);
+      
+      // Get available carriers
+      const groups = await project44Client.getAvailableCarriersByGroup(false, false);
+      
+      setCarrierGroups(groups);
       setCarriersLoaded(true);
-      console.log('✅ Loaded carriers for margin analysis');
+      console.log(`✅ Loaded ${groups.length} carrier groups with ${groups.reduce((sum, g) => sum + g.carriers.length, 0)} carriers`);
     } catch (error) {
       console.error('❌ Failed to load carriers:', error);
-      setError('Failed to load carriers');
+      setError(error instanceof Error ? error.message : 'Failed to load carriers');
     } finally {
       setIsLoadingCarriers(false);
     }
@@ -185,57 +210,35 @@ export const MarginAnalysisTools: React.FC = () => {
   const loadAnalysisData = async () => {
     setLoading(true);
     try {
-      // Load analysis jobs and recommendations
-      // This would connect to your analysis queue system
-      console.log('Loading margin analysis data...');
+      console.log('📊 Loading real margin analysis data...');
       
-      // Mock data for now - replace with actual Supabase queries
-      setAnalysisJobs([
-        {
-          id: '1',
-          customer_name: 'ACME Corp',
-          carrier_name: 'FedEx Freight',
-          analysis_type: 'benchmark',
-          status: 'completed',
-          created_at: '2025-01-15T02:00:00Z',
-          completed_at: '2025-01-15T02:45:00Z',
-          shipment_count: 156,
-          current_margin: 18.5,
-          confidence_score: 0.87,
-          date_range_start: '2024-01-01',
-          date_range_end: '2024-12-31',
-          selected_carriers: ['FXFE', 'ODFL', 'SAIA']
-        },
-        {
-          id: '2',
-          customer_name: 'ACME Corp',
-          carrier_name: 'FedEx Freight',
-          analysis_type: 'comparison',
-          status: 'running',
-          created_at: '2025-01-16T02:00:00Z',
-          started_at: '2025-01-16T02:00:00Z',
-          shipment_count: 156,
-          current_margin: 18.5,
-          date_range_start: '2024-01-01',
-          date_range_end: '2024-12-31',
-          selected_carriers: ['FXFE', 'ODFL', 'SAIA']
-        }
-      ]);
+      // Load analysis jobs from Supabase
+      const { data: jobsData, error: jobsError } = await supabase
+        .from('MarginAnalysisJobs')
+        .select('*')
+        .order('created_at', { ascending: false });
       
-      setRecommendations([
-        {
-          customer_name: 'ACME Corp',
-          carrier_name: 'FedEx Freight',
-          current_margin: 18.5,
-          recommended_margin: 21.2,
-          confidence_score: 0.87,
-          potential_revenue_impact: 12500,
-          shipment_count: 156,
-          avg_shipment_value: 1850,
-          margin_variance: 2.3,
-          last_updated: '2025-01-16T02:45:00Z'
-        }
-      ]);
+      if (jobsError) {
+        console.error('❌ Error loading analysis jobs:', jobsError);
+        throw jobsError;
+      }
+      
+      setAnalysisJobs(jobsData || []);
+      console.log(`✅ Loaded ${jobsData?.length || 0} analysis jobs`);
+      
+      // Load recommendations from Supabase
+      const { data: recsData, error: recsError } = await supabase
+        .from('MarginRecommendations')
+        .select('*')
+        .order('last_updated', { ascending: false });
+      
+      if (recsError) {
+        console.error('❌ Error loading recommendations:', recsError);
+        throw recsError;
+      }
+      
+      setRecommendations(recsData || []);
+      console.log(`✅ Loaded ${recsData?.length || 0} margin recommendations`);
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load analysis data');
@@ -263,17 +266,84 @@ export const MarginAnalysisTools: React.FC = () => {
     try {
       console.log('Starting benchmark analysis:', {
         dateRange,
-        selectedCarriers: selectedCarrierIds,
+        selectedCarriers: selectedCarrierIds.length,
         days: getDateRangeDays()
       });
       
-      // This would trigger the benchmark analysis job
-      // Query all unique customer-carrier pairs from shipment history
-      // Queue benchmark analysis jobs for each pair
+      // Get unique customer-carrier pairs from shipment history
+      const { data: shipmentData, error: shipmentError } = await supabase
+        .from('Shipments')
+        .select('"Customer", "Booked Carrier", "Quoted Carrier"')
+        .gte('"Scheduled Pickup Date"', dateRange.startDate)
+        .lte('"Scheduled Pickup Date"', dateRange.endDate)
+        .not('"Customer"', 'is', null);
       
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate API call
+      if (shipmentError) {
+        throw shipmentError;
+      }
       
-      console.log(`Benchmark analysis jobs queued for ${selectedCarrierIds.length} carriers over ${getDateRangeDays()} days`);
+      if (!shipmentData || shipmentData.length === 0) {
+        throw new Error(`No shipments found in the selected date range (${dateRange.startDate} to ${dateRange.endDate})`);
+      }
+      
+      console.log(`📦 Found ${shipmentData.length} shipments in the selected date range`);
+      
+      // Extract unique customer-carrier pairs
+      const pairs = new Set<string>();
+      shipmentData.forEach(shipment => {
+        const customer = shipment.Customer;
+        if (!customer) return;
+        
+        // Check both booked and quoted carriers
+        const carriers = [shipment["Booked Carrier"], shipment["Quoted Carrier"]].filter(Boolean);
+        
+        carriers.forEach(carrier => {
+          if (carrier && selectedCarrierIds.some(id => {
+            // Find the carrier object to get the name
+            const carrierObj = carrierGroups.flatMap(g => g.carriers).find(c => c.id === id);
+            return carrierObj && (carrierObj.name === carrier || carrierObj.scac === carrier);
+          })) {
+            pairs.add(`${customer}|${carrier}`);
+          }
+        });
+      });
+      
+      console.log(`🔍 Found ${pairs.size} unique customer-carrier pairs for analysis`);
+      
+      if (pairs.size === 0) {
+        throw new Error('No matching customer-carrier pairs found for the selected carriers');
+      }
+      
+      // Create benchmark analysis jobs for each pair
+      const jobs = Array.from(pairs).map(pair => {
+        const [customer, carrier] = pair.split('|');
+        return {
+          customer_name: customer,
+          carrier_name: carrier,
+          analysis_type: 'benchmark',
+          status: 'queued',
+          created_at: new Date().toISOString(),
+          shipment_count: shipmentData.filter(s => 
+            s.Customer === customer && 
+            (s["Booked Carrier"] === carrier || s["Quoted Carrier"] === carrier)
+          ).length,
+          date_range_start: dateRange.startDate,
+          date_range_end: dateRange.endDate,
+          selected_carriers: selectedCarrierIds
+        };
+      });
+      
+      // Insert jobs into Supabase
+      const { error: insertError } = await supabase
+        .from('MarginAnalysisJobs')
+        .insert(jobs);
+      
+      if (insertError) {
+        throw insertError;
+      }
+      
+      console.log(`✅ Created ${jobs.length} benchmark analysis jobs`);
+      
       await loadAnalysisData();
       
     } catch (err) {
@@ -297,16 +367,53 @@ export const MarginAnalysisTools: React.FC = () => {
     try {
       console.log('Starting comparison analysis with new rates:', {
         dateRange,
-        selectedCarriers: selectedCarrierIds
+        selectedCarriers: selectedCarrierIds.length
       });
       
-      // This would trigger the comparison analysis job
-      // Use the same historical data but with current/new rates
-      // Compare against benchmark data to generate recommendations
+      // Check if we have benchmark data for the selected carriers
+      const { data: benchmarkJobs, error: benchmarkError } = await supabase
+        .from('MarginAnalysisJobs')
+        .select('*')
+        .eq('analysis_type', 'benchmark')
+        .eq('status', 'completed')
+        .gte('date_range_start', dateRange.startDate)
+        .lte('date_range_end', dateRange.endDate);
       
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate API call
+      if (benchmarkError) {
+        throw benchmarkError;
+      }
       
-      console.log(`Comparison analysis jobs queued for ${selectedCarrierIds.length} carriers`);
+      if (!benchmarkJobs || benchmarkJobs.length === 0) {
+        throw new Error('No completed benchmark analysis found for the selected date range. Please run benchmark analysis first.');
+      }
+      
+      console.log(`📊 Found ${benchmarkJobs.length} completed benchmark jobs for comparison`);
+      
+      // Create comparison jobs for each benchmark
+      const comparisonJobs = benchmarkJobs.map(benchmark => ({
+        customer_name: benchmark.customer_name,
+        carrier_name: benchmark.carrier_name,
+        analysis_type: 'comparison',
+        status: 'queued',
+        created_at: new Date().toISOString(),
+        shipment_count: benchmark.shipment_count,
+        current_margin: benchmark.current_margin,
+        date_range_start: benchmark.date_range_start,
+        date_range_end: benchmark.date_range_end,
+        selected_carriers: benchmark.selected_carriers,
+        benchmark_data: benchmark.benchmark_data
+      }));
+      
+      // Insert comparison jobs into Supabase
+      const { error: insertError } = await supabase
+        .from('MarginAnalysisJobs')
+        .insert(comparisonJobs);
+      
+      if (insertError) {
+        throw insertError;
+      }
+      
+      console.log(`✅ Created ${comparisonJobs.length} comparison analysis jobs`);
       await loadAnalysisData();
       
     } catch (err) {
@@ -321,14 +428,40 @@ export const MarginAnalysisTools: React.FC = () => {
       console.log(`Applying margin recommendation: ${recommendation.customer_name} + ${recommendation.carrier_name} → ${recommendation.recommended_margin}%`);
       
       // Update the CustomerCarriers table with the new margin
-      const { error } = await supabase
+      // First, check if the record exists
+      const { data: existingData, error: queryError } = await supabase
         .from('CustomerCarriers')
-        .upsert({
-          InternalName: recommendation.customer_name,
-          P44CarrierCode: recommendation.carrier_name,
-          Percentage: recommendation.recommended_margin.toString(),
-          updated_at: new Date().toISOString()
-        });
+        .select('MarkupId')
+        .eq('InternalName', recommendation.customer_name)
+        .eq('P44CarrierCode', recommendation.carrier_name)
+        .limit(1);
+      
+      if (queryError) throw queryError;
+      
+      let error;
+      
+      if (existingData && existingData.length > 0) {
+        // Update existing record
+        const { error: updateError } = await supabase
+          .from('CustomerCarriers')
+          .update({
+            Percentage: recommendation.recommended_margin.toString()
+          })
+          .eq('MarkupId', existingData[0].MarkupId);
+        
+        error = updateError;
+      } else {
+        // Insert new record
+        const { error: insertError } = await supabase
+          .from('CustomerCarriers')
+          .insert({
+            InternalName: recommendation.customer_name,
+            P44CarrierCode: recommendation.carrier_name,
+            Percentage: recommendation.recommended_margin.toString()
+          });
+        
+        error = insertError;
+      }
       
       if (error) throw error;
       
@@ -738,7 +871,7 @@ export const MarginAnalysisTools: React.FC = () => {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
-              type="text"
+              type="search"
               value={customerFilter}
               onChange={(e) => setCustomerFilter(e.target.value)}
               placeholder="Filter by customer..."
@@ -746,13 +879,27 @@ export const MarginAnalysisTools: React.FC = () => {
             />
           </div>
           
-          <input
-            type="text"
+          <select
+            value={customerFilter}
+            onChange={(e) => setCustomerFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All Customers</option>
+            {customerList.map(customer => (
+              <option key={customer} value={customer}>{customer}</option>
+            ))}
+          </select>
+          
+          <select
             value={carrierFilter}
             onChange={(e) => setCarrierFilter(e.target.value)}
-            placeholder="Filter by carrier..."
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-          />
+          >
+            <option value="">All Carriers</option>
+            {carrierGroups.flatMap(group => group.carriers).map(carrier => (
+              <option key={carrier.id} value={carrier.name}>{carrier.name}</option>
+            ))}
+          </select>
           
           <select
             value={statusFilter}
@@ -1103,16 +1250,16 @@ export const MarginAnalysisTools: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Professional Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center space-x-3">
           <div className="bg-purple-600 p-2 rounded-lg">
             <Calculator className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Margin Analysis Tools</h1>
+            <h1 className="text-xl font-semibold text-gray-900">Enterprise Margin Analysis</h1>
             <p className="text-sm text-gray-600">
-              AI-powered customer-carrier margin optimization through rate change analysis
+              Optimize customer-carrier margins through comprehensive rate change analysis
             </p>
           </div>
         </div>
