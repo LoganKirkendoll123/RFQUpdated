@@ -19,6 +19,11 @@ import {
   ArrowRight,
   Eye,
   PlayCircle,
+  Building2,
+  ChevronUp,
+  ChevronDown,
+  Percent,
+  CreditCard
   Building2
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
@@ -78,7 +83,14 @@ export const MarginAnalysisTools: React.FC = () => {
   const [isRunningPhaseOne, setIsRunningPhaseOne] = useState(false);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [liveResults, setLiveResults] = useState<CustomerResult[]>([]);
+  const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
   const [progressPercentage, setProgressPercentage] = useState(0);
+  const [totalProcessed, setTotalProcessed] = useState(0);
+  const [totalShipments, setTotalShipments] = useState(0);
+  const [totalCost, setTotalCost] = useState(0);
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const [totalProfit, setTotalProfit] = useState(0);
+  const [avgMargin, setAvgMargin] = useState(0);
   
   // Carrier Selection State
   const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
@@ -142,6 +154,8 @@ export const MarginAnalysisTools: React.FC = () => {
       
       if (statusData) {
         setProgressPercentage(statusData.progress_percentage || 0);
+        setTotalShipments(statusData.shipment_count || 0);
+        setTotalProcessed(statusData.valid_shipment_count || 0);
         
         // Check if job is completed
         if (statusData.first_phase_completed) {
@@ -159,6 +173,29 @@ export const MarginAnalysisTools: React.FC = () => {
       
       if (resultsData) {
         setLiveResults(resultsData);
+        
+        // Calculate totals
+        let costSum = 0;
+        let revenueSum = 0;
+        let profitSum = 0;
+        let marginSum = 0;
+        let marginCount = 0;
+        
+        resultsData.forEach((result: CustomerResult) => {
+          costSum += result.avg_carrier_quote * result.shipment_count;
+          revenueSum += result.avg_revenue * result.shipment_count;
+          profitSum += result.total_profit;
+          
+          if (result.current_margin_percentage > 0) {
+            marginSum += result.current_margin_percentage;
+            marginCount++;
+          }
+        });
+        
+        setTotalCost(costSum);
+        setTotalRevenue(revenueSum);
+        setTotalProfit(profitSum);
+        setAvgMargin(marginCount > 0 ? marginSum / marginCount : 0);
       }
     } catch (error) {
       console.error('Failed to fetch live results:', error);
@@ -536,8 +573,18 @@ export const MarginAnalysisTools: React.FC = () => {
     }
   };
 
+  const toggleCustomerExpanded = (customerName: string) => {
+    const newExpanded = new Set(expandedCustomers);
+    if (newExpanded.has(customerName)) {
+      newExpanded.delete(customerName);
+    } else {
+      newExpanded.add(customerName);
+    }
+    setExpandedCustomers(newExpanded);
+  };
+
   const renderLiveResults = () => {
-    if (!isRunningPhaseOne || liveResults.length === 0) {
+    if (!isRunningPhaseOne) {
       return (
         <div className="bg-white rounded-lg shadow-md p-8 text-center">
           <Loader className="h-12 w-12 text-blue-500 animate-spin mx-auto mb-4" />
@@ -556,6 +603,7 @@ export const MarginAnalysisTools: React.FC = () => {
       );
     }
 
+    // Main results card with summary and customer details
     return (
       <div className="space-y-4">
         <div className="bg-white rounded-lg shadow-md p-4">
@@ -576,6 +624,67 @@ export const MarginAnalysisTools: React.FC = () => {
           </div>
         </div>
 
+        {/* Summary Card */}
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center space-x-3 mb-4">
+            <div className="bg-blue-600 p-2 rounded-lg">
+              <BarChart3 className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Live Analysis Summary</h3>
+              <p className="text-sm text-gray-600">
+                {totalProcessed} of {totalShipments} shipments processed
+              </p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Total Cost</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalCost)}</p>
+                </div>
+                <CreditCard className="h-8 w-8 text-blue-500" />
+              </div>
+            </div>
+            
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Total Revenue</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalRevenue)}</p>
+                </div>
+                <DollarSign className="h-8 w-8 text-green-500" />
+              </div>
+            </div>
+            
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Total Profit</p>
+                  <p className="text-2xl font-bold text-green-600">{formatCurrency(totalProfit)}</p>
+                </div>
+                <TrendingUp className="h-8 w-8 text-green-500" />
+              </div>
+            </div>
+            
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Avg Margin</p>
+                  <p className={`text-2xl font-bold ${
+                    avgMargin < 15 ? 'text-red-600' :
+                    avgMargin < 25 ? 'text-yellow-600' :
+                    'text-green-600'
+                  }`}>{avgMargin.toFixed(1)}%</p>
+                </div>
+                <Percent className="h-8 w-8 text-blue-500" />
+              </div>
+            </div>
+          </div>
+        </div>
+
         {liveResults.map((result, index) => (
           <div key={index} className="bg-white rounded-lg shadow-md p-6">
             <div className="flex items-center space-x-3 mb-4">
@@ -583,31 +692,55 @@ export const MarginAnalysisTools: React.FC = () => {
                 <Building2 className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">{result.customer_name}</h3>
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                  {result.customer_name}
+                </h3>
                 <p className="text-sm text-gray-600">
                   {result.shipment_count} shipment{result.shipment_count !== 1 ? 's' : ''}
                 </p>
               </div>
+              <div className="ml-auto">
+              </div>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-500 mb-1">Average Carrier Rate</div>
-                <div className="text-xl font-bold text-gray-900">
-                  {formatCurrency(result.avg_carrier_quote)}
+            <div className="flex items-center justify-between mb-2">
+              <button
+                onClick={() => toggleCustomerExpanded(result.customer_name)}
+                className="flex items-center space-x-2 text-sm text-blue-600 hover:text-blue-700 transition-colors"
+              >
+                <span>{expandedCustomers.has(result.customer_name) ? 'Hide' : 'Show'} Details</span>
+                {expandedCustomers.has(result.customer_name) ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </button>
+              
+              <div className={`text-sm font-medium px-2 py-1 rounded-full ${
+                result.margin_category === 'Low Margin' ? 'bg-red-100 text-red-800' :
+                result.margin_category === 'Target Margin' ? 'bg-yellow-100 text-yellow-800' :
+                'bg-green-100 text-green-800'
+              }`}>
+                {result.margin_category}
+              </div>
+            </div>
+            
+            {/* Summary Row */}
+            <div className="bg-gray-50 rounded-lg p-3 flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div>
+                  <div className="text-sm text-gray-500">Avg Cost</div>
+                  <div className="font-medium">{formatCurrency(result.avg_carrier_quote)}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500">Avg Revenue</div>
+                  <div className="font-medium">{formatCurrency(result.avg_revenue)}</div>
                 </div>
               </div>
               
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-500 mb-1">Average Revenue</div>
-                <div className="text-xl font-bold text-gray-900">
-                  {formatCurrency(result.avg_revenue)}
-                </div>
-              </div>
-              
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-500 mb-1">Current Margin</div>
-                <div className={`text-xl font-bold ${
+              <div>
+                <div className="text-sm text-gray-500">Margin</div>
+                <div className={`font-medium ${
                   result.current_margin_percentage < 15 ? 'text-red-600' :
                   result.current_margin_percentage < 25 ? 'text-yellow-600' :
                   'text-green-600'
@@ -617,22 +750,75 @@ export const MarginAnalysisTools: React.FC = () => {
               </div>
             </div>
             
-            <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-medium text-blue-800">
-                  Total Profit: {formatCurrency(result.total_profit)}
+            {/* Expanded Details */}
+            {expandedCustomers.has(result.customer_name) && (
+              <div className="mt-4 space-y-3">
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-medium text-blue-800">
+                      Total Profit: {formatCurrency(result.total_profit)}
+                    </div>
+                    <div className="text-sm text-blue-600">
+                      {(result.total_profit / (result.avg_carrier_quote * result.shipment_count) * 100).toFixed(1)}% of cost
+                    </div>
+                  </div>
                 </div>
-                <div className={`text-sm font-medium px-2 py-1 rounded-full ${
-                  result.margin_category === 'Low Margin' ? 'bg-red-100 text-red-800' :
-                  result.margin_category === 'Target Margin' ? 'bg-yellow-100 text-yellow-800' :
-                  'bg-green-100 text-green-800'
-                }`}>
-                  {result.margin_category}
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="border border-gray-200 rounded-lg p-3">
+                    <div className="text-sm font-medium text-gray-700 mb-2">Margin Analysis</div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Current Margin:</span>
+                        <span className={`text-sm font-medium ${
+                          result.current_margin_percentage < 15 ? 'text-red-600' :
+                          result.current_margin_percentage < 25 ? 'text-yellow-600' :
+                          'text-green-600'
+                        }`}>{result.current_margin_percentage.toFixed(1)}%</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Target Margin:</span>
+                        <span className="text-sm font-medium text-blue-600">23.0%</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Margin Variance:</span>
+                        <span className={`text-sm font-medium ${
+                          result.current_margin_percentage < 23 ? 'text-red-600' : 'text-green-600'
+                        }`}>{(result.current_margin_percentage - 23).toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="border border-gray-200 rounded-lg p-3">
+                    <div className="text-sm font-medium text-gray-700 mb-2">Revenue Impact</div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Total Cost:</span>
+                        <span className="text-sm font-medium">{formatCurrency(result.avg_carrier_quote * result.shipment_count)}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Total Revenue:</span>
+                        <span className="text-sm font-medium">{formatCurrency(result.avg_revenue * result.shipment_count)}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Total Profit:</span>
+                        <span className="text-sm font-medium text-green-600">{formatCurrency(result.total_profit)}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         ))}
+        
+        {liveResults.length === 0 && (
+          <div className="bg-white rounded-lg shadow-md p-8 text-center">
+            <Loader className="h-12 w-12 text-blue-500 animate-spin mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Processing Shipments</h3>
+            <p className="text-gray-600">Waiting for first results...</p>
+          </div>
+        )}
       </div>
     );
   };
@@ -756,10 +942,8 @@ export const MarginAnalysisTools: React.FC = () => {
       {/* Live Results Section */}
       {isRunningPhaseOne && (
         <div className="space-y-4">
-          <div className="border-t border-gray-200 pt-6 mt-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Live Analysis Results</h3>
-            {renderLiveResults()}
-          </div>
+          <div className="border-t border-gray-200 pt-6 mt-6"></div>
+          {renderLiveResults()}
         </div>
       )}
     </div>
