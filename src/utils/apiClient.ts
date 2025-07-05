@@ -461,7 +461,7 @@ export class Project44APIClient {
     // Clean and validate address data
     // Ensure ZIP codes are 5 digits
     rfq.fromZip = rfq.fromZip.replace(/\D/g, '').substring(0, 5).padEnd(5, '0');
-    rfq.toZip = rfq.toZip.replace(/\D/g, '').substring(0, 5).padEnd(5, '0');
+    rfq.toZip = rfq.toZip.replace(/\D/g, '').substring(0, 5).padEnd(5, '0'); 
     
     // Validate state codes
     const validStates = new Set([
@@ -989,7 +989,7 @@ export class Project44APIClient {
     
     // Filter out problematic accessorial codes that cause API errors
     const filterProblematicCodes = (codes: string[]): string[] => {
-      const problematicCodes = ['APPT', 'APPTDEL', 'LGDEL', 'LTDDEL', 'UNLOADDEL'];
+      const problematicCodes = ['APPT', 'APPTDEL', 'LGDEL', 'LTDDEL', 'UNLOADDEL', 'LTDDEL'];
       return codes.filter(code => !problematicCodes.includes(code));
     };
     
@@ -997,7 +997,7 @@ export class Project44APIClient {
     if (rfq.accessorial && rfq.accessorial.length > 0) {
       // Filter out problematic codes before adding to services
       const filteredAccessorials = filterProblematicCodes(rfq.accessorial);
-      console.log(`🔍 Filtered accessorials: ${rfq.accessorial.length} → ${filteredAccessorials.length}`);
+      console.log(`🔍 Filtered accessorials: ${rfq.accessorial.length} → ${filteredAccessorials.length}. Original: [${rfq.accessorial.join(', ')}], Filtered: [${filteredAccessorials.join(', ')}]`);
       
       filteredAccessorials.forEach(code => {
         services.push({ code });
@@ -1007,7 +1007,7 @@ export class Project44APIClient {
     // Add temperature-controlled accessorials for reefer mode
     if (isReeferMode && rfq.temperature && ['CHILLED', 'FROZEN'].includes(rfq.temperature)) {
       services.push({ code: 'TEMP_CONTROLLED' });
-      services.push({ code: 'REEFER' });
+      // Don't add REEFER code as it's not supported by Project44
       
       // Add temperature-specific codes
       if (rfq.temperature === 'FROZEN') {
@@ -1016,12 +1016,15 @@ export class Project44APIClient {
         services.push({ code: 'TEMP_PROTECT' });
       }
     }
+    
+    if (services.length > 0) {
+    }
 
     return services;
   }
 
   private buildPickupWindow(rfq: RFQRow): TimeWindow | undefined {
-    if (!rfq.pickupStartTime && !rfq.pickupEndTime) {
+    if (!rfq.fromDate || (!rfq.pickupStartTime && !rfq.pickupEndTime)) {
       return undefined;
     }
 
@@ -1033,7 +1036,7 @@ export class Project44APIClient {
   }
 
   private buildDeliveryWindow(rfq: RFQRow): TimeWindow | undefined {
-    if (!rfq.deliveryDate && !rfq.deliveryStartTime && !rfq.deliveryEndTime) {
+    if (!rfq.fromDate && !rfq.deliveryDate && !rfq.deliveryStartTime && !rfq.deliveryEndTime) {
       return undefined;
     }
 
@@ -1042,6 +1045,7 @@ export class Project44APIClient {
       startTime: rfq.deliveryStartTime || '08:00',
       endTime: rfq.deliveryEndTime || '17:00'
     };
+    
   }
 }
 

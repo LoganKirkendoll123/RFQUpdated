@@ -466,7 +466,68 @@ const parseBoolean = (value: string): boolean => {
 const parseAccessorial = (value: string): string[] => {
   if (!value) return [];
   // Handle both comma and semicolon separators
-  return value.split(/[,;]/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  const accessorials = value.split(/[,;]/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  
+  // Map common accessorial names to Project44 codes
+  const accessorialMap: Record<string, string> = {
+    'LIMITED ACCESS DELIVERY': 'LTDPU', // Use pickup version to avoid API errors
+    'DELIVERY APPOINTMENT': 'NOTIFY', // Use notification instead of APPT/APPTDEL
+    'LIFTGATE DELIVERY': 'LGPU', // Use pickup version to avoid API errors
+    'RESIDENTIAL DELIVERY': 'RESDEL',
+    'HAZMAT': 'HAZM',
+    'LIFTGATE PICKUP': 'LGPU',
+    'INSIDE DELIVERY': 'INDEL',
+    'AIRPORT DELIVERY': 'AIRDEL',
+    'LIMITED ACCESS PICKUP': 'LTDPU',
+    'CONVENTION/TRADESHOW DELIVERY': 'CNVDEL',
+    'RESIDENTIAL PICKUP': 'RESPU',
+    'AIRPORT PICKUP': 'AIRPU',
+    'CONVENTION/TRADESHOW PICKUP': 'CNVPU',
+    'FARM DELIVERY': 'FARMDEL',
+    'MILITARY INSTALLATION PICKUP': 'MILPU',
+    'GROCERY WAREHOUSE DELIVERY': 'GRODEL',
+    'PROTECT FROM FREEZING': 'PFZ',
+    'PIER DELIVERY': 'PIERDEL',
+    'INSIDE PICKUP': 'INPU',
+    'GROCERY WAREHOUSE PICKUP': 'GROPU',
+    'SORT/SEGREGATE DELIVERY': 'SORTDEL',
+    'PIER PICKUP': 'PIERPU'
+  };
+  
+  // Map excessive length codes
+  const excessiveLengthMap: Record<string, string> = {
+    'EXCESSIVE LENGTH, 8FT': 'ELS_8',
+    'EXCESSIVE LENGTH, 9FT': 'ELS_9',
+    'EXCESSIVE LENGTH, 10FT': 'ELS_10',
+    'EXCESSIVE LENGTH, 11FT': 'ELS_11',
+    'EXCESSIVE LENGTH, 12FT': 'ELS_12',
+    'EXCESSIVE LENGTH, 13FT': 'ELS_13',
+    'EXCESSIVE LENGTH, 14FT': 'ELS_14',
+    'EXCESSIVE LENGTH, 15FT': 'ELS_15',
+    'EXCESSIVE LENGTH, 16FT': 'ELS_16',
+    'EXCESSIVE LENGTH, 17FT': 'ELS_17',
+    'EXCESSIVE LENGTH, 18FT': 'ELS_18',
+    'EXCESSIVE LENGTH, 19FT': 'ELS_19',
+    'EXCESSIVE LENGTH, 20FT': 'ELS_20'
+  };
+  
+  // Map accessorials to Project44 codes
+  const mappedAccessorials = accessorials.map(acc => {
+    // Check for excessive length first
+    if (excessiveLengthMap[acc]) {
+      return excessiveLengthMap[acc];
+    }
+    
+    // Then check regular accessorials
+    if (accessorialMap[acc]) {
+      return accessorialMap[acc];
+    }
+    
+    // If no mapping found, return as is
+    return acc;
+  });
+  
+  return mappedAccessorials;
 };
 
 const parseAddressLines = (value: string): string[] => {

@@ -375,10 +375,113 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       return parseFloat(cleaned) || 0;
     };
     
+    // Parse accessorials from semicolon-separated string
+    const parseAccessorials = (accessorialString: string | null | undefined): string[] => {
+      if (!accessorialString) return [];
+      
+      // Map common accessorial names to Project44 codes
+      const accessorialMap: Record<string, string> = {
+        'Limited Access Delivery': 'LTDPU', // Use pickup version to avoid API errors
+        'Delivery Appointment': 'NOTIFY', // Use notification instead of APPT/APPTDEL
+        'Liftgate Delivery': 'LGPU', // Use pickup version to avoid API errors
+        'Residential Delivery': 'RESDEL',
+        'Hazmat': 'HAZM',
+        'Liftgate Pickup': 'LGPU',
+        'Inside Delivery': 'INDEL',
+        'Airport Delivery': 'AIRDEL',
+        'Limited Access Pickup': 'LTDPU',
+        'Convention/Tradeshow Delivery': 'CNVDEL',
+        'Residential Pickup': 'RESPU',
+        'Airport Pickup': 'AIRPU',
+        'Convention/Tradeshow Pickup': 'CNVPU',
+        'Farm Delivery': 'FARMDEL',
+        'Military Installation Pickup': 'MILPU',
+        'Grocery Warehouse Delivery': 'GRODEL',
+        'Protect From Freezing': 'PFZ',
+        'Pier Delivery': 'PIERDEL',
+        'Inside Pickup': 'INPU',
+        'Grocery Warehouse Pickup': 'GROPU',
+        'Sort/Segregate Delivery': 'SORTDEL',
+        'Pier Pickup': 'PIERPU'
+      };
+      
+      // Map excessive length codes
+      const excessiveLengthMap: Record<string, string> = {
+        'Excessive Length, 8ft': 'ELS_8',
+        'Excessive Length, 9ft': 'ELS_9',
+        'Excessive Length, 10ft': 'ELS_10',
+        'Excessive Length, 11ft': 'ELS_11',
+        'Excessive Length, 12ft': 'ELS_12',
+        'Excessive Length, 13ft': 'ELS_13',
+        'Excessive Length, 14ft': 'ELS_14',
+        'Excessive Length, 15ft': 'ELS_15',
+        'Excessive Length, 16ft': 'ELS_16',
+        'Excessive Length, 17ft': 'ELS_17',
+        'Excessive Length, 18ft': 'ELS_18',
+        'Excessive Length, 19ft': 'ELS_19',
+        'Excessive Length, 20ft': 'ELS_20'
+      };
+      
+      // Split by semicolon and trim each accessorial
+      const accessorials = accessorialString.split(';').map(acc => acc.trim()).filter(Boolean);
+      console.log(`📦 Parsed ${accessorials.length} accessorials from string: ${accessorialString}`);
+      
+      // Map to Project44 codes
+      const mappedAccessorials = accessorials.map(acc => {
+        // Check for excessive length first
+        if (excessiveLengthMap[acc]) {
+          return excessiveLengthMap[acc];
+        }
+        
+        // Then check regular accessorials
+        if (accessorialMap[acc]) {
+          return accessorialMap[acc];
+        }
+        
+        // If no mapping found, return as is (will be filtered by API client)
+        console.log(`⚠️ No mapping found for accessorial: ${acc}`);
+        return acc;
+      });
+      
+      console.log(`🔄 Mapped ${mappedAccessorials.length} accessorials to Project44 codes`);
+      return mappedAccessorials;
+    };
+    
     // Estimate pallets from weight if not available
     const weight = parseNumeric(shipment["Tot Weight"]);
     const packages = parseNumeric(shipment["Tot Packages"]) || 1;
     const estimatedPallets = Math.max(1, Math.ceil(packages / 4)); // Rough estimate
+    
+    // Clean and validate ZIP codes
+    const cleanZip = (zip: string | null | undefined): string => {
+      if (!zip) return '00000';
+      const cleaned = zip.toString().replace(/\D/g, '');
+      return cleaned.substring(0, 5).padEnd(5, '0');
+    };
+    
+    // Clean and validate state codes
+    const cleanState = (state: string | null | undefined): string => {
+      if (!state) return '';
+      const cleaned = state.toString().trim().toUpperCase();
+      // Check if it's a valid 2-letter state code
+      const validStates = new Set([
+        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
+        'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+        'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT',
+        'VA', 'WA', 'WV', 'WI', 'WY', 'AS', 'DC', 'FM', 'GU', 'MH', 'MP', 'PW', 'PR', 'VI'
+      ]);
+      
+      if (validStates.has(cleaned)) {
+        return cleaned;
+      }
+      
+      // If not valid, return empty string
+      console.log(`⚠️ Invalid state code: ${state} - removing`);
+      return '';
+    };
+    
+    // Parse accessorials from the Accessorials field
+    const accessorials = parseAccessorials(shipment["Accessorials"]);
     
     // Parse accessorials from semicolon-separated string
     let accessorialCodes: string[] = [];
@@ -425,19 +528,19 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     
     return {
       fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
-      fromZip: cleanZipCode(shipment["Zip"]),
-      toZip: cleanZipCode(shipment["Zip_1"]),
+      fromZip: cleanZip(shipment["Zip"]),
+      toZip: cleanZip(shipment["Zip_1"]),
       pallets: estimatedPallets,
       grossWeight: weight,
       isStackable: false, // Conservative default
       isReefer: false, // Default to dry goods
-      accessorial: accessorialCodes,
+      accessorial: accessorials,
       freightClass: shipment["Max Freight Class"] || '70',
       commodityDescription: shipment["Commodities"] || 'General Freight',
       originCity: shipment["Origin City"],
-      originState: cleanStateCode(shipment["State"]),
+      originState: cleanState(shipment["State"]),
       destinationCity: shipment["Destination City"],
-      destinationState: cleanStateCode(shipment["State_1"]),
+      destinationState: cleanState(shipment["State_1"]),
       totalLinearFeet: shipment["Tot Linear Ft"] ? parseNumeric(shipment["Tot Linear Ft"]) : undefined
     };
   };
@@ -558,171 +661,138 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           
           // Process RFQs in batches
           const customerResults: ProcessingResult[] = [];
-          let batchCount = 0;
-          const totalBatches = Math.ceil(rfqs.length / BATCH_SIZE); 
+          let processedCount = 0;
           
-          // Process RFQs in batches with proper rate limiting
-          console.log(`🔢 Processing ${rfqs.length} RFQs with rate limit of ${BATCH_SIZE} per second per carrier`);
-          
-          // Process in batches
-          for (let i = 0; i < rfqs.length; i += BATCH_SIZE) {
-            const batchRfqs = rfqs.slice(i, i + BATCH_SIZE);
-            batchCount++;
-            console.log(`🔄 Processing batch ${batchCount}/${totalBatches} (${batchRfqs.length} RFQs)`);
+          for (let rfqIndex = 0; rfqIndex < rfqs.length; rfqIndex++) {
+            const rfq = rfqs[rfqIndex];
             
-            // Prepare all promises for this batch
-            const batchPromises = batchRfqs.map(async (rfq, batchIndex): Promise<ProcessingResult> => {
-              const overallIndex = i + batchIndex;
+            // Update progress
+            const progress = ((rfqIndex + 1) / rfqs.length) * 100;
+            setMassRFQJobs(prev => prev.map(job => 
+              job.id === jobId 
+                ? { ...job, progress: Math.min(progress, 99) } // Cap at 99% until fully complete
+                : job
+            ));
+            
+            try {
+              // Classify shipment for smart routing
+              const classification = classifyShipment(rfq);
               
-              // Update progress
-              const progress = ((overallIndex + 1) / rfqs.length) * 100;
-              // Use functional update to avoid race conditions
-              setMassRFQJobs(prev => {
-                const updatedJobs = [...prev];
-                const jobIndex = updatedJobs.findIndex(j => j.id === jobId);
-                if (jobIndex >= 0) {
-                  updatedJobs[jobIndex] = {
-                    ...updatedJobs[jobIndex],
-                    progress: Math.min(progress, 99) // Cap at 99% until fully complete
-                  };
-                }
-                return updatedJobs;
-              });
+              let quotes: any[] = [];
               
+              // Log accessorials for debugging
+              if (rfq.accessorial && rfq.accessorial.length > 0) {
+                console.log(`📋 RFQ ${rfqIndex + 1} has ${rfq.accessorial.length} accessorials: ${rfq.accessorial.join(', ')}`);
+              }
+               
               try {
-                // Classify shipment for smart routing
-                const classification = classifyShipment(rfq);
-                
-                let quotes: any[] = [];
-                
-                // Log accessorials for debugging
-                if (rfq.accessorial && rfq.accessorial.length > 0) {
-                  console.log(`📋 RFQ ${overallIndex + 1} has ${rfq.accessorial.length} accessorials: ${rfq.accessorial.join(', ')}`);
-                }
-                 
                 if (classification.quoting === 'freshx' && freshxClient) {
-                  quotes = await freshxClient.getQuotes(rfq);
-                } else if (classification.quoting === 'project44-dual') {
-                  const [volumeQuotes, standardQuotes] = await Promise.all([
-                    project44Client.getQuotes(rfq, selectedCarrierIds, true, false, false),
-                    project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false)
-                  ]);
-                  
-                  const taggedVolumeQuotes = volumeQuotes.map(quote => ({
-                    ...quote,
-                    quoteMode: 'volume',
-                    quoteModeLabel: 'Volume LTL'
-                  }));
-                  
-                  const taggedStandardQuotes = standardQuotes.map(quote => ({
-                    ...quote,
-                    quoteMode: 'standard',
-                    quoteModeLabel: 'Standard LTL'
-                  }));
-                  
-                  quotes = [...taggedVolumeQuotes, ...taggedStandardQuotes];
-                } else {
-                  quotes = await project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false);
-                }
+                quotes = await freshxClient.getQuotes(rfq);
+              } else if (classification.quoting === 'project44-dual') {
+                const [volumeQuotes, standardQuotes] = await Promise.all([
+                  project44Client.getQuotes(rfq, selectedCarrierIds, true, false, false),
+                  project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false)
+                ]);
                 
-                // Apply pricing
-                const quotesWithPricing = await Promise.all(
-                  quotes.map(quote => {
-                    try {
-                      return calculatePricingWithCustomerMargins(quote, pricingSettings, customerName);
-                    } catch (pricingError) {
-                      console.error(`❌ Error calculating pricing for quote:`, pricingError);
-                      // Return a default pricing if calculation fails
-                      return {
-                        ...quote,
-                        carrierTotalRate: quote.rateQuoteDetail?.total || 0,
-                        customerPrice: (quote.rateQuoteDetail?.total || 0) * 1.15, // 15% markup
-                        profit: (quote.rateQuoteDetail?.total || 0) * 0.15,
-                        markupApplied: (quote.rateQuoteDetail?.total || 0) * 0.15,
-                        isCustomPrice: false,
-                        chargeBreakdown: {
-                          baseCharges: [],
-                          fuelCharges: [],
-                          accessorialCharges: [],
-                          discountCharges: [],
-                          premiumCharges: [],
-                          otherCharges: []
-                        }
-                      };
-                    }
-                  })
-                );
+                const taggedVolumeQuotes = volumeQuotes.map(quote => ({
+                  ...quote,
+                  quoteMode: 'volume',
+                  quoteModeLabel: 'Volume LTL'
+                }));
                 
-                const result: ProcessingResult = {
-                  rowIndex: overallIndex,
-                  originalData: rfq,
-                  quotes: quotesWithPricing,
-                  status: 'success'
-                };
+                const taggedStandardQuotes = standardQuotes.map(quote => ({
+                  ...quote,
+                  quoteMode: 'standard',
+                  quoteModeLabel: 'Standard LTL'
+                }));
                 
-                // Add smart quoting metadata
-                (result as any).quotingDecision = classification.quoting;
-                (result as any).quotingReason = classification.reason;
-                
-                customerResults.push(result);
-                
-                 // Add to global results immediately to show progress
-                 setResults(prevResults => [...prevResults, result]);
-                 
-                 return result;
-               } catch (rfqError) {
-                 console.error(`❌ RFQ ${overallIndex + 1} failed for ${customerName}:`, rfqError);
-                 
-                 const result: ProcessingResult = {
-                   rowIndex: overallIndex,
-                   originalData: rfq,
-                   quotes: [],
-                   status: 'error',
-                   error: rfqError instanceof Error ? rfqError.message : 'Unknown error'
-                 };
-                 
-                 customerResults.push(result);
-                 
-                 // Add to global results immediately to show progress
-                 setResults(prevResults => [...prevResults, result]);
-                 
-                 return result;
-               }
-              }); 
-            
-            // Execute all promises in the batch simultaneously
-            console.log(`🚀 Executing batch of ${batchPromises.length} requests simultaneously`);
-            const batchResults = await Promise.all(batchPromises);
-            
-            // Filter out any null/undefined results (shouldn't happen now, but safety check)
-            const validBatchResults = batchResults.filter(result => result != null);
-            if (validBatchResults.length !== batchResults.length) {
-              console.warn(`⚠️ Filtered out ${batchResults.length - validBatchResults.length} null results`); 
+                quotes = [...taggedVolumeQuotes, ...taggedStandardQuotes];
+              } else {
+                quotes = await project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false);
+              }
+              } catch (quoteError) {
+                console.error(`❌ Failed to get quotes for RFQ ${rfqIndex + 1}:`, quoteError);
+                throw quoteError;
+              }
+              
+              // Apply pricing
+              const quotesWithPricing = await Promise.all(
+                quotes.map(quote => {
+                  try {
+                    return calculatePricingWithCustomerMargins(quote, pricingSettings, customerName);
+                  } catch (pricingError) {
+                    console.error(`❌ Error calculating pricing for quote:`, pricingError);
+                    // Return a default pricing if calculation fails
+                    return {
+                      ...quote,
+                      carrierTotalRate: quote.rateQuoteDetail?.total || 0,
+                      customerPrice: (quote.rateQuoteDetail?.total || 0) * 1.15, // 15% markup
+                      profit: (quote.rateQuoteDetail?.total || 0) * 0.15,
+                      markupApplied: (quote.rateQuoteDetail?.total || 0) * 0.15,
+                      isCustomPrice: false,
+                      chargeBreakdown: {
+                        baseCharges: [],
+                        fuelCharges: [],
+                        accessorialCharges: [],
+                        discountCharges: [],
+                        premiumCharges: [],
+                        otherCharges: []
+                      }
+                    };
+                  }
+                })
+              );
+              
+              const result: ProcessingResult = {
+                rowIndex: rfqIndex,
+                originalData: rfq,
+                quotes: quotesWithPricing,
+                status: 'success'
+              };
+              
+              // Add smart quoting metadata
+              (result as any).quotingDecision = classification.quoting;
+              (result as any).quotingReason = classification.reason;
+              
+              customerResults.push(result);
+              
+              // Update processed count
+              processedCount++;
+              console.log(`✅ Processed ${processedCount}/${rfqs.length} RFQs for ${customerName}`);
+              
+            } catch (rfqError) {
+              console.error(`❌ RFQ ${rfqIndex + 1} failed for ${customerName}:`, rfqError);
+              
+              const result: ProcessingResult = {
+                rowIndex: rfqIndex,
+                originalData: rfq,
+                quotes: [],
+                status: 'error',
+                error: rfqError instanceof Error ? rfqError.message : 'Unknown error'
+              };
+              
+              customerResults.push(result);
             }
             
-            // Wait between batches to respect rate limits
-            if (i + BATCH_SIZE < rfqs.length) {
-              console.log(`⏱️ Waiting ${BATCH_DELAY_MS}ms before next batch...`);
-              await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS)); 
-            }
+            // Add a delay between requests to avoid rate limiting
+            // Project44 has a limit of 5 requests per second per carrier
+            // We'll use a 200ms delay to be safe (5 requests per second)
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
           }
           
           // Update job completion
-          setMassRFQJobs(prev => {
-            const updatedJobs = [...prev];
-            const jobIndex = updatedJobs.findIndex(j => j.id === jobId);
-            if (jobIndex >= 0) {
-              updatedJobs[jobIndex] = {
-                ...updatedJobs[jobIndex],
-                status: 'completed',
-                progress: 100,
-                results: customerResults,
-                endTime: new Date()
-              };
-            }
-            return updatedJobs;
-          });
+          setMassRFQJobs(prev => prev.map(job => 
+            job.id === jobId ? { 
+              ...job, 
+              status: 'completed', 
+              progress: 100,
+              results: customerResults,
+              endTime: new Date()
+            } : job
+          ));
           
+          allResults.push(...customerResults);
           console.log(`✅ Completed customer ${customerName}: ${customerResults.length} results`);
           
         } catch (customerError) {
@@ -739,10 +809,8 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
         }
       }
       
+      setResults(allResults);
       console.log('🏁 Mass RFQ processing completed');
-      
-      // Final update to results to ensure UI refreshes
-      setResults(currentResults => [...currentResults]);
       
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Mass RFQ processing failed';
@@ -1222,7 +1290,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 </div>
                 
                 {job.results && job.results
-                  .filter(result => result.status === 'success' && result.quotes && result.quotes.length > 0)
+                  .filter(result => result && result.status === 'success' && result.quotes && result.quotes.length > 0)
                   .slice(0, 3) // Show first 3 results
                   .map((result, index) => (
                     <RFQCard
@@ -1232,10 +1300,10 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                     />
                   ))}
                 
-                {job.results && job.results.filter(r => r.status === 'success' && r.quotes && r.quotes.length > 0).length > 3 && (
+                {job.results && job.results.filter(r => r && r.status === 'success' && r.quotes && r.quotes.length > 0).length > 3 && (
                   <div className="bg-gray-50 rounded-lg p-4 text-center">
                     <p className="text-gray-600">
-                      Showing 3 of {job.results.filter(r => r.status === 'success' && r.quotes && r.quotes.length > 0).length} successful results.
+                      Showing 3 of {job.results.filter(r => r.status === 'success' && r.quotes.length > 0).length} successful results.
                       Export all results to see complete data.
                     </p>
                   </div>
