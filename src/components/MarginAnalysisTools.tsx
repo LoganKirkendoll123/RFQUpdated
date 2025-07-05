@@ -18,7 +18,8 @@ import {
   Zap,
   ArrowRight,
   Eye,
-  PlayCircle
+  PlayCircle,
+  Building2
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { CarrierSelection } from './CarrierSelection';
@@ -50,6 +51,18 @@ interface MarginAnalysisJob {
   current_margin?: number;
   confidence_score?: number;
   error_message?: string;
+  customer_list?: string[];
+  progress_percentage?: number;
+}
+
+interface CustomerResult {
+  customer_name: string;
+  shipment_count: number;
+  avg_carrier_quote: number;
+  avg_revenue: number;
+  total_profit: number;
+  current_margin_percentage: number;
+  margin_category: string;
 }
 
 export const MarginAnalysisTools: React.FC = () => {
@@ -63,6 +76,9 @@ export const MarginAnalysisTools: React.FC = () => {
     end: new Date().toISOString().split('T')[0] // today
   });
   const [isRunningPhaseOne, setIsRunningPhaseOne] = useState(false);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [liveResults, setLiveResults] = useState<CustomerResult[]>([]);
+  const [progressPercentage, setProgressPercentage] = useState(0);
   
   // Carrier Selection State
   const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
@@ -80,6 +96,17 @@ export const MarginAnalysisTools: React.FC = () => {
     initializeProject44Client();
     loadJobs();
   }, []);
+
+  // Set up polling for live results when a job is running
+  useEffect(() => {
+    if (!currentJobId || !isRunningPhaseOne) return;
+    
+    const pollInterval = setInterval(async () => {
+      await fetchLiveResults(currentJobId);
+    }, 1000); // Poll every second
+    
+    return () => clearInterval(pollInterval);
+  }, [currentJobId, isRunningPhaseOne]);
 
   const initializeProject44Client = () => {
     const config = loadProject44Config();
@@ -102,6 +129,39 @@ export const MarginAnalysisTools: React.FC = () => {
       setError('Failed to load carriers');
     } finally {
       setIsLoadingCarriers(false);
+    }
+  };
+
+  const fetchLiveResults = async (jobId: string) => {
+    try {
+      // Get job status and progress
+      const { data: statusData, error: statusError } = await supabase
+        .rpc('get_job_status_with_progress', { job_id: jobId });
+      
+      if (statusError) throw statusError;
+      
+      if (statusData) {
+        setProgressPercentage(statusData.progress_percentage || 0);
+        
+        // Check if job is completed
+        if (statusData.first_phase_completed) {
+          setIsRunningPhaseOne(false);
+          setCurrentJobId(null);
+          await loadJobs();
+        }
+      }
+      
+      // Get live results by customer
+      const { data: resultsData, error: resultsError } = await supabase
+        .rpc('get_live_job_results', { job_id: jobId });
+      
+      if (resultsError) throw resultsError;
+      
+      if (resultsData) {
+        setLiveResults(resultsData);
+      }
+    } catch (error) {
+      console.error('Failed to fetch live results:', error);
     }
   };
 
@@ -209,6 +269,9 @@ export const MarginAnalysisTools: React.FC = () => {
         .single();
 
       if (jobError) throw jobError;
+      
+      // Set current job ID for live results polling
+      setCurrentJobId(job.id);
 
       console.log('🚀 Starting Phase One Analysis for job:', job.id);
 
@@ -330,9 +393,6 @@ export const MarginAnalysisTools: React.FC = () => {
 
       // Reload jobs to show the new pending job
       await loadJobs();
-
-      // Switch to queue tab to show the pending job
-      setActiveTab('queue');
 
       // Clear carrier selection
       setSelectedCarriers({});
@@ -476,6 +536,107 @@ export const MarginAnalysisTools: React.FC = () => {
     }
   };
 
+  const renderLiveResults = () => {
+    if (!isRunningPhaseOne || liveResults.length === 0) {
+      return (
+        <div className="bg-white rounded-lg shadow-md p-8 text-center">
+          <Loader className="h-12 w-12 text-blue-500 animate-spin mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Processing Shipments</h3>
+          <p className="text-gray-600">Analyzing shipment data and gathering results...</p>
+          <div className="mt-4 w-full bg-gray-200 rounded-full h-2.5">
+            <div 
+              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+              style={{ width: `${progressPercentage}%` }}
+            ></div>
+          </div>
+          <p className="text-sm text-gray-500 mt-2">
+            {progressPercentage.toFixed(1)}% complete
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className="bg-white rounded-lg shadow-md p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Live Results by Customer</h3>
+            <div className="flex items-center space-x-2">
+              <Loader className="h-4 w-4 text-blue-500 animate-spin" />
+              <span className="text-sm text-blue-600">
+                {progressPercentage.toFixed(1)}% complete
+              </span>
+            </div>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+            <div 
+              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+              style={{ width: `${progressPercentage}%` }}
+            ></div>
+          </div>
+        </div>
+
+        {liveResults.map((result, index) => (
+          <div key={index} className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="bg-blue-100 p-2 rounded-lg">
+                <Building2 className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">{result.customer_name}</h3>
+                <p className="text-sm text-gray-600">
+                  {result.shipment_count} shipment{result.shipment_count !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-500 mb-1">Average Carrier Rate</div>
+                <div className="text-xl font-bold text-gray-900">
+                  {formatCurrency(result.avg_carrier_quote)}
+                </div>
+              </div>
+              
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-500 mb-1">Average Revenue</div>
+                <div className="text-xl font-bold text-gray-900">
+                  {formatCurrency(result.avg_revenue)}
+                </div>
+              </div>
+              
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-500 mb-1">Current Margin</div>
+                <div className={`text-xl font-bold ${
+                  result.current_margin_percentage < 15 ? 'text-red-600' :
+                  result.current_margin_percentage < 25 ? 'text-yellow-600' :
+                  'text-green-600'
+                }`}>
+                  {result.current_margin_percentage.toFixed(1)}%
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium text-blue-800">
+                  Total Profit: {formatCurrency(result.total_profit)}
+                </div>
+                <div className={`text-sm font-medium px-2 py-1 rounded-full ${
+                  result.margin_category === 'Low Margin' ? 'bg-red-100 text-red-800' :
+                  result.margin_category === 'Target Margin' ? 'bg-yellow-100 text-yellow-800' :
+                  'bg-green-100 text-green-800'
+                }`}>
+                  {result.margin_category}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const renderPreliminaryTab = () => (
     <div className="space-y-6">
       {/* Header */}
@@ -591,6 +752,16 @@ export const MarginAnalysisTools: React.FC = () => {
           </button>
         </div>
       </div>
+      
+      {/* Live Results Section */}
+      {isRunningPhaseOne && (
+        <div className="space-y-4">
+          <div className="border-t border-gray-200 pt-6 mt-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Live Analysis Results</h3>
+            {renderLiveResults()}
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -660,6 +831,11 @@ export const MarginAnalysisTools: React.FC = () => {
                     <div>
                       <span className="text-gray-500">Valid Shipments:</span>
                       <div className="font-medium">{job.valid_shipment_count || 0}</div>
+                      {job.customer_list && job.customer_list.length > 0 && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {job.customer_list.length} unique customer{job.customer_list.length !== 1 ? 's' : ''}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
