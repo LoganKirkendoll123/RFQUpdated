@@ -19,6 +19,7 @@ import {
   Calendar,
   Package,
   Clock,
+ Info
   Info
 } from 'lucide-react';
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
