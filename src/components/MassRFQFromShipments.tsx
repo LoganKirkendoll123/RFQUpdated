@@ -123,6 +123,9 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingBatches, setIsLoadingBatches] = useState(false);
+  
+  // Add missing filteredShipments state
+  const [filteredShipments, setFilteredShipments] = useState<any[]>([]);
 
   useEffect(() => {
     loadFilterOptions();
@@ -347,6 +350,11 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       
       // Reload shipment data with the restored filters
       await loadShipmentData();
+      
+      // If the batch has RFQ data, restore it
+      if (fullBatch.rfq_data) {
+        setFilteredShipments(fullBatch.rfq_data);
+      }
     } catch (error) {
       console.error('Failed to load batch:', error);
       alert('Failed to load batch. Please try again.');

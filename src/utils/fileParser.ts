@@ -491,7 +491,8 @@ const parseAccessorial = (value: string): string[] => {
     'INSIDE PICKUP': 'INPU',
     'GROCERY WAREHOUSE PICKUP': 'GROPU',
     'SORT/SEGREGATE DELIVERY': 'SORTDEL',
-    'PIER PICKUP': 'PIERPU'
+    'PIER PICKUP': 'PIERPU',
+    'UNLOAD AT DESTINATION': 'UNLOADDEL'
   };
   
   // Map excessive length codes
