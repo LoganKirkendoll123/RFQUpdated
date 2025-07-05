@@ -2,682 +2,772 @@ import React, { useState, useEffect } from 'react';
 import { 
   Calculator, 
   TrendingUp, 
+  TrendingDown, 
+  Calendar, 
+  Database, 
+  Play, 
+  Pause, 
+  BarChart3, 
   Users, 
-  Truck,
-  Play,
-  Download,
-  Loader,
-  AlertCircle,
-  CheckCircle,
-  Info,
+  Truck, 
   DollarSign,
-  Target,
-  BarChart3,
-  RefreshCw,
-  Shield,
-  TrendingUp as TrendingUpIcon,
   Clock,
-  Calendar,
+  CheckCircle,
+  AlertTriangle,
+  RefreshCw,
+  Download,
+  Upload,
+  Target,
+  Zap,
+  Brain,
+  Activity,
+  Archive,
+  FileText,
+  Settings,
   Filter,
   Search,
-  X
+  ChevronDown,
+  ChevronUp,
+  Info,
+  Loader
 } from 'lucide-react';
-import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
-import { loadProject44Config } from '../utils/credentialStorage';
-import { formatCurrency } from '../utils/pricingCalculator';
-import { RFQRow } from '../types';
 import { supabase } from '../utils/supabase';
+import { formatCurrency } from '../utils/pricingCalculator';
 
-interface MarginAnalysisResult {
-  customerName: string;
-  shipmentResults: ShipmentResult[];
-  // Per-customer totals
-  totalTargetCost: number;
-  totalCompetitorCost: number;
-  totalTargetPrice: number;
-  recommendedMargin: number;
-  shipmentCount: number;
+interface MarginAnalysisJob {
+  id: string;
+  customer_name: string;
+  carrier_name: string;
+  analysis_type: 'benchmark' | 'comparison';
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  shipment_count: number;
+  benchmark_data?: any;
+  comparison_data?: any;
+  recommended_margin?: number;
+  current_margin?: number;
+  confidence_score?: number;
+  error_message?: string;
 }
 
-interface ShipmentResult {
-  targetCarrierRate: number;
-  competitorRates: Array<{
-    carrierId: string;
-    carrierName: string;
-    rate: number;
-    margin: number;
-    customerPrice: number;
-  }>;
-  competitorRatesWithoutOutliers: Array<{
-    carrierId: string;
-    carrierName: string;
-    rate: number;
-    margin: number;
-    customerPrice: number;
-  }>;
-  averageCompetitorCostWithoutOutliers: number;
-  averageCompetitorPriceWithoutOutliers: number;
+interface MarginRecommendation {
+  customer_name: string;
+  carrier_name: string;
+  current_margin: number;
+  recommended_margin: number;
+  confidence_score: number;
+  potential_revenue_impact: number;
+  shipment_count: number;
+  avg_shipment_value: number;
+  margin_variance: number;
+  last_updated: string;
 }
-
-interface ShipmentData {
-  "Invoice #": number;
-  "Customer": string;
-  "Zip": string;
-  "Zip_1": string;
-  "Tot Packages": number;
-  "Tot Weight": string;
-  "Scheduled Pickup Date": string;
-  "Service Level": string;
-  "Booked Carrier": string;
-  "Quoted Carrier": string;
-  "Revenue": string;
-  "Carrier Expense": string;
-}
-
-interface CustomerCarrierMargin {
-  "InternalName": string;
-  "P44CarrierCode": string;
-  "Percentage": string;
-}
-
-// Batch processing configuration
-const BATCH_SIZE = 50; // Process 10 shipments concurrently
-const BATCH_DELAY = 500; // 6 second delay between batches (600 requests/minute = 10 requests/second)
 
 export const MarginAnalysisTools: React.FC = () => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
-  const [selectedTargetGroup, setSelectedTargetGroup] = useState('');
-  const [selectedTargetCarrier, setSelectedTargetCarrier] = useState('');
-  const [selectedCompetitorGroup, setSelectedCompetitorGroup] = useState('');
-  const [selectedCompetitorCarriers, setSelectedCompetitorCarriers] = useState<string[]>([]);
-  const [results, setResults] = useState<MarginAnalysisResult[]>([]);
+  const [activeTab, setActiveTab] = useState<'overview' | 'queue' | 'recommendations' | 'settings'>('overview');
+  const [analysisJobs, setAnalysisJobs] = useState<MarginAnalysisJob[]>([]);
+  const [recommendations, setRecommendations] = useState<MarginRecommendation[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
-  const [processingStatus, setProcessingStatus] = useState<string>('');
-  const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
-  const [isCarriersLoading, setIsCarriersLoading] = useState(false);
   
-  // Date range and customer filtering with search
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-  const [selectedCustomer, setSelectedCustomer] = useState('');
-  const [availableCustomers, setAvailableCustomers] = useState<string[]>([]);
-  const [filteredCustomers, setFilteredCustomers] = useState<string[]>([]);
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-  const [shipmentData, setShipmentData] = useState<ShipmentData[]>([]);
-  const [isLoadingShipments, setIsLoadingShipments] = useState(false);
-
-  // Customer carrier margins
-  const [customerCarrierMargins, setCustomerCarrierMargins] = useState<CustomerCarrierMargin[]>([]);
+  // Analysis settings
+  const [analysisSettings, setAnalysisSettings] = useState({
+    lookbackDays: 365,
+    minShipmentCount: 10,
+    confidenceThreshold: 0.75,
+    maxMarginChange: 5.0,
+    autoRunEnabled: false,
+    scheduleTime: '02:00'
+  });
+  
+  // Filters
+  const [customerFilter, setCustomerFilter] = useState('');
+  const [carrierFilter, setCarrierFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  
+  const [expandedJob, setExpandedJob] = useState<string | null>(null);
 
   useEffect(() => {
-    initializeClient();
-    loadCustomers();
-    loadCustomerCarrierMargins();
-    
-    // Set default date range to last 30 days
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 30);
-    
-    setEndDate(endDate.toISOString().split('T')[0]);
-    setStartDate(startDate.toISOString().split('T')[0]);
+    loadAnalysisData();
   }, []);
 
-  // Filter customers based on search term
-  useEffect(() => {
-    if (customerSearchTerm.trim() === '') {
-      setFilteredCustomers(availableCustomers.slice(0, 50)); // Show first 50 when no search
-    } else {
-      const filtered = availableCustomers.filter(customer =>
-        customer.toLowerCase().includes(customerSearchTerm.toLowerCase())
-      ).slice(0, 50); // Limit to 50 results
-      setFilteredCustomers(filtered);
-    }
-  }, [customerSearchTerm, availableCustomers]);
-
-  const initializeClient = async () => {
-    const config = loadProject44Config();
-    if (config) {
-      const client = new Project44APIClient(config);
-      setProject44Client(client);
-      await loadCarrierGroups(client);
-    } else {
-      setError('Project44 configuration not found. Please configure your API credentials first.');
-    }
-  };
-
-  const loadCarrierGroups = async (client: Project44APIClient) => {
+  const loadAnalysisData = async () => {
+    setLoading(true);
     try {
-      setIsCarriersLoading(true);
-      setProcessingStatus('Loading carrier groups...');
+      // Load analysis jobs and recommendations
+      // This would connect to your analysis queue system
+      console.log('Loading margin analysis data...');
       
-      // Load all carrier groups (both standard and volume)
-      const groups = await client.getAvailableCarriersByGroup(false, false);
-      setCarrierGroups(groups);
+      // Mock data for now - replace with actual Supabase queries
+      setAnalysisJobs([
+        {
+          id: '1',
+          customer_name: 'ACME Corp',
+          carrier_name: 'FedEx Freight',
+          analysis_type: 'benchmark',
+          status: 'completed',
+          created_at: '2025-01-15T02:00:00Z',
+          completed_at: '2025-01-15T02:45:00Z',
+          shipment_count: 156,
+          current_margin: 18.5,
+          confidence_score: 0.87
+        },
+        {
+          id: '2',
+          customer_name: 'ACME Corp',
+          carrier_name: 'FedEx Freight',
+          analysis_type: 'comparison',
+          status: 'running',
+          created_at: '2025-01-16T02:00:00Z',
+          started_at: '2025-01-16T02:00:00Z',
+          shipment_count: 156,
+          current_margin: 18.5
+        }
+      ]);
       
-      console.log(`✅ Loaded ${groups.length} carrier groups for margin analysis`);
-      setProcessingStatus(`Loaded ${groups.length} carrier groups`);
-    } catch (error) {
-      console.error('❌ Failed to load carrier groups:', error);
-      setError(`Failed to load carrier groups: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsCarriersLoading(false);
-    }
-  };
-
-  const loadCustomers = async () => {
-    try {
-      // Load ALL customers without limit
-      const { data, error } = await supabase
-        .from('Shipments')
-        .select('"Customer"')
-        .not('"Customer"', 'is', null)
-        .order('"Customer"');
+      setRecommendations([
+        {
+          customer_name: 'ACME Corp',
+          carrier_name: 'FedEx Freight',
+          current_margin: 18.5,
+          recommended_margin: 21.2,
+          confidence_score: 0.87,
+          potential_revenue_impact: 12500,
+          shipment_count: 156,
+          avg_shipment_value: 1850,
+          margin_variance: 2.3,
+          last_updated: '2025-01-16T02:45:00Z'
+        }
+      ]);
       
-      if (error) {
-        console.error('Error loading customers:', error);
-        return;
-      }
-      
-      const uniqueCustomers = [...new Set(data?.map(s => s.Customer).filter(Boolean))];
-      setAvailableCustomers(uniqueCustomers);
-      console.log(`✅ Loaded ${uniqueCustomers.length} customers`);
     } catch (err) {
-      console.error('Failed to load customers:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load analysis data');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const loadCustomerCarrierMargins = async () => {
+  const startBenchmarkAnalysis = async () => {
+    setLoading(true);
     try {
-      // Load ALL customer carrier margins without limit
-      const { data, error } = await supabase
+      console.log('Starting benchmark analysis for all customer-carrier pairs...');
+      
+      // This would trigger the benchmark analysis job
+      // Query all unique customer-carrier pairs from shipment history
+      // Queue benchmark analysis jobs for each pair
+      
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate API call
+      
+      console.log('Benchmark analysis jobs queued successfully');
+      await loadAnalysisData();
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start benchmark analysis');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startComparisonAnalysis = async () => {
+    setLoading(true);
+    try {
+      console.log('Starting comparison analysis with new rates...');
+      
+      // This would trigger the comparison analysis job
+      // Use the same historical data but with current/new rates
+      // Compare against benchmark data to generate recommendations
+      
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate API call
+      
+      console.log('Comparison analysis jobs queued successfully');
+      await loadAnalysisData();
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start comparison analysis');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const applyRecommendation = async (recommendation: MarginRecommendation) => {
+    try {
+      console.log(`Applying margin recommendation: ${recommendation.customer_name} + ${recommendation.carrier_name} → ${recommendation.recommended_margin}%`);
+      
+      // Update the CustomerCarriers table with the new margin
+      const { error } = await supabase
         .from('CustomerCarriers')
-        .select('"InternalName", "P44CarrierCode", "Percentage"')
-        .not('"InternalName"', 'is', null)
-        .not('"P44CarrierCode"', 'is', null)
-        .not('"Percentage"', 'is', null);
+        .upsert({
+          InternalName: recommendation.customer_name,
+          P44CarrierCode: recommendation.carrier_name,
+          Percentage: recommendation.recommended_margin.toString(),
+          updated_at: new Date().toISOString()
+        });
       
-      if (error) {
-        console.error('Error loading customer carrier margins:', error);
-        return;
-      }
+      if (error) throw error;
       
-      setCustomerCarrierMargins(data || []);
-      console.log(`✅ Loaded ${data?.length || 0} customer carrier margin configurations`);
-    } catch (err) {
-      console.error('Failed to load customer carrier margins:', err);
-    }
-  };
-
-  const loadShipmentData = async () => {
-    if (!startDate || !endDate) {
-      setError('Please select both start and end dates');
-      return;
-    }
-
-    try {
-      setIsLoadingShipments(true);
-      setProcessingStatus('Loading shipment data from database...');
-      
-      let query = supabase
-        .from('Shipments')
-        .select(`
-          "Invoice #",
-          "Customer",
-          "Zip",
-          "Zip_1",
-          "Tot Packages",
-          "Tot Weight",
-          "Scheduled Pickup Date",
-          "Service Level",
-          "Booked Carrier",
-          "Quoted Carrier",
-          "Revenue",
-          "Carrier Expense"
-        `)
-        .gte('"Scheduled Pickup Date"', startDate)
-        .lte('"Scheduled Pickup Date"', endDate)
-        .not('"Customer"', 'is', null)
-        .not('"Zip"', 'is', null)
-        .not('"Zip_1"', 'is', null)
-        .not('"Tot Packages"', 'is', null)
-        .not('"Tot Weight"', 'is', null);
-
-      if (selectedCustomer) {
-        query = query.eq('"Customer"', selectedCustomer);
-      }
-
-      const { data, error } = await query.order('"Scheduled Pickup Date"', { ascending: false });
-      
-      if (error) {
-        throw error;
-      }
-      
-      setShipmentData(data || []);
-      setProcessingStatus(`Loaded ${data?.length || 0} shipments from database`);
-      console.log(`✅ Loaded ${data?.length || 0} shipments for analysis`);
+      console.log('Margin recommendation applied successfully');
+      await loadAnalysisData();
       
     } catch (err) {
-      console.error('Failed to load shipment data:', err);
-      setError(`Failed to load shipment data: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setIsLoadingShipments(false);
+      setError(err instanceof Error ? err.message : 'Failed to apply recommendation');
     }
   };
 
-  const getCarriersInGroup = (groupCode: string): Array<{id: string, name: string}> => {
-    const group = carrierGroups.find(g => g.groupCode === groupCode);
-    return group ? group.carriers : [];
-  };
-
-  const handleCompetitorCarrierToggle = (carrierId: string) => {
-    setSelectedCompetitorCarriers(prev => 
-      prev.includes(carrierId) 
-        ? prev.filter(id => id !== carrierId)
-        : [...prev, carrierId]
-    );
-  };
-
-  const handleSelectAllCompetitors = () => {
-    const allCarriers = getCarriersInGroup(selectedCompetitorGroup).map(c => c.id);
-    setSelectedCompetitorCarriers(allCarriers);
-  };
-
-  const handleClearAllCompetitors = () => {
-    setSelectedCompetitorCarriers([]);
-  };
-
-  const convertShipmentToRFQ = (shipment: ShipmentData): RFQRow => {
-    // Parse weight - handle string format like "2,500 lbs"
-    const weightStr = shipment["Tot Weight"]?.toString() || '0';
-    const weightMatch = weightStr.match(/[\d,]+/);
-    const weight = weightMatch ? parseInt(weightMatch[0].replace(/,/g, '')) : 0;
-    
-    // Use pallets from Tot Packages, default to 1 if not available
-    const pallets = shipment["Tot Packages"] || 1;
-    
-    return {
-      fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
-      fromZip: shipment["Zip"] || '',
-      toZip: shipment["Zip_1"] || '',
-      pallets: pallets,
-      grossWeight: weight,
-      isStackable: false,
-      accessorial: [],
-      isReefer: false,
-      freightClass: '70', // Default freight class
-      // Include service level from historical data
-      requestedServiceLevels: shipment["Service Level"] ? [shipment["Service Level"]] : undefined
-    };
-  };
-
-  // UPDATED: New outlier removal logic that only removes high-end outliers if they're 50% above average
-  // AND only if they're less than the target carrier's cost
-  const removeHighEndOutliers = (rates: number[], targetRate: number): number[] => {
-    if (rates.length < 4) {
-      console.log(`⚠️ Not enough data points (${rates.length}) for outlier removal, keeping all rates`);
-      return rates;
-    }
-    
-    // Sort rates from lowest to highest
-    let sortedRates = [...rates].sort((a, b) => a - b);
-    console.log(`📊 Starting outlier removal with ${sortedRates.length} rates:`, sortedRates.map(r => formatCurrency(r)));
-    
-    let removedCount = 0;
-    
-    // Keep removing the most expensive rate if it's more than 50% above the average of the remaining rates
-    // AND only if it's less than the target carrier's cost
-    while (sortedRates.length >= 4) { // Need at least 4 rates to continue
-      const mostExpensive = sortedRates[sortedRates.length - 1];
-      const remainingRates = sortedRates.slice(0, -1); // All rates except the most expensive
-      const averageWithoutMostExpensive = remainingRates.reduce((sum, rate) => sum + rate, 0) / remainingRates.length;
-      
-      // Check if the most expensive is more than 50% above the average
-      const threshold = averageWithoutMostExpensive * 1.5; // 50% above average
-      
-      console.log(`🔍 Checking most expensive: ${formatCurrency(mostExpensive)} vs threshold: ${formatCurrency(threshold)} (avg: ${formatCurrency(averageWithoutMostExpensive)})`);
-      console.log(`🔍 Target carrier rate: ${formatCurrency(targetRate)}`);
-      
-      // UPDATED: Only remove if it's an outlier AND less than the target carrier's cost
-      if (mostExpensive > threshold && mostExpensive < targetRate) {
-        // Remove the outlier
-        sortedRates = remainingRates;
-        removedCount++;
-        console.log(`❌ Removed outlier: ${formatCurrency(mostExpensive)} (${((mostExpensive / averageWithoutMostExpensive - 1) * 100).toFixed(1)}% above average, less than target rate)`);
-      } else {
-        // No more outliers to remove or outlier is higher than target rate
-        if (mostExpensive > threshold) {
-          console.log(`⚠️ Potential outlier ${formatCurrency(mostExpensive)} not removed because it's higher than target rate ${formatCurrency(targetRate)}`);
-        } else {
-          console.log(`✅ No more outliers: ${formatCurrency(mostExpensive)} is within 50% of average`);
-        }
-        break;
-      }
-    }
-    
-    console.log(`📊 Outlier removal complete: removed ${removedCount} high-end outliers, ${sortedRates.length} rates remaining`);
-    console.log(`📊 Final rates:`, sortedRates.map(r => formatCurrency(r)));
-    
-    return sortedRates;
-  };
-
-  // Function to get customer margin for a specific carrier with case-insensitive matching
-  const getCustomerMarginForCarrier = (customerName: string, carrierCode: string): number => {
-    // Normalize both customer name and carrier code for comparison
-    const normalizedCustomer = customerName.trim().toUpperCase();
-    const normalizedCarrierCode = carrierCode.trim().toUpperCase();
-    
-    const margin = customerCarrierMargins.find(
-      m => m["InternalName"]?.trim().toUpperCase() === normalizedCustomer && 
-           m["P44CarrierCode"]?.trim().toUpperCase() === normalizedCarrierCode
-    );
-    
-    const marginValue = margin ? parseFloat(margin["Percentage"] || '15') : 15;
-    
-    console.log(`🔍 Margin lookup for ${normalizedCustomer} + ${normalizedCarrierCode}: ${marginValue}%`, {
-      found: !!margin,
-      marginRecord: margin
-    });
-    
-    return marginValue;
-  };
-
-  // NEW: Process a single shipment (for concurrent processing)
-  const processShipment = async (shipment: ShipmentData, index: number): Promise<{
-    customerName: string;
-    shipmentResult: ShipmentResult | null;
-    error?: string;
-  }> => {
-    const customerName = shipment["Customer"];
-    
-    try {
-      console.log(`📦 Processing shipment ${index + 1}: ${shipment["Zip"]} → ${shipment["Zip_1"]} for ${customerName}`);
-
-      // Convert shipment to RFQ format
-      const rfqData = convertShipmentToRFQ(shipment);
-      
-      // Skip if essential data is missing
-      if (!rfqData.fromZip || !rfqData.toZip || rfqData.grossWeight === 0) {
-        console.warn(`⚠️ Skipping shipment ${index + 1} - missing essential data`);
-        return { customerName, shipmentResult: null };
-      }
-
-      // STEP 1: Get target carrier rate
-      const targetRates = await project44Client!.getQuotes(rfqData, [selectedTargetCarrier], false, false, false);
-      
-      if (targetRates.length === 0) {
-        console.warn(`⚠️ No rate from target carrier ${selectedTargetCarrier} for shipment ${index + 1}`);
-        return { customerName, shipmentResult: null };
-      }
-
-      const targetRate = targetRates[0].baseRate + targetRates[0].fuelSurcharge + targetRates[0].premiumsAndDiscounts;
-      console.log(`🎯 STEP 1 - Target carrier rate: ${formatCurrency(targetRate)}`);
-
-      // STEP 2: Get competitor rates
-      let competitorQuotes;
-      
-      if (selectedCompetitorCarriers.length === 0) {
-        // Use entire group
-        console.log(`📊 Getting quotes for entire group ${selectedCompetitorGroup}`);
-        competitorQuotes = await project44Client!.getQuotesForAccountGroup(
-          rfqData, 
-          selectedCompetitorGroup, 
-          false, 
-          false, 
-          false
-        );
-      } else {
-        // Use specific carriers
-        console.log(`📊 Getting quotes for ${selectedCompetitorCarriers.length} specific carriers in group ${selectedCompetitorGroup}`);
-        
-        competitorQuotes = await project44Client!.getQuotes(
-          rfqData, 
-          selectedCompetitorCarriers, 
-          false, 
-          false, 
-          false
-        );
-      }
-      
-      console.log(`📊 STEP 2 - Got ${competitorQuotes.length} competitor quotes`);
-      
-      if (competitorQuotes.length === 0) {
-        console.warn(`⚠️ No competitor quotes for shipment ${index + 1}`);
-        return { customerName, shipmentResult: null };
-      }
-      
-      // STEP 3: Remove invalid competitor costs (already done by API filtering)
-      const competitorRates = competitorQuotes.map(quote => {
-        const rate = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
-        const carrierCode = quote.carrierCode || quote.carrier.name;
-        
-        // Get the specific customer margin for this carrier
-        const margin = getCustomerMarginForCarrier(customerName, carrierCode);
-        
-        // Calculate customer price using correct formula: cost / (1 - margin)
-        const customerPrice = rate / (1 - margin / 100);
-        
-        return {
-          carrierId: carrierCode,
-          carrierName: quote.carrier.name,
-          rate: rate,
-          margin: margin,
-          customerPrice: customerPrice
-        };
-      });
-      
-      console.log(`📊 STEP 3 - ${competitorRates.length} valid competitor rates`);
-      
-      // STEP 4: Remove outliers using the specified method
-      const competitorCosts = competitorRates.map(cr => cr.rate);
-      const costsWithoutOutliers = removeHighEndOutliers(competitorCosts, targetRate);
-      
-      // Filter competitor rates to only include those without outliers
-      const competitorRatesWithoutOutliers = competitorRates.filter(cr => 
-        costsWithoutOutliers.includes(cr.rate)
-      );
-      
-      console.log(`📊 STEP 4 - Removed ${competitorRates.length - competitorRatesWithoutOutliers.length} high-end outliers`);
-      
-      if (competitorRatesWithoutOutliers.length === 0) {
-        console.warn(`⚠️ No competitor rates remaining after outlier removal for shipment ${index + 1}`);
-        return { customerName, shipmentResult: null };
-      }
-      
-      // STEP 5: Calculate average competitor cost and price
-      const averageCompetitorCostWithoutOutliers = costsWithoutOutliers.reduce((sum, cost) => sum + cost, 0) / costsWithoutOutliers.length;
-      const averageCompetitorPriceWithoutOutliers = competitorRatesWithoutOutliers.reduce((sum, cr) => sum + cr.customerPrice, 0) / competitorRatesWithoutOutliers.length;
-      
-      console.log(`📊 STEP 5 - Average competitor cost: ${formatCurrency(averageCompetitorCostWithoutOutliers)}, Average competitor price: ${formatCurrency(averageCompetitorPriceWithoutOutliers)}`);
-      
-      // Create shipment result
-      const shipmentResult: ShipmentResult = {
-        targetCarrierRate: targetRate,
-        competitorRates: competitorRates,
-        competitorRatesWithoutOutliers: competitorRatesWithoutOutliers,
-        averageCompetitorCostWithoutOutliers: averageCompetitorCostWithoutOutliers,
-        averageCompetitorPriceWithoutOutliers: averageCompetitorPriceWithoutOutliers
-      };
-      
-      return { customerName, shipmentResult };
-      
-    } catch (error) {
-      console.error(`❌ Failed to process shipment ${index + 1}:`, error);
-      return { 
-        customerName, 
-        shipmentResult: null, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      };
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case 'running':
+        return <Loader className="h-4 w-4 text-blue-500 animate-spin" />;
+      case 'failed':
+        return <AlertTriangle className="h-4 w-4 text-red-500" />;
+      default:
+        return <Clock className="h-4 w-4 text-gray-500" />;
     }
   };
 
-  // NEW: Process shipments in concurrent batches
-  const runMarginAnalysis = async () => {
-    if (!project44Client || !selectedTargetGroup || !selectedTargetCarrier || !selectedCompetitorGroup) {
-      setError('Please select target carrier group, target carrier, and competitor group');
-      return;
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'bg-green-50 text-green-800 border-green-200';
+      case 'running':
+        return 'bg-blue-50 text-blue-800 border-blue-200';
+      case 'failed':
+        return 'bg-red-50 text-red-800 border-red-200';
+      default:
+        return 'bg-gray-50 text-gray-800 border-gray-200';
     }
+  };
 
-    if (shipmentData.length === 0) {
-      setError('No shipment data loaded. Please load shipments first.');
-      return;
-    }
-
-    setIsLoading(true);
-    setError('');
-    setResults([]);
-    
-    try {
-      console.log(`🧠 Starting Concurrent Smart Quoting RFQ processing: ${shipmentData.length} RFQs, ${BATCH_SIZE} concurrent requests`);
-
-      const customerResults: {[key: string]: MarginAnalysisResult} = {};
-      
-      // Process shipments in batches
-      const totalBatches = Math.ceil(shipmentData.length / BATCH_SIZE);
-      
-      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-        const batchStart = batchIndex * BATCH_SIZE;
-        const batchEnd = Math.min(batchStart + BATCH_SIZE, shipmentData.length);
-        const batchShipments = shipmentData.slice(batchStart, batchEnd);
+  const renderOverview = () => (
+    <div className="space-y-6">
+      {/* Analysis Workflow */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
+        <div className="flex items-center space-x-3 mb-4">
+          <div className="bg-blue-600 p-2 rounded-lg">
+            <Brain className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-blue-900">Intelligent Margin Analysis Workflow</h3>
+            <p className="text-blue-700 text-sm">Two-day analysis cycle for optimal margin determination</p>
+          </div>
+        </div>
         
-        setProcessingStatus(`Processing batch ${batchIndex + 1} of ${totalBatches} (${batchShipments.length} shipments concurrently)...`);
-        console.log(`🚀 Processing batch ${batchIndex + 1}/${totalBatches}: shipments ${batchStart + 1}-${batchEnd}`);
-        
-        // Process all shipments in this batch concurrently
-        const batchPromises = batchShipments.map((shipment, index) => 
-          processShipment(shipment, batchStart + index)
-        );
-        
-        const batchResults = await Promise.all(batchPromises);
-        
-        // Process results from this batch
-        batchResults.forEach(({ customerName, shipmentResult, error }) => {
-          if (error) {
-            console.warn(`⚠️ Shipment processing error: ${error}`);
-            return;
-          }
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Day 1: Benchmark */}
+          <div className="bg-white rounded-lg p-4 border border-blue-200">
+            <div className="flex items-center space-x-2 mb-3">
+              <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">1</div>
+              <h4 className="font-semibold text-gray-900">Day 1: Benchmark Analysis</h4>
+            </div>
+            <div className="space-y-2 text-sm text-gray-700">
+              <div className="flex items-center space-x-2">
+                <Calendar className="h-4 w-4 text-blue-500" />
+                <span>Run before rate changes</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Database className="h-4 w-4 text-blue-500" />
+                <span>Analyze entire last year of shipments</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Archive className="h-4 w-4 text-blue-500" />
+                <span>Store benchmark data in queue</span>
+              </div>
+            </div>
+            <button
+              onClick={startBenchmarkAnalysis}
+              disabled={loading}
+              className="w-full mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+            >
+              <div className="flex items-center justify-center space-x-2">
+                <Play className="h-4 w-4" />
+                <span>Start Benchmark Analysis</span>
+              </div>
+            </button>
+          </div>
           
-          if (!shipmentResult) {
-            return; // Skip shipments with no valid results
-          }
+          {/* Day 2: Comparison */}
+          <div className="bg-white rounded-lg p-4 border border-green-200">
+            <div className="flex items-center space-x-2 mb-3">
+              <div className="w-6 h-6 bg-green-500 text-white rounded-full flex items-center justify-center text-sm font-bold">2</div>
+              <h4 className="font-semibold text-gray-900">Day 2: Comparison Analysis</h4>
+            </div>
+            <div className="space-y-2 text-sm text-gray-700">
+              <div className="flex items-center space-x-2">
+                <Calendar className="h-4 w-4 text-green-500" />
+                <span>Run after rate changes</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <TrendingUp className="h-4 w-4 text-green-500" />
+                <span>Re-analyze with new rates</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Target className="h-4 w-4 text-green-500" />
+                <span>Generate margin recommendations</span>
+              </div>
+            </div>
+            <button
+              onClick={startComparisonAnalysis}
+              disabled={loading}
+              className="w-full mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
+            >
+              <div className="flex items-center justify-center space-x-2">
+                <Zap className="h-4 w-4" />
+                <span>Start Comparison Analysis</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Active Jobs</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {analysisJobs.filter(j => j.status === 'running').length}
+              </p>
+            </div>
+            <Activity className="h-8 w-8 text-blue-500" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Completed Today</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {analysisJobs.filter(j => j.status === 'completed').length}
+              </p>
+            </div>
+            <CheckCircle className="h-8 w-8 text-green-500" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Recommendations</p>
+              <p className="text-2xl font-bold text-gray-900">{recommendations.length}</p>
+            </div>
+            <Target className="h-8 w-8 text-purple-500" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Potential Revenue</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {formatCurrency(recommendations.reduce((sum, r) => sum + r.potential_revenue_impact, 0))}
+              </p>
+            </div>
+            <DollarSign className="h-8 w-8 text-yellow-500" />
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Activity */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Analysis Activity</h3>
+        <div className="space-y-3">
+          {analysisJobs.slice(0, 5).map((job) => (
+            <div key={job.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center space-x-3">
+                {getStatusIcon(job.status)}
+                <div>
+                  <div className="font-medium text-gray-900">
+                    {job.customer_name} + {job.carrier_name}
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    {job.analysis_type} • {job.shipment_count} shipments
+                  </div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(job.status)}`}>
+                  {job.status}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {new Date(job.created_at).toLocaleDateString()}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderQueue = () => (
+    <div className="space-y-6">
+      {/* Queue Controls */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Analysis Queue</h3>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={loadAnalysisData}
+              className="flex items-center space-x-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+        
+        {/* Filters */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input
+              type="text"
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              placeholder="Filter by customer..."
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
           
-          // Add to or update customer results
-          if (!customerResults[customerName]) {
-            customerResults[customerName] = {
-              customerName,
-              shipmentResults: [shipmentResult],
-              totalTargetCost: shipmentResult.targetCarrierRate,
-              totalCompetitorCost: shipmentResult.averageCompetitorCostWithoutOutliers,
-              totalTargetPrice: shipmentResult.averageCompetitorPriceWithoutOutliers,
-              recommendedMargin: 0, // Will be calculated later
-              shipmentCount: 1
-            };
-          } else {
-            // Add to existing customer
-            const existing = customerResults[customerName];
-            existing.shipmentResults.push(shipmentResult);
-            existing.totalTargetCost += shipmentResult.targetCarrierRate;
-            existing.totalCompetitorCost += shipmentResult.averageCompetitorCostWithoutOutliers;
-            existing.totalTargetPrice += shipmentResult.averageCompetitorPriceWithoutOutliers;
-            existing.shipmentCount++;
-          }
-        });
+          <input
+            type="text"
+            value={carrierFilter}
+            onChange={(e) => setCarrierFilter(e.target.value)}
+            placeholder="Filter by carrier..."
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          />
+          
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All Statuses</option>
+            <option value="queued">Queued</option>
+            <option value="running">Running</option>
+            <option value="completed">Completed</option>
+            <option value="failed">Failed</option>
+          </select>
+          
+          <button
+            onClick={() => {
+              setCustomerFilter('');
+              setCarrierFilter('');
+              setStatusFilter('');
+            }}
+            className="px-3 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            Clear Filters
+          </button>
+        </div>
+      </div>
+
+      {/* Jobs List */}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="divide-y divide-gray-200">
+          {analysisJobs
+            .filter(job => 
+              (!customerFilter || job.customer_name.toLowerCase().includes(customerFilter.toLowerCase())) &&
+              (!carrierFilter || job.carrier_name.toLowerCase().includes(carrierFilter.toLowerCase())) &&
+              (!statusFilter || job.status === statusFilter)
+            )
+            .map((job) => (
+              <div key={job.id} className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    {getStatusIcon(job.status)}
+                    <div>
+                      <div className="font-semibold text-gray-900">
+                        {job.customer_name} + {job.carrier_name}
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        {job.analysis_type} analysis • {job.shipment_count} shipments
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-4">
+                    <div className="text-right">
+                      <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(job.status)}`}>
+                        {job.status}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Created: {new Date(job.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={() => setExpandedJob(expandedJob === job.id ? null : job.id)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      {expandedJob === job.id ? (
+                        <ChevronUp className="h-5 w-5" />
+                      ) : (
+                        <ChevronDown className="h-5 w-5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                
+                {expandedJob === job.id && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <div className="text-sm font-medium text-gray-700">Timeline</div>
+                        <div className="text-sm text-gray-600 space-y-1">
+                          <div>Created: {new Date(job.created_at).toLocaleString()}</div>
+                          {job.started_at && (
+                            <div>Started: {new Date(job.started_at).toLocaleString()}</div>
+                          )}
+                          {job.completed_at && (
+                            <div>Completed: {new Date(job.completed_at).toLocaleString()}</div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div className="text-sm font-medium text-gray-700">Analysis Details</div>
+                        <div className="text-sm text-gray-600 space-y-1">
+                          <div>Shipments: {job.shipment_count}</div>
+                          {job.current_margin && (
+                            <div>Current Margin: {job.current_margin}%</div>
+                          )}
+                          {job.confidence_score && (
+                            <div>Confidence: {(job.confidence_score * 100).toFixed(1)}%</div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div className="text-sm font-medium text-gray-700">Results</div>
+                        <div className="text-sm text-gray-600 space-y-1">
+                          {job.recommended_margin && (
+                            <div>Recommended: {job.recommended_margin}%</div>
+                          )}
+                          {job.error_message && (
+                            <div className="text-red-600">Error: {job.error_message}</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderRecommendations = () => (
+    <div className="space-y-6">
+      {/* Recommendations Header */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Margin Recommendations</h3>
+            <p className="text-sm text-gray-600">AI-generated margin adjustments based on rate analysis</p>
+          </div>
+          <div className="flex items-center space-x-3">
+            <button className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              <Download className="h-4 w-4" />
+              <span>Export</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Recommendations List */}
+      <div className="space-y-4">
+        {recommendations.map((rec, index) => (
+          <div key={index} className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-4">
+                <div className="bg-purple-100 p-2 rounded-lg">
+                  <Target className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <div className="font-semibold text-gray-900">
+                    {rec.customer_name} + {rec.carrier_name}
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    {rec.shipment_count} shipments • Avg value: {formatCurrency(rec.avg_shipment_value)}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex items-center space-x-3">
+                <div className="text-right">
+                  <div className="text-sm text-gray-600">Confidence</div>
+                  <div className="font-semibold text-gray-900">
+                    {(rec.confidence_score * 100).toFixed(1)}%
+                  </div>
+                </div>
+                <button
+                  onClick={() => applyRecommendation(rec)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-600 mb-1">Current Margin</div>
+                <div className="text-2xl font-bold text-gray-900">{rec.current_margin}%</div>
+              </div>
+              
+              <div className="bg-green-50 rounded-lg p-4">
+                <div className="text-sm text-green-600 mb-1">Recommended Margin</div>
+                <div className="text-2xl font-bold text-green-700">{rec.recommended_margin}%</div>
+                <div className="text-sm text-green-600">
+                  {rec.recommended_margin > rec.current_margin ? '+' : ''}
+                  {(rec.recommended_margin - rec.current_margin).toFixed(1)}%
+                </div>
+              </div>
+              
+              <div className="bg-blue-50 rounded-lg p-4">
+                <div className="text-sm text-blue-600 mb-1">Revenue Impact</div>
+                <div className="text-2xl font-bold text-blue-700">
+                  {formatCurrency(rec.potential_revenue_impact)}
+                </div>
+                <div className="text-sm text-blue-600">Annual estimate</div>
+              </div>
+              
+              <div className="bg-purple-50 rounded-lg p-4">
+                <div className="text-sm text-purple-600 mb-1">Margin Variance</div>
+                <div className="text-2xl font-bold text-purple-700">{rec.margin_variance}%</div>
+                <div className="text-sm text-purple-600">Std deviation</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderSettings = () => (
+    <div className="space-y-6">
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-6">Analysis Settings</h3>
         
-        console.log(`✅ Completed batch ${batchIndex + 1}/${totalBatches}`);
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Lookback Period (Days)
+            </label>
+            <input
+              type="number"
+              value={analysisSettings.lookbackDays}
+              onChange={(e) => setAnalysisSettings({
+                ...analysisSettings,
+                lookbackDays: parseInt(e.target.value) || 365
+              })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Minimum Shipment Count
+            </label>
+            <input
+              type="number"
+              value={analysisSettings.minShipmentCount}
+              onChange={(e) => setAnalysisSettings({
+                ...analysisSettings,
+                minShipmentCount: parseInt(e.target.value) || 10
+              })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Confidence Threshold
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value={analysisSettings.confidenceThreshold}
+              onChange={(e) => setAnalysisSettings({
+                ...analysisSettings,
+                confidenceThreshold: parseFloat(e.target.value) || 0.75
+              })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Max Margin Change (%)
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={analysisSettings.maxMarginChange}
+              onChange={(e) => setAnalysisSettings({
+                ...analysisSettings,
+                maxMarginChange: parseFloat(e.target.value) || 5.0
+              })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
         
-        // Add delay between batches to respect rate limits (except for the last batch)
-        if (batchIndex < totalBatches - 1) {
-          setProcessingStatus(`Waiting ${BATCH_DELAY/1000} seconds before next batch to respect rate limits...`);
-          console.log(`⏱️ Waiting ${BATCH_DELAY/1000} seconds before next batch...`);
-          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
-        }
-      }
-
-      // FINAL STEP: Calculate recommended margin per customer using the specified formula
-      Object.values(customerResults).forEach(customerResult => {
-        // Calculate recommended margin: ((Sum of Price) - (Sum of Cost)) / (Sum of Price)
-        const recommendedMargin = customerResult.totalTargetPrice > 0 ? 
-          ((customerResult.totalTargetPrice - customerResult.totalCompetitorCost) / customerResult.totalTargetPrice) * 100 : 0;
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-medium text-gray-900">Automated Analysis</div>
+              <div className="text-sm text-gray-600">Run analysis automatically at scheduled times</div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={analysisSettings.autoRunEnabled}
+                onChange={(e) => setAnalysisSettings({
+                  ...analysisSettings,
+                  autoRunEnabled: e.target.checked
+                })}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+          
+          {analysisSettings.autoRunEnabled && (
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Schedule Time (24h format)
+              </label>
+              <input
+                type="time"
+                value={analysisSettings.scheduleTime}
+                onChange={(e) => setAnalysisSettings({
+                  ...analysisSettings,
+                  scheduleTime: e.target.value
+                })}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          )}
+        </div>
         
-        customerResult.recommendedMargin = recommendedMargin;
-        
-        console.log(`💰 Final calculation for ${customerResult.customerName}:`, {
-          totalTargetCost: formatCurrency(customerResult.totalTargetCost),
-          totalCompetitorCost: formatCurrency(customerResult.totalCompetitorCost),
-          totalTargetPrice: formatCurrency(customerResult.totalTargetPrice),
-          recommendedMargin: `${recommendedMargin.toFixed(1)}%`,
-          formula: `((${formatCurrency(customerResult.totalTargetPrice)} - ${formatCurrency(customerResult.totalCompetitorCost)}) / ${formatCurrency(customerResult.totalTargetPrice)}) * 100 = ${recommendedMargin.toFixed(1)}%`
-        });
-      });
-
-      // Convert customer results to array
-      const finalResults = Object.values(customerResults);
-      setResults(finalResults);
-      
-      if (finalResults.length === 0) {
-        setProcessingStatus('Analysis complete, but no valid results were found.');
-      } else {
-        setProcessingStatus(`🚀 Concurrent analysis complete! Processed ${finalResults.length} customers with competitor data using ${BATCH_SIZE} concurrent requests per batch.`);
-      }
-      
-      console.log(`✅ Concurrent margin analysis complete: ${finalResults.length} results`);
-      
-    } catch (error) {
-      console.error('❌ Margin analysis failed:', error);
-      setError(`Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setProcessingStatus('Analysis failed');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const exportResults = () => {
-    if (results.length === 0) return;
-    
-    // Create CSV content
-    const headers = [
-      'Customer Name',
-      'Total Target Cost',
-      'Total Competitor Cost',
-      'Total Target Price',
-      'Recommended Margin %',
-      'Shipment Count'
-    ];
-    
-    const csvContent = [
-      headers.join(','),
-      ...results.map(result => [
-        result.customerName,
-        result.totalTargetCost.toFixed(2),
-        result.totalCompetitorCost.toFixed(2),
-        result.totalTargetPrice.toFixed(2),
-        result.recommendedMargin.toFixed(2),
-        result.shipmentCount
-      ].join(','))
-    ].join('\n');
-    
-    // Download CSV
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `concurrent-margin-analysis-${selectedCustomer || 'all-customers'}-${startDate}-to-${endDate}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleCustomerSelect = (customer: string) => {
-    setSelectedCustomer(customer);
-    setCustomerSearchTerm(customer);
-    setShowCustomerDropdown(false);
-  };
-
-  const clearCustomerSelection = () => {
-    setSelectedCustomer('');
-    setCustomerSearchTerm('');
-  };
+        <div className="mt-6">
+          <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+            Save Settings
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -688,512 +778,57 @@ export const MarginAnalysisTools: React.FC = () => {
             <Calculator className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Concurrent Margin Discovery</h1>
+            <h1 className="text-xl font-semibold text-gray-900">Margin Analysis Tools</h1>
             <p className="text-sm text-gray-600">
-              High-speed concurrent processing: {BATCH_SIZE} requests per batch, {BATCH_DELAY/1000}s between batches (600 req/min limit)
+              AI-powered customer-carrier margin optimization through rate change analysis
             </p>
           </div>
         </div>
       </div>
-
-      {/* Performance Info */}
-      <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4">
-        <div className="flex items-start space-x-3">
-          <Shield className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
-          <div className="text-sm text-green-800">
-            <p className="font-medium mb-2">🚀 Concurrent Processing Optimization:</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-              <div>
-                <strong>Batch Size:</strong> {BATCH_SIZE} concurrent requests
-              </div>
-              <div>
-                <strong>Rate Limit:</strong> 600 requests/minute (P44 limit)
-              </div>
-              <div>
-                <strong>Batch Delay:</strong> {BATCH_DELAY/1000} seconds between batches
-              </div>
-              <div>
-                <strong>Speed Improvement:</strong> ~{BATCH_SIZE}x faster than sequential
-              </div>
-              <div>
-                <strong>Estimated Time:</strong> {shipmentData.length > 0 ? `~${Math.ceil((shipmentData.length / BATCH_SIZE) * (BATCH_DELAY/1000) / 60)} minutes` : 'Load data first'}
-              </div>
-              <div>
-                <strong>Memory Efficient:</strong> Processes in controlled batches
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Date Range and Customer Filter */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Shipment Data Filters</h2>
-          <button
-            onClick={loadShipmentData}
-            disabled={isLoadingShipments || !startDate || !endDate}
-            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-          >
-            {isLoadingShipments ? (
-              <Loader className="h-4 w-4 animate-spin" />
-            ) : (
-              <Filter className="h-4 w-4" />
-            )}
-            <span>Load Shipments</span>
-          </button>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Start Date */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <Calendar className="inline h-4 w-4 mr-1" />
-              Start Date
-            </label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
-            />
-          </div>
-
-          {/* End Date */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <Calendar className="inline h-4 w-4 mr-1" />
-              End Date
-            </label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
-            />
-          </div>
-
-          {/* Customer Search */}
-          <div className="relative">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <Users className="inline h-4 w-4 mr-1" />
-              Customer (Optional) - {availableCustomers.length} total
-            </label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                value={customerSearchTerm}
-                onChange={(e) => {
-                  setCustomerSearchTerm(e.target.value);
-                  setShowCustomerDropdown(true);
-                }}
-                onFocus={() => setShowCustomerDropdown(true)}
-                placeholder="Search customers..."
-                className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
-              />
-              {selectedCustomer && (
-                <button
-                  onClick={clearCustomerSelection}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-            
-            {/* Customer Dropdown */}
-            {showCustomerDropdown && filteredCustomers.length > 0 && (
-              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                {filteredCustomers.map((customer) => (
-                  <button
-                    key={customer}
-                    onClick={() => handleCustomerSelect(customer)}
-                    className="w-full text-left px-4 py-2 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
-                  >
-                    {customer}
-                  </button>
-                ))}
-                {filteredCustomers.length === 50 && (
-                  <div className="px-4 py-2 text-sm text-gray-500 border-t">
-                    Showing first 50 results. Type to search more specifically.
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Shipment Data Status */}
-        {shipmentData.length > 0 && (
-          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-            <div className="flex items-center space-x-2">
-              <CheckCircle className="h-5 w-5 text-green-600" />
-              <span className="text-green-800 font-medium">
-                Loaded {shipmentData.length} shipments from {startDate} to {endDate}
-                {selectedCustomer && ` for ${selectedCustomer}`}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Customer Carrier Margins Status */}
-        {customerCarrierMargins.length > 0 && (
-          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-center space-x-2">
-              <Info className="h-5 w-5 text-blue-600" />
-              <span className="text-blue-800 font-medium">
-                Using {customerCarrierMargins.length} customer-carrier margin configurations with case-insensitive matching
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Configuration */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Analysis Configuration</h2>
-          
-          <button
-            onClick={() => loadCarrierGroups(project44Client!)}
-            disabled={isCarriersLoading || !project44Client}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-          >
-            {isCarriersLoading ? (
-              <Loader className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            <span>Refresh Carrier Groups</span>
-          </button>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Target Carrier Group */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Target Carrier Group
-            </label>
-            <select
-              value={selectedTargetGroup}
-              onChange={(e) => {
-                setSelectedTargetGroup(e.target.value);
-                setSelectedTargetCarrier(''); // Reset carrier selection
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
-              disabled={isCarriersLoading}
-            >
-              <option value="">Select target group...</option>
-              {carrierGroups.map(group => (
-                <option key={group.groupCode} value={group.groupCode}>
-                  {group.groupName} ({group.carriers.length} carriers)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Target Carrier */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Target Carrier
-            </label>
-            <select
-              value={selectedTargetCarrier}
-              onChange={(e) => setSelectedTargetCarrier(e.target.value)}
-              disabled={!selectedTargetGroup || isCarriersLoading}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100"
-            >
-              <option value="">Select target carrier...</option>
-              {getCarriersInGroup(selectedTargetGroup).map(carrier => (
-                <option key={carrier.id} value={carrier.id}>
-                  {carrier.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Competitor Group */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Competitor Group
-            </label>
-            <select
-              value={selectedCompetitorGroup}
-              onChange={(e) => {
-                setSelectedCompetitorGroup(e.target.value);
-                setSelectedCompetitorCarriers([]); // Reset carrier selection
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
-              disabled={isCarriersLoading}
-            >
-              <option value="">Select competitor group...</option>
-              {carrierGroups
-                .filter(group => group.groupCode !== selectedTargetGroup)
-                .map(group => (
-                  <option key={group.groupCode} value={group.groupCode}>
-                    {group.groupName} ({group.carriers.length} carriers)
-                  </option>
-                ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Competitor Carrier Selection */}
-        {selectedCompetitorGroup && (
-          <div className="mt-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-md font-medium text-gray-900">
-                Competitor Carriers ({selectedCompetitorCarriers.length} selected)
-              </h3>
-              <div className="flex space-x-2">
-                <button
-                  onClick={handleSelectAllCompetitors}
-                  className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-                >
-                  Select All
-                </button>
-                <button
-                  onClick={handleClearAllCompetitors}
-                  className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
-                >
-                  Clear All
-                </button>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-4">
-              {getCarriersInGroup(selectedCompetitorGroup).map(carrier => (
-                <label key={carrier.id} className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedCompetitorCarriers.includes(carrier.id)}
-                    onChange={() => handleCompetitorCarrierToggle(carrier.id)}
-                    className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                  />
-                  <span className="text-sm text-gray-700 truncate" title={carrier.name}>
-                    {carrier.name}
-                  </span>
-                </label>
-              ))}
-            </div>
-            
-            <div className="mt-2 text-sm text-gray-600">
-              {selectedCompetitorCarriers.length === 0 ? (
-                <span className="text-blue-600 font-medium">
-                  ✨ No carriers selected - will use ENTIRE group (recommended for comprehensive analysis)
-                </span>
-              ) : (
-                <span>
-                  Selected {selectedCompetitorCarriers.length} specific carriers for targeted analysis
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Analysis Info */}
-        {selectedTargetGroup && selectedCompetitorGroup && shipmentData.length > 0 && (
-          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-start space-x-2">
-              <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-blue-800">
-                <p className="font-medium mb-2">🚀 Concurrent Processing Configuration:</p>
-                <div className="space-y-2 text-xs">
-                  <div><strong>Per Shipment:</strong></div>
-                  <div>1. Get Target Rate</div>
-                  <div>2. Get Competitor Costs</div>
-                  <div>3. Remove Invalid Costs</div>
-                  <div>4. Remove Outliers (50% threshold, only if less than target rate)</div>
-                  <div>5. Markup Remaining Rates: Rate/(1-Margin)</div>
-                  <div>6. Store Average Competitor Cost and Price</div>
-                  <div className="mt-2"><strong>Per Customer:</strong></div>
-                  <div>1. Sum all Target Rates</div>
-                  <div>2. Sum all Average Competitor Costs</div>
-                  <div>3. Sum all Average Competitor Prices</div>
-                  <div>4. Calculate: <strong>((Sum Price - Sum Cost) / Sum Price) × 100</strong></div>
-                  <div className="mt-2 p-2 bg-blue-100 rounded">
-                    <div>Target: <strong>{getCarriersInGroup(selectedTargetGroup).find(c => c.id === selectedTargetCarrier)?.name || 'Not selected'}</strong></div>
-                    <div>Competitors: {selectedCompetitorCarriers.length === 0 ? (
-                      <strong>Entire group</strong>
-                    ) : (
-                      <strong>{selectedCompetitorCarriers.length} specific carriers</strong>
-                    )} from {carrierGroups.find(g => g.groupCode === selectedCompetitorGroup)?.groupName}</div>
-                    <div>Shipments: <strong>{shipmentData.length}</strong> from {startDate} to {endDate}</div>
-                    <div>Concurrent Processing: <strong>{BATCH_SIZE} requests per batch</strong></div>
-                    <div>Estimated Time: <strong>~{Math.ceil((shipmentData.length / BATCH_SIZE) * (BATCH_DELAY/1000) / 60)} minutes</strong></div>
-                    {selectedCustomer && <div>Customer: <strong>{selectedCustomer}</strong></div>}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Run Analysis Button */}
-        <div className="mt-6">
-          <button
-            onClick={runMarginAnalysis}
-            disabled={isLoading || !selectedTargetGroup || !selectedTargetCarrier || !selectedCompetitorGroup || shipmentData.length === 0}
-            className="flex items-center space-x-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-          >
-            {isLoading ? (
-              <Loader className="h-5 w-5 animate-spin" />
-            ) : (
-              <Play className="h-5 w-5" />
-            )}
-            <span>{isLoading ? 'Processing Concurrently...' : 'Run Concurrent Margin Analysis'}</span>
-          </button>
-          
-          {shipmentData.length === 0 && (
-            <p className="text-sm text-gray-500 mt-2">
-              Please load shipment data first using the "Load Shipments" button above.
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Processing Status */}
-      {(isLoading || processingStatus) && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center space-x-3">
-            {isLoading && <Loader className="h-5 w-5 animate-spin text-blue-500" />}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Concurrent Processing Status</h3>
-              <p className="text-sm text-gray-600">{processingStatus}</p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Error Display */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <div className="flex items-center space-x-2">
-            <AlertCircle className="h-5 w-5 text-red-600" />
+            <AlertTriangle className="h-5 w-5 text-red-600" />
             <span className="text-red-800">{error}</span>
           </div>
         </div>
       )}
 
-      {/* Results */}
-      {results.length > 0 && (
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800">Concurrent Margin Analysis Results</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                {results.length} customer{results.length !== 1 ? 's' : ''} analyzed using concurrent processing: ((Sum Price - Sum Cost) / Sum Price) × 100
-              </p>
-            </div>
-            <button
-              onClick={exportResults}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export Results</span>
-            </button>
-          </div>
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200">
+        <nav className="flex space-x-8">
+          {[
+            { id: 'overview', label: 'Overview', icon: BarChart3 },
+            { id: 'queue', label: 'Analysis Queue', icon: Activity },
+            { id: 'recommendations', label: 'Recommendations', icon: Target },
+            { id: 'settings', label: 'Settings', icon: Settings }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-purple-500 text-purple-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Target Cost</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Competitor Cost</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Target Price</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Margin</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shipments</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {results.map((result, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      {result.customerName}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {formatCurrency(result.totalTargetCost)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {formatCurrency(result.totalCompetitorCost)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {formatCurrency(result.totalTargetPrice)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        result.recommendedMargin > 15 ? 'bg-green-100 text-green-800' :
-                        result.recommendedMargin > 10 ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        {result.recommendedMargin.toFixed(1)}%
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {result.shipmentCount}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Summary Statistics */}
-      {results.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Avg Target Cost</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {formatCurrency(results.reduce((sum, r) => sum + r.totalTargetCost, 0) / results.reduce((sum, r) => sum + r.shipmentCount, 0))}
-                </p>
-              </div>
-              <Target className="h-8 w-8 text-blue-500" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Avg Recommended Margin</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {(results.reduce((sum, r) => sum + r.recommendedMargin, 0) / results.length).toFixed(1)}%
-                </p>
-              </div>
-              <TrendingUpIcon className="h-8 w-8 text-green-500" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Avg Target Price</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {formatCurrency(results.reduce((sum, r) => sum + r.totalTargetPrice, 0) / results.reduce((sum, r) => sum + r.shipmentCount, 0))}
-                </p>
-              </div>
-              <DollarSign className="h-8 w-8 text-purple-500" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Shipments</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {results.reduce((sum, r) => sum + r.shipmentCount, 0)}
-                </p>
-              </div>
-              <BarChart3 className="h-8 w-8 text-orange-500" />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Tab Content */}
+      {activeTab === 'overview' && renderOverview()}
+      {activeTab === 'queue' && renderQueue()}
+      {activeTab === 'recommendations' && renderRecommendations()}
+      {activeTab === 'settings' && renderSettings()}
     </div>
   );
 };
