@@ -135,7 +135,8 @@ export class Project44APIClient {
       if (!groupsResponse.ok) {
         const errorText = await groupsResponse.text();
         console.error('❌ Failed to fetch account groups:', groupsResponse.status, errorText);
-        throw new Error(`Failed to fetch account groups: ${groupsResponse.status} - ${errorText}`);
+        console.log('🔄 Falling back to capacity providers endpoint...');
+        return await this.getCarriersWithoutGroups(token, baseUrl, isVolumeMode, isFTLMode);
       }
 
       const groupsData = await groupsResponse.json();
@@ -209,7 +210,7 @@ export class Project44APIClient {
           if (carriers.length > 0) {
             carrierGroups.push({
               groupCode: group.code,
-              groupName: `${group.name} (${modeDescription})`,
+              groupName: group.name,
               carriers: carriers.sort((a, b) => a.name.localeCompare(b.name))
             });
           }
@@ -286,7 +287,7 @@ export class Project44APIClient {
     
     const carrierGroup: CarrierGroup = {
       groupCode: 'Default',
-      groupName: modeDescription + ' Carriers',
+      groupName: 'All Available Carriers',
       carriers: displayCarriers.map((provider: CapacityProvider) => {
         const scacId = provider.capacityProviderIdentifiers?.find(id => id.type === 'SCAC');
         const mcId = provider.capacityProviderIdentifiers?.find(id => id.type === 'MC_NUMBER');
@@ -355,7 +356,6 @@ export class Project44APIClient {
       }
     }
 
-    console.log(`🔧 Final accessorial services: [${services.map(s => s.code).join(', ')}]`);
     // Fallback to SCAC or account code
     return scac || accountInfo.code || 'Unknown Carrier';
   }
