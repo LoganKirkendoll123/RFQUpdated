@@ -586,21 +586,10 @@ export const getSalesRepList = async (): Promise<string[]> => {
       }
     }
     
-    // Get unique branch names
+    // Get unique sales rep names
     const uniqueSalesReps = [...new Set(allSalesReps.map(d => d["Sales Rep"]).filter(Boolean))].sort();
     console.log(`✅ Loaded ${uniqueSalesReps.length} unique sales reps from ${allSalesReps.length} total records`);
     return uniqueSalesReps;
-  } catch (error) {
-    console.error('Failed to fetch sales rep list:', error);
-    throw error;
-  }
-};
-
-
-export const getSalesRepList = async (): Promise<string[]> => {
-  try {
-    const { data, error } = await supabase
-      .from('Shipments')
       .select('"Sales Rep"')
       .not('"Sales Rep"', 'is', null)
       .order('"Sales Rep"');

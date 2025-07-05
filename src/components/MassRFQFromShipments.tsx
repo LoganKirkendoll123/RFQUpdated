@@ -30,9 +30,9 @@ import { CarrierSelection } from './CarrierSelection';
 import * as XLSX from 'xlsx';
 
 // Rate limiting constants
-const BATCH_SIZE = 50; // Process 50 RFQs at a time
+const BATCH_SIZE = 50; // Process 50 RFQs in a burst
 const BATCH_DELAY_MS = 5000; // 5 seconds between batches
-const REQUEST_DELAY_MS = 500; // 500ms between individual requests
+const REQUEST_DELAY_MS = 0; // No delay between requests in a burst
 
 interface MassRFQFromShipmentsProps {
   project44Client: Project44APIClient | null;
@@ -538,7 +538,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
             // Process each RFQ in the batch
             for (let rfqIndex = 0; rfqIndex < batchRfqs.length; rfqIndex++) {
               const rfq = batchRfqs[rfqIndex];
-              const overallIndex = startIdx + rfqIndex;
+              const overallIndex = startIdx + rfqIndex; 
               
               // Update progress
               const progress = ((overallIndex + 1) / rfqs.length) * 100;
@@ -614,14 +614,14 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
               }
               
               // Add delay between individual requests to avoid hitting rate limits
-              if (rfqIndex < batchRfqs.length - 1) {
+              if (rfqIndex < batchRfqs.length - 1 && REQUEST_DELAY_MS > 0) {
                 await new Promise(resolve => setTimeout(resolve, REQUEST_DELAY_MS));
               }
             }
             
             // Add delay between batches
             if (batchIndex < numBatches - 1) {
-              console.log(`⏱️ Waiting ${BATCH_DELAY_MS/1000} seconds before next batch to respect rate limits...`);
+              console.log(`⏱️ Waiting ${BATCH_DELAY_MS/1000} seconds before next batch of 50 requests to respect rate limit of 50 per 5 seconds...`);
               await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
             }
           }
