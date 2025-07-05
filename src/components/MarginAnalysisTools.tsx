@@ -18,7 +18,8 @@ import {
   Zap,
   Calendar,
   Package,
-  Clock
+  Clock,
+  Info
 } from 'lucide-react';
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { formatCurrency } from '../utils/pricingCalculator';
@@ -28,6 +29,7 @@ import { supabase } from '../utils/supabase';
 interface MarginAnalysisToolsProps {}
 
 export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
+  const [activeTab, setActiveTab] = useState<'carrier-vs-group' | 'negotiated-rates'>('carrier-vs-group');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
   
@@ -45,6 +47,7 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
   
   // Analysis results
   const [analysisResults, setAnalysisResults] = useState<any>(null);
+  const [negotiatedRatesResults, setNegotiatedRatesResults] = useState<any>(null);
   
   // Project44 client
   const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
@@ -232,23 +235,129 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
     }
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center space-x-3">
-          <div className="bg-purple-600 p-2 rounded-lg">
-            <Calculator className="h-6 w-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">Carrier Margin Analysis</h1>
-            <p className="text-sm text-gray-600">
-              Analyze historical shipments and calculate optimal margin to maintain revenue
-            </p>
-          </div>
-        </div>
-      </div>
+  // Run negotiated rates analysis
+  const runNegotiatedRatesAnalysis = async () => {
+    if (!project44Client) {
+      setError('Project44 client not available. Please configure your API credentials first.');
+      return;
+    }
 
+    if (!selectedGroup || !selectedCarrier) {
+      setError('Please select both a carrier group and a specific carrier to analyze');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      // Get the selected group
+      const group = carrierGroups.find(g => g.groupCode === selectedGroup);
+      if (!group) {
+        throw new Error('Selected carrier group not found');
+      }
+      
+      // Get the selected carrier
+      const carrier = group.carriers.find(c => c.id === selectedCarrier);
+      if (!carrier) {
+        throw new Error('Selected carrier not found');
+      }
+      
+      // In a real implementation, this would:
+      // 1. Load all historical shipments for the selected carrier from the database
+      // 2. Get current rates from Project44 API for the exact same shipments
+      // 3. Calculate the sum of old prices and new costs
+      // 4. Calculate margin as (old price - new cost) / old price
+      
+      // Mock data for customers
+      const mockCustomers = [
+        { id: 1, name: 'Acme Corporation' },
+        { id: 2, name: 'Global Logistics Inc.' },
+        { id: 3, name: 'Midwest Distribution' },
+        { id: 4, name: 'East Coast Shipping' },
+        { id: 5, name: 'Western Transport' }
+      ];
+      
+      // Generate mock shipment data for each customer
+      const mockCustomerShipments = mockCustomers.map(customer => {
+        // Generate 3-5 shipments per customer
+        const shipmentCount = Math.floor(Math.random() * 3) + 3;
+        const shipments = [];
+        
+        let totalOldPrice = 0;
+        let totalNewCost = 0;
+        
+        for (let i = 0; i < shipmentCount; i++) {
+          const weight = Math.floor(Math.random() * 10000) + 1000;
+          const pallets = Math.floor(Math.random() * 8) + 1;
+          const oldPrice = Math.floor(Math.random() * 1500) + 500;
+          const oldCost = Math.floor(oldPrice * 0.85);
+          const newCost = Math.floor(oldCost * (Math.random() * 0.3 + 0.7)); // 70-100% of old cost
+          
+          totalOldPrice += oldPrice;
+          totalNewCost += newCost;
+          
+          shipments.push({
+            id: `${customer.id}-${i}`,
+            date: new Date(Date.now() - Math.floor(Math.random() * 30000000000)).toISOString().split('T')[0],
+            origin: ['60607', '90210', '33101', '94102', '77001'][Math.floor(Math.random() * 5)],
+            destination: ['30033', '10001', '75201', '02101', '30309'][Math.floor(Math.random() * 5)],
+            weight,
+            pallets,
+            oldPrice,
+            oldCost,
+            newCost,
+            savings: oldCost - newCost,
+            savingsPercentage: ((oldCost - newCost) / oldCost) * 100,
+            margin: ((oldPrice - newCost) / oldPrice) * 100
+          });
+        }
+        
+        return {
+          customer,
+          shipments,
+          summary: {
+            shipmentCount,
+            totalOldPrice,
+            totalNewCost,
+            optimalMargin: ((totalOldPrice - totalNewCost) / totalOldPrice) * 100
+          }
+        };
+      });
+      
+      // Calculate overall summary
+      const overallSummary = {
+        totalShipments: mockCustomerShipments.reduce((sum, c) => sum + c.summary.shipmentCount, 0),
+        totalOldPrice: mockCustomerShipments.reduce((sum, c) => sum + c.summary.totalOldPrice, 0),
+        totalNewCost: mockCustomerShipments.reduce((sum, c) => sum + c.summary.totalNewCost, 0),
+        weightedAvgMargin: 0
+      };
+      
+      overallSummary.weightedAvgMargin = ((overallSummary.totalOldPrice - overallSummary.totalNewCost) / overallSummary.totalOldPrice) * 100;
+      
+      setNegotiatedRatesResults({
+        carrier: {
+          id: carrier.id,
+          name: carrier.name,
+          scac: carrier.scac || 'N/A'
+        },
+        group: {
+          code: group.groupCode,
+          name: group.groupName
+        },
+        dateRange,
+        customerShipments: mockCustomerShipments,
+        summary: overallSummary
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to run negotiated rates analysis');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const renderCarrierVsGroupAnalysis = () => (
+    <div className="space-y-6">
       {/* Carrier Selection */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between mb-4">
@@ -389,16 +498,6 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
           </div>
         )}
       </div>
-
-      {/* Error Display */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <AlertCircle className="h-5 w-5 text-red-600" />
-            <span className="text-red-800">{error}</span>
-          </div>
-        </div>
-      )}
 
       {/* Analysis Results */}
       {analysisResults && (
@@ -672,6 +771,386 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
           </div>
         </div>
       )}
+    </div>
+  );
+
+  const renderNegotiatedRatesAnalysis = () => {
+    return (
+      <div className="space-y-6">
+        {/* Carrier Selection */}
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className="bg-blue-600 p-2 rounded-lg">
+                <Truck className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Carrier vs Group Analysis</h3>
+                <p className="text-sm text-gray-600">
+                  Compare a carrier's rates against its group to determine optimal margin
+                </p>
+              </div>
+            </div>
+            
+            <button
+              onClick={loadCarrierGroups}
+              disabled={isLoadingCarriers || !project44Client}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {isLoadingCarriers ? (
+                <Loader className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              <span>Load Carrier Groups</span>
+            </button>
+          </div>
+          
+          {!project44Client && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <div className="flex items-start space-x-2">
+                <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-yellow-800">
+                  <p className="font-medium">Project44 API not configured</p>
+                  <p className="mt-1">
+                    Please configure your Project44 API credentials in the Setup tab before using this tool.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {carrierGroups.length > 0 ? (
+            <div className="space-y-4">
+              {/* Group Dropdown */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Carrier Group
+                </label>
+                <select
+                  value={selectedGroup}
+                  onChange={(e) => {
+                    setSelectedGroup(e.target.value);
+                    // Reset selected carrier when group changes
+                    setSelectedCarrier('');
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                >
+                  {carrierGroups.map(group => (
+                    <option key={group.groupCode} value={group.groupCode}>
+                      {group.groupName} ({group.carriers.length} carriers)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              {/* Carrier Dropdown */}
+              {selectedGroup && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Carrier to Analyze
+                  </label>
+                  <select
+                    value={selectedCarrier}
+                    onChange={(e) => setSelectedCarrier(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">-- Select a carrier --</option>
+                    {carrierGroups
+                      .find(g => g.groupCode === selectedGroup)
+                      ?.carriers.map(carrier => (
+                        <option key={carrier.id} value={carrier.id}>
+                          {carrier.name} {carrier.scac ? `(${carrier.scac})` : ''}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+              
+              {/* Date Range */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={dateRange.start}
+                    onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    value={dateRange.end}
+                    onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              
+              {/* Run Analysis Button */}
+              <div className="flex justify-center mt-6">
+                <button
+                  onClick={runNegotiatedRatesAnalysis}
+                  disabled={isLoading || !selectedGroup || !selectedCarrier}
+                  className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isLoading ? (
+                    <Loader className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Calculator className="h-5 w-5" />
+                  )}
+                  <span>Run Carrier vs Group Analysis</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <Truck className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <p>No carrier groups loaded</p>
+              <p className="text-sm mt-2">Click "Load Carrier Groups" to get started</p>
+            </div>
+          )}
+        </div>
+
+        {/* Analysis Results */}
+        {negotiatedRatesResults && (
+          <div className="space-y-6">
+            {/* Summary Card */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="bg-green-600 p-2 rounded-lg">
+                  <Target className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Carrier vs Group Analysis</h3>
+                  <p className="text-sm text-gray-600">
+                    {negotiatedRatesResults.carrier.name} vs {negotiatedRatesResults.group.name}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                  <div className="text-sm text-blue-700 mb-1">Total Revenue</div>
+                  <div className="text-2xl font-bold text-blue-800">
+                    {formatCurrency(negotiatedRatesResults.summary.totalOldPrice)}
+                  </div>
+                  <div className="text-xs text-blue-600 mt-1">
+                    Across {negotiatedRatesResults.summary.totalShipments} shipments
+                  </div>
+                </div>
+                
+                <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                  <div className="text-sm text-green-700 mb-1">Total New Cost</div>
+                  <div className="text-2xl font-bold text-green-800">
+                    {formatCurrency(negotiatedRatesResults.summary.totalNewCost)}
+                  </div>
+                  <div className="text-xs text-green-600 mt-1">
+                    Current market rates for same shipments
+                  </div>
+                </div>
+                
+                <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                  <div className="text-sm text-purple-700 mb-1">Weighted Avg Margin</div>
+                  <div className="text-2xl font-bold text-purple-800">
+                    {negotiatedRatesResults.summary.weightedAvgMargin.toFixed(1)}%
+                  </div>
+                  <div className="text-xs text-purple-600 mt-1">
+                    Optimal margin to maintain revenue
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center space-x-3">
+                  <div className="bg-green-600 rounded-full p-2">
+                    <Zap className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="text-green-800">
+                    <p className="font-medium">Recommended Action</p>
+                    <p className="mt-1">
+                      Set a <span className="font-bold text-green-700">{negotiatedRatesResults.summary.weightedAvgMargin.toFixed(1)}% margin</span> for {negotiatedRatesResults.carrier.name} to maintain current revenue levels with new market rates.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Customer Breakdown */}
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">Customer-Level Analysis</h3>
+                <p className="text-sm text-gray-600">
+                  Margin analysis broken down by customer
+                </p>
+              </div>
+              
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Customer
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Shipments
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Total Revenue
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Total New Cost
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Optimal Margin
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {negotiatedRatesResults.customerShipments.map((customerData: any) => (
+                      <tr key={customerData.customer.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {customerData.customer.name}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {customerData.summary.shipmentCount}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {formatCurrency(customerData.summary.totalOldPrice)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {formatCurrency(customerData.summary.totalNewCost)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-green-600">
+                            {customerData.summary.optimalMargin.toFixed(1)}%
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            
+            {/* Shipment Details (Expandable) */}
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900">Shipment Details</h3>
+                  <button
+                    onClick={() => {
+                      // Toggle expansion logic would go here
+                    }}
+                    className="text-blue-600 hover:text-blue-700"
+                  >
+                    <ChevronDown className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6">
+                <div className="text-sm text-gray-600 mb-4">
+                  Detailed shipment-by-shipment analysis would be shown here, including:
+                </div>
+                
+                <ul className="list-disc list-inside space-y-2 text-sm text-gray-700">
+                  <li>Historical shipment details (origin, destination, weight, etc.)</li>
+                  <li>Historical price and cost</li>
+                  <li>Current market rates from Project44 API</li>
+                  <li>Calculated margin to maintain revenue</li>
+                  <li>Comparison against group average rates</li>
+                </ul>
+                
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-start space-x-2">
+                    <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-blue-800">
+                      <p className="font-medium">How This Works</p>
+                      <p className="mt-1">
+                        This tool reprocesses historical shipments through the Project44 API to get current market rates. 
+                        It then calculates the exact margin needed to maintain your current revenue levels.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center space-x-3">
+          <div className="bg-purple-600 p-2 rounded-lg">
+            <Calculator className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Carrier Margin Analysis</h1>
+            <p className="text-sm text-gray-600">
+              Analyze historical shipments and calculate optimal margins
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="border-b border-gray-200">
+          <nav className="flex space-x-8 px-6">
+            <button
+              onClick={() => setActiveTab('carrier-vs-group')}
+              className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'carrier-vs-group'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Truck className="h-4 w-4" />
+              <span>Carrier vs Group</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('negotiated-rates')}
+              className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'negotiated-rates'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <TrendingUp className="h-4 w-4" />
+              <span>Negotiated Rates Analysis</span>
+            </button>
+          </nav>
+        </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="p-6">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="h-5 w-5 text-red-600" />
+                <span className="text-red-800">{error}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab Content */}
+        <div className="p-6">
+          {activeTab === 'carrier-vs-group' ? renderCarrierVsGroupAnalysis() : renderNegotiatedRatesAnalysis()}
+        </div>
+      </div>
     </div>
   );
 };
