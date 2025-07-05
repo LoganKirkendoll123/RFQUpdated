@@ -1,52 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Calendar,
-  Users,
-  Package,
-  Play,
-  Loader,
-  CheckCircle,
-  XCircle,
-  Download,
-  Filter,
-  BarChart3,
-  Truck,
-  DollarSign,
-  Clock,
-  AlertCircle,
-  RefreshCw,
-  Target,
-  TrendingUp,
-  Building2,
-  MapPin,
-  Save,
-  History,
+  Database, 
+  Search, 
+  Filter, 
+  Play, 
+  Loader, 
+  AlertCircle, 
+  CheckCircle, 
+  Package, 
+  MapPin, 
+  Calendar, 
+  Users, 
+  Building2, 
+  Truck, 
+  DollarSign, 
+  BarChart3, 
+  RefreshCw, 
   Trash2,
   Copy,
   FolderOpen,
-  X
+  X,
+  Save,
+  Download
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { Project44APIClient, FreshXAPIClient } from '../utils/apiClient';
-import { PricingSettings, RFQRow, ProcessingResult, QuoteWithPricing, CarrierGroup } from '../types'; 
-import { calculatePricingWithCustomerMargins } from '../utils/pricingCalculator';
-import { formatCurrency } from '../utils/pricingCalculator';
-import { RFQCard } from './RFQCard';
-import { CarrierSelection } from './CarrierSelection';
+import { PricingSettings, ProcessingResult, RFQRow, QuoteWithPricing } from '../types';
+import { PricingSettingsComponent } from './PricingSettings';
+import { CustomerSelection } from './CustomerSelection';
+import { ProcessingStatus } from './ProcessingStatus';
+import { ResultsTable } from './ResultsTable';
+import { Analytics } from './Analytics';
+import { calculatePricingWithCustomerMargins, clearMarginCache } from '../utils/pricingCalculator';
 import { 
   saveMassRFQBatch, 
-  updateMassRFQBatch, 
   getMassRFQBatches, 
-  getMassRFQBatch,
-  deleteMassRFQBatch,
+  deleteMassRFQBatch, 
   calculateBatchSummary,
   MassRFQBatch 
 } from '../utils/massRfqDatabase';
 import * as XLSX from 'xlsx';
-
-// Rate limiting constants
-const BATCH_SIZE = 5; // Process 5 RFQs per carrier at once
-const BATCH_DELAY_MS = 1000; // 1 second between batches (5 per second)
 
 interface MassRFQFromShipmentsProps {
   project44Client: Project44APIClient | null;
@@ -56,27 +49,13 @@ interface MassRFQFromShipmentsProps {
   selectedCustomer: string;
 }
 
-interface CustomerShipmentSummary {
-  customerName: string;
-  shipmentCount: number;
-  totalWeight: number;
-  totalRevenue: number;
-  avgRevenue: number;
-  dateRange: { start: string; end: string };
-  topLanes: Array<{ lane: string; count: number }>;
-  topCarriers: Array<{ carrier: string; count: number }>;
-}
-
-interface MassRFQJob {
-  id: string;
-  customerName: string;
-  shipmentCount: number;
-  status: 'pending' | 'processing' | 'completed' | 'error';
-  progress: number;
-  results?: ProcessingResult[];
-  error?: string;
-  startTime?: Date;
-  endTime?: Date;
+interface ShipmentFilters {
+  customer: string;
+  branch: string;
+  salesRep: string;
+  carrier: string;
+  dateStart: string;
+  dateEnd: string;
 }
 
 export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
@@ -86,640 +65,202 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
   pricingSettings,
   selectedCustomer
 }) => {
-  const [dateRange, setDateRange] = useState({
-    start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days ago
-    end: new Date().toISOString().split('T')[0] // today
-  });
-  
-  const [customerSummaries, setCustomerSummaries] = useState<CustomerShipmentSummary[]>([]);
-  const [selectedCustomers, setSelectedCustomers] = useState<{ [customer: string]: boolean }>({});
-  const [isLoadingShipments, setIsLoadingShipments] = useState(false);
-  const [massRFQJobs, setMassRFQJobs] = useState<MassRFQJob[]>([]);
-  const [results, setResults] = useState<ProcessingResult[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false); 
+  // State for shipment data and filtering
+  const [shipments, setShipments] = useState<any[]>([]);
+  const [filteredShipments, setFilteredShipments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   
-  // Filters
-  const [minShipments, setMinShipments] = useState(5);
-  const [minRevenue, setMinRevenue] = useState(1000);
-  const [selectedBranch, setSelectedBranch] = useState('');
-  const [selectedSalesRep, setSelectedSalesRep] = useState('');
-  
-  // Carrier selection state
-  const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
-  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
-  const [carriersLoaded, setCarriersLoaded] = useState(false);
-  const [carrierLoadError, setCarrierLoadError] = useState<string>('');
-  const [localSelectedCarriers, setLocalSelectedCarriers] = useState<{ [carrierId: string]: boolean }>({});
+  // Filter state
+  const [filters, setFilters] = useState<ShipmentFilters>({
+    customer: '',
+    branch: '',
+    salesRep: '',
+    carrier: '',
+    dateStart: '',
+    dateEnd: ''
+  });
   
   // Filter options
-  const [branches, setBranches] = useState<string[]>([]);
-  const [salesReps, setSalesReps] = useState<string[]>([]);
-
-  // Save/Load state
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
-  const [showLoadDialog, setShowLoadDialog] = useState(false);
-  const [saveBatchName, setSaveBatchName] = useState('');
-  const [savedBatches, setSavedBatches] = useState<MassRFQBatch[]>([]);
-  const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isLoadingBatches, setIsLoadingBatches] = useState(false);
+  const [filterOptions, setFilterOptions] = useState({
+    customers: [] as string[],
+    branches: [] as string[],
+    salesReps: [] as string[],
+    carriers: [] as string[]
+  });
   
-  // Add missing filteredShipments state
-  const [filteredShipments, setFilteredShipments] = useState<any[]>([]);
+  // Processing state
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [results, setResults] = useState<ProcessingResult[]>([]);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [totalSteps, setTotalSteps] = useState(0);
+  const [currentCarrier, setCurrentCarrier] = useState<string>('');
+  
+  // Local settings
+  const [localPricingSettings, setLocalPricingSettings] = useState<PricingSettings>(pricingSettings);
+  const [localSelectedCustomer, setLocalSelectedCustomer] = useState<string>(selectedCustomer);
+  const [localSelectedCarriers, setLocalSelectedCarriers] = useState<{ [carrierId: string]: boolean }>(selectedCarriers);
+  
+  // Saved batches state
+  const [savedBatches, setSavedBatches] = useState<MassRFQBatch[]>([]);
+  const [showSavedBatches, setShowSavedBatches] = useState(false);
+  
+  // Save dialog state
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [batchName, setBatchName] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    loadFilterOptions();
+    loadShipments();
     loadSavedBatches();
-    // Initialize local selected carriers from props
-    setLocalSelectedCarriers(selectedCarriers);
-    
-    if (project44Client) {
-      loadCarriers();
-    }
   }, []);
 
   useEffect(() => {
-    if (dateRange.start && dateRange.end) {
-      loadCustomerShipments();
-    }
-  }, [dateRange, minShipments, minRevenue, selectedBranch, selectedSalesRep]);
+    applyFilters();
+  }, [shipments, filters]);
 
-  const loadCarriers = async () => {
-    if (!project44Client) return;
-
-    setIsLoadingCarriers(true);
-    setCarriersLoaded(false);
-    setCarrierLoadError('');
-    try {
-      console.log('🚛 Loading ALL carriers for mass RFQ (including all account groups)...');
-      // Load carriers for all modes to get comprehensive coverage
-      const [standardGroups, volumeGroups] = await Promise.all([
-        project44Client.getAvailableCarriersByGroup(false, false), // Standard LTL
-        project44Client.getAvailableCarriersByGroup(true, false)   // Volume LTL
-      ]);
-      
-      // Merge and deduplicate carrier groups
-      const allGroups = [...standardGroups];
-      
-      // Add volume groups that aren't already included
-      volumeGroups.forEach(volumeGroup => {
-        const existingGroup = allGroups.find(g => g.groupCode === volumeGroup.groupCode);
-        if (existingGroup) {
-          // Merge carriers from volume group into existing group
-          const existingCarrierIds = new Set(existingGroup.carriers.map(c => c.id));
-          volumeGroup.carriers.forEach(carrier => {
-            if (!existingCarrierIds.has(carrier.id)) {
-              existingGroup.carriers.push(carrier);
-            }
-          });
-          // Update group name to indicate it supports both modes
-          existingGroup.groupName = existingGroup.groupName.replace(' (Standard LTL)', ' (LTL + VLTL)');
-        } else {
-          // Add new group
-          allGroups.push({
-            ...volumeGroup,
-            groupName: volumeGroup.groupName.replace(' (Volume LTL (VLTL))', ' (VLTL Only)')
-          });
-        }
-      });
-      
-      // Sort carriers within each group
-      allGroups.forEach(group => {
-        group.carriers.sort((a, b) => a.name.localeCompare(b.name));
-      });
-      
-      setCarrierGroups(allGroups);
-      setCarriersLoaded(true);
-      
-      const totalCarriers = allGroups.reduce((sum, group) => sum + group.carriers.length, 0);
-      console.log(`✅ Loaded ${allGroups.length} carrier groups with ${totalCarriers} total carriers for mass RFQ`);
-    } catch (error) {
-      console.error('❌ Failed to load carriers:', error);
-      setCarrierLoadError(error instanceof Error ? error.message : 'Failed to load carriers');
-      setCarrierGroups([]);
-      setCarriersLoaded(false);
-    } finally {
-      setIsLoadingCarriers(false);
-    }
-  };
-
-  const handleCarrierToggle = (carrierId: string, selected: boolean) => {
-    setLocalSelectedCarriers(prev => ({ ...prev, [carrierId]: selected }));
-  };
-
-  const handleSelectAllCarriers = (selected: boolean) => {
-    const newSelection: { [carrierId: string]: boolean } = {};
-    carrierGroups.forEach(group => {
-      group.carriers.forEach(carrier => {
-        newSelection[carrier.id] = selected;
-      });
-    });
-    setLocalSelectedCarriers(newSelection);
-  };
-
-  const handleSelectAllInGroup = (groupCode: string, selected: boolean) => {
-    const group = carrierGroups.find(g => g.groupCode === groupCode);
-    if (!group) return;
+  const loadShipments = async () => {
+    setLoading(true);
+    setError('');
     
-    const newSelection = { ...localSelectedCarriers };
-    group.carriers.forEach(carrier => {
-      newSelection[carrier.id] = selected;
-    });
-    setLocalSelectedCarriers(newSelection);
-  };
-
-  const loadFilterOptions = async () => {
     try {
-      // Load unique branches
-      const { data: branchData, error: branchError } = await supabase
-        .from('Shipments')
-        .select('"Branch"')
-        .not('"Branch"', 'is', null);
+      console.log('📦 Loading shipments from database...');
       
-      if (!branchError && branchData) {
-        const uniqueBranches = [...new Set(branchData.map(d => d.Branch).filter(Boolean))];
-        setBranches(uniqueBranches);
+      const { data, error } = await supabase
+        .from('Shipments')
+        .select('*')
+        .order('"Scheduled Pickup Date"', { ascending: false })
+        .limit(1000);
+      
+      if (error) {
+        throw error;
       }
       
-      // Load unique sales reps
-      const { data: salesRepData, error: salesRepError } = await supabase
-        .from('Shipments')
-        .select('"Sales Rep"')
-        .not('"Sales Rep"', 'is', null);
+      setShipments(data || []);
       
-      if (!salesRepError && salesRepData) {
-        const uniqueSalesReps = [...new Set(salesRepData.map(d => d["Sales Rep"]).filter(Boolean))];
-        setSalesReps(uniqueSalesReps);
-      }
+      // Extract unique values for filter options
+      const customers = [...new Set(data?.map(s => s.Customer).filter(Boolean))].sort();
+      const branches = [...new Set(data?.map(s => s.Branch).filter(Boolean))].sort();
+      const salesReps = [...new Set(data?.map(s => s["Sales Rep"]).filter(Boolean))].sort();
+      const carriers = [...new Set([
+        ...data?.map(s => s["Booked Carrier"]).filter(Boolean) || [],
+        ...data?.map(s => s["Quoted Carrier"]).filter(Boolean) || []
+      ])].sort();
+      
+      setFilterOptions({ customers, branches, salesReps, carriers });
+      
+      console.log(`✅ Loaded ${data?.length || 0} shipments`);
     } catch (err) {
-      console.error('Failed to load filter options:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load shipments';
+      setError(errorMsg);
+      console.error('❌ Failed to load shipments:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
   const loadSavedBatches = async () => {
-    setIsLoadingBatches(true);
     try {
       const batches = await getMassRFQBatches();
       setSavedBatches(batches);
-    } catch (error) {
-      console.error('Failed to load saved batches:', error);
-    } finally {
-      setIsLoadingBatches(false);
-    }
-  };
-
-  const handleSaveBatch = async () => {
-    if (!saveBatchName.trim()) {
-      alert('Please enter a batch name');
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const batchData: Omit<MassRFQBatch, 'id' | 'created_at' | 'updated_at'> = {
-        batch_name: saveBatchName.trim(),
-        customer_name: selectedCustomer || undefined,
-        branch_filter: selectedBranch || undefined,
-        sales_rep_filter: selectedSalesRep || undefined,
-        carrier_filter: selectedCarrier || undefined,
-        date_range_start: dateRange.start || undefined,
-        date_range_end: dateRange.end || undefined,
-        pricing_settings: pricingSettings,
-        selected_carriers: selectedCarriers,
-        rfq_data: filteredShipments,
-        results_data: results.length > 0 ? results : undefined,
-        ...calculateBatchSummary(results)
-      };
-
-      if (currentBatchId) {
-        // Update existing batch
-        await updateMassRFQBatch(currentBatchId, batchData);
-      } else {
-        // Create new batch
-        const savedBatch = await saveMassRFQBatch(batchData);
-        setCurrentBatchId(savedBatch.id!);
-      }
-
-      setShowSaveDialog(false);
-      setSaveBatchName('');
-      await loadSavedBatches();
-      
-      alert(currentBatchId ? 'Batch updated successfully!' : 'Batch saved successfully!');
-    } catch (error) {
-      console.error('Failed to save batch:', error);
-      alert('Failed to save batch. Please try again.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleLoadBatch = async (batch: MassRFQBatch) => {
-    try {
-      // Load the full batch data
-      const fullBatch = await getMassRFQBatch(batch.id!);
-      if (!fullBatch) {
-        alert('Batch not found');
-        return;
-      }
-
-      // Restore all settings
-      setSelectedCustomer(fullBatch.customer_name || '');
-      setSelectedBranch(fullBatch.branch_filter || '');
-      setSelectedSalesRep(fullBatch.sales_rep_filter || '');
-      setSelectedCarrier(fullBatch.carrier_filter || '');
-      setDateRange({
-        start: fullBatch.date_range_start || '',
-        end: fullBatch.date_range_end || ''
-      });
-      setPricingSettings(fullBatch.pricing_settings);
-      setSelectedCarriers(fullBatch.selected_carriers);
-      
-      // Set the current batch ID
-      setCurrentBatchId(fullBatch.id!);
-      setSaveBatchName(fullBatch.batch_name);
-      
-      // Load results if available
-      if (fullBatch.results_data) {
-        setResults(fullBatch.results_data);
-      } else {
-        setResults([]);
-      }
-      
-      setShowLoadDialog(false);
-      alert(`Loaded batch: ${fullBatch.batch_name}`);
-      
-      // Reload shipment data with the restored filters
-      await loadShipmentData();
-      
-      // If the batch has RFQ data, restore it
-      if (fullBatch.rfq_data) {
-        setFilteredShipments(fullBatch.rfq_data);
-      }
-    } catch (error) {
-      console.error('Failed to load batch:', error);
-      alert('Failed to load batch. Please try again.');
-    }
-  };
-
-  const handleDeleteBatch = async (batchId: string, batchName: string) => {
-    if (!confirm(`Are you sure you want to delete "${batchName}"?`)) {
-      return;
-    }
-
-    try {
-      await deleteMassRFQBatch(batchId);
-      await loadSavedBatches();
-      
-      if (currentBatchId === batchId) {
-        setCurrentBatchId(null);
-        setSaveBatchName('');
-      }
-      
-      alert('Batch deleted successfully');
-    } catch (error) {
-      console.error('Failed to delete batch:', error);
-      alert('Failed to delete batch. Please try again.');
-    }
-  };
-
-  const handleRerunBatch = async () => {
-    if (!currentBatchId) {
-      alert('No batch loaded to rerun');
-      return;
-    }
-
-    // Clear existing results and rerun the processing
-    setResults([]);
-    await processSelectedShipments();
-  };
-
-  const handleNewBatch = () => {
-    setCurrentBatchId(null);
-    setSaveBatchName('');
-    setResults([]);
-    setSelectedCustomer('');
-    setSelectedBranch('');
-    setSelectedSalesRep('');
-    setSelectedCarrier('');
-    setDateRange({ start: '', end: '' });
-    loadShipmentData();
-  };
-
-  const loadCustomerShipments = async () => {
-    setIsLoadingShipments(true);
-    setError('');
-    
-    try {
-      console.log('🔍 Loading customer shipments for mass RFQ analysis...');
-      
-      let query = supabase
-        .from('Shipments') 
-        .select('*')
-        .gte('"Scheduled Pickup Date"', dateRange.start)
-        .lte('"Scheduled Pickup Date"', dateRange.end)
-        .not('"Customer"', 'is', null);
-      
-      // Apply filters
-      if (selectedBranch) {
-        query = query.eq('"Branch"', selectedBranch);
-      }
-      
-      if (selectedSalesRep) {
-        query = query.eq('"Sales Rep"', selectedSalesRep);
-      }
-      
-      // Load shipments in batches to handle large datasets
-      console.log('📦 Loading shipments in batches...');
-      let allShipments: any[] = [];
-      let from = 0;
-      const dbBatchSize = 1000; // Supabase's max limit per request
-      let hasMore = true;
-      
-      while (hasMore) {
-        try {
-          console.log(`📋 Loading batch of shipments from ${from} to ${from + dbBatchSize - 1}...`);
-          const { data, error, count } = await query
-            .range(from, from + dbBatchSize - 1)
-            .order('"Invoice #"', { ascending: false });
-          
-          if (error) {
-            console.error('❌ Error loading shipment batch:', error);
-            throw error;
-          }
-          
-          if (data && data.length > 0) {
-            console.log(`✅ Loaded batch of ${data.length} shipments`);
-            allShipments = [...allShipments, ...data];
-            from += dbBatchSize;
-            hasMore = data.length === dbBatchSize; // Continue if we got a full batch
-          } else {
-            console.log('📋 No more shipments to load');
-            hasMore = false;
-          }
-        } catch (batchError) {
-          console.error('❌ Failed to load shipment batch:', batchError);
-          hasMore = false;
-        }
-      }
-      
-      if (allShipments.length === 0) {
-        console.log('⚠️ No shipments found matching criteria');
-        setCustomerSummaries([]); 
-        return;
-      }
-      
-      console.log(`📦 Loaded ${allShipments.length} shipments for analysis`);
-      
-      // Group shipments by customer
-      const customerGroups = allShipments.reduce((groups, shipment) => {
-        const customer = shipment["Customer"];
-        if (!customer) return groups;
-        
-        if (!groups[customer]) {
-          groups[customer] = [];
-        }
-        groups[customer].push(shipment);
-        return groups;
-      }, {} as Record<string, any[]>);
-
-      // Create customer summaries
-      const summaries: CustomerShipmentSummary[] = Object.entries(customerGroups)
-        .map(([customerName, customerShipments]) => {
-          const parseNumeric = (value: string | null | undefined): number => {
-            if (!value) return 0;
-            const cleaned = value.toString().replace(/[^\d.-]/g, '');
-            return parseFloat(cleaned) || 0;
-          };
-          
-          const totalWeight = customerShipments.reduce((sum, s) => {
-            const weight = parseNumeric(s["Tot Weight"]);
-            return sum + weight;
-          }, 0);
-          
-          const totalRevenue = customerShipments.reduce((sum, s) => {
-            const revenue = parseNumeric(s["Revenue"]);
-            return sum + revenue;
-          }, 0);
-          
-          // Get date range for this customer
-          const dates = customerShipments
-            .map(s => s["Scheduled Pickup Date"])
-            .filter(Boolean)
-            .sort();
-          
-          // Top lanes
-          const laneCounts = customerShipments.reduce((acc, s) => {
-            const originZip = s["Zip"];
-            const destZip = s["Zip_1"];
-            if (originZip && destZip) {
-              const lane = `${originZip} → ${destZip}`;
-              acc[lane] = (acc[lane] || 0) + 1;
-            }
-            return acc;
-          }, {} as Record<string, number>);
-          
-          const topLanes = Object.entries(laneCounts)
-            .sort(([, a], [, b]) => b - a)
-            .slice(0, 3)
-            .map(([lane, count]) => ({ lane, count }));
-          
-          // Top carriers
-          const carrierCounts = customerShipments.reduce((acc, s) => {
-            const carrier = s["Booked Carrier"] || s["Quoted Carrier"];
-            if (carrier) {
-              acc[carrier] = (acc[carrier] || 0) + 1;
-            }
-            return acc;
-          }, {} as Record<string, number>);
-          
-          const topCarriers = Object.entries(carrierCounts)
-            .sort(([, a], [, b]) => b - a)
-            .slice(0, 3)
-            .map(([carrier, count]) => ({ carrier, count }));
-          
-          return {
-            customerName,
-            shipmentCount: customerShipments.length,
-            totalWeight,
-            totalRevenue,
-            avgRevenue: totalRevenue / customerShipments.length,
-            dateRange: {
-              start: dates[0] || dateRange.start,
-              end: dates[dates.length - 1] || dateRange.end
-            },
-            topLanes,
-            topCarriers
-          };
-        })
-        .filter(summary => 
-          summary.shipmentCount >= minShipments && 
-          summary.totalRevenue >= minRevenue
-        )
-        .sort((a, b) => b.totalRevenue - a.totalRevenue);
-      
-      setCustomerSummaries(summaries);
-      console.log(`✅ Created summaries for ${summaries.length} customers meeting criteria`);
-      
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load customer shipments';
-      setError(errorMsg);
-      console.error('❌ Failed to load customer shipments:', err);
-    } finally {
-      setIsLoadingShipments(false);
+      console.error('❌ Failed to load saved batches:', err);
     }
   };
 
-  const handleCustomerToggle = (customerName: string, selected: boolean) => {
-    setSelectedCustomers(prev => ({
-      ...prev,
-      [customerName]: selected
-    }));
+  const applyFilters = () => {
+    let filtered = [...shipments];
+    
+    if (filters.customer) {
+      filtered = filtered.filter(s => s.Customer === filters.customer);
+    }
+    
+    if (filters.branch) {
+      filtered = filtered.filter(s => s.Branch === filters.branch);
+    }
+    
+    if (filters.salesRep) {
+      filtered = filtered.filter(s => s["Sales Rep"] === filters.salesRep);
+    }
+    
+    if (filters.carrier) {
+      filtered = filtered.filter(s => 
+        s["Booked Carrier"] === filters.carrier || 
+        s["Quoted Carrier"] === filters.carrier
+      );
+    }
+    
+    if (filters.dateStart) {
+      filtered = filtered.filter(s => 
+        s["Scheduled Pickup Date"] && s["Scheduled Pickup Date"] >= filters.dateStart
+      );
+    }
+    
+    if (filters.dateEnd) {
+      filtered = filtered.filter(s => 
+        s["Scheduled Pickup Date"] && s["Scheduled Pickup Date"] <= filters.dateEnd
+      );
+    }
+    
+    setFilteredShipments(filtered);
   };
 
-  const handleSelectAll = (selected: boolean) => {
-    const newSelection: { [customer: string]: boolean } = {};
-    customerSummaries.forEach(summary => {
-      newSelection[summary.customerName] = selected;
+  const clearFilters = () => {
+    setFilters({
+      customer: '',
+      branch: '',
+      salesRep: '',
+      carrier: '',
+      dateStart: '',
+      dateEnd: ''
     });
-    setSelectedCustomers(newSelection);
   };
 
   const convertShipmentToRFQ = (shipment: any): RFQRow => {
-    const parseNumeric = (value: string | null | undefined): number => {
-      if (!value) return 0;
-      const cleaned = value.toString().replace(/[^\d.-]/g, '');
-      return parseFloat(cleaned) || 0;
-    };
+    // Parse weight from string format
+    const weightStr = shipment["Tot Weight"]?.toString() || '0';
+    const weight = parseInt(weightStr.replace(/[^\d]/g, '')) || 1000;
     
-    // Parse accessorials from slash-separated format
-    const parseAccessorials = (accessorialStr: string | null | undefined): string[] => {
-      if (!accessorialStr) return [];
-      
-      // Split by slashes and trim each accessorial
-      const accessorials = accessorialStr.split('/').map(acc => acc.trim()).filter(Boolean);
-      
-      // Map common accessorial names to Project44 codes
-      const accessorialMap: Record<string, string> = {
-        'Limited Access Delivery': 'LTDPU', // Use pickup version to avoid API errors
-        'Delivery Appointment': 'NOTIFY', // Use notification instead of APPT/APPTDEL
-        'Liftgate Delivery': 'LGPU', // Use pickup version to avoid API errors
-        'Residential Delivery': 'RESDEL',
-        'Hazmat': 'HAZM',
-        'Liftgate Pickup': 'LGPU',
-        'Inside Delivery': 'INDEL',
-        'Airport Delivery': 'AIRDEL',
-        'Limited Access Pickup': 'LTDPU',
-        'Convention/Tradeshow Delivery': 'CNVDEL',
-        'Residential Pickup': 'RESPU',
-        'Airport Pickup': 'AIRPU',
-        'Convention/Tradeshow Pickup': 'CNVPU',
-        'Farm Delivery': 'FARMDEL',
-        'Military Installation Pickup': 'MILPU',
-        'Grocery Warehouse Delivery': 'GRODEL',
-        'Protect From Freezing': 'PFZ',
-        'Pier Delivery': 'PIERDEL',
-        'Inside Pickup': 'INPU',
-        'Grocery Warehouse Pickup': 'GROPU',
-        'Sort/Segregate Delivery': 'SORTDEL',
-        'Pier Pickup': 'PIERPU'
-      };
-      
-      // Map excessive length codes
-      const excessiveLengthRegex = /Excessive Length,?\s+(\d+)ft/i;
-      
-      // Map accessorials to Project44 codes
-      const mappedAccessorials = accessorials.map(acc => {
-        // Check for excessive length
-        const lengthMatch = acc.match(excessiveLengthRegex);
-        if (lengthMatch && lengthMatch[1]) {
-          const feet = parseInt(lengthMatch[1]);
-          if (feet >= 6 && feet <= 30) {
-            return `ELS_${feet}`;
-          }
-        }
-        
-        // Check regular accessorials
-        if (accessorialMap[acc]) {
-          return accessorialMap[acc];
-        }
-        
-        // If no mapping found, return as is
-        return acc;
-      });
-      
-      console.log(`📦 Parsed accessorials: "${accessorialStr}" → [${mappedAccessorials.join(', ')}]`);
-      return mappedAccessorials;
-    };
+    // Parse pallets
+    const pallets = parseInt(shipment["Tot Packages"]?.toString() || '1') || 1;
     
-    // Estimate pallets from weight if not available
-    const weight = parseNumeric(shipment["Tot Weight"]);
-    const packages = parseNumeric(shipment["Tot Packages"]) || 1;
-    const estimatedPallets = Math.max(1, Math.ceil(packages / 4)); // Rough estimate
-    
-    // Clean and validate ZIP codes
-    const cleanZip = (zip: string | null | undefined): string => {
-      if (!zip) return '00000';
-      const cleaned = zip.replace(/\D/g, '').substring(0, 5);
-      return cleaned.padEnd(5, '0');
-    };
-    
-    // Clean and validate state codes
-    const cleanState = (state: string | null | undefined): string => {
-      if (!state) return '';
-      
-      const validStates = new Set([
-        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
-        'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
-        'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT',
-        'VA', 'WA', 'WV', 'WI', 'WY', 'AS', 'DC', 'FM', 'GU', 'MH', 'MP', 'PW', 'PR', 'VI'
-      ]);
-      
-      const cleaned = state.trim().toUpperCase();
-      if (validStates.has(cleaned)) {
-        return cleaned;
-      }
-      
-      return '';
-    };
-    
-    // Parse accessorials from the Accessorials field
-    const accessorials = parseAccessorials(shipment["Accessorials"]);
+    // Determine if it's a reefer shipment based on commodities or other indicators
+    const commodities = shipment["Commodities"]?.toLowerCase() || '';
+    const isReefer = commodities.includes('frozen') || 
+                    commodities.includes('refrigerated') || 
+                    commodities.includes('dairy') ||
+                    commodities.includes('produce');
     
     return {
       fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
-      fromZip: cleanZip(shipment["Zip"]),
-      toZip: cleanZip(shipment["Zip_1"]),
-      pallets: estimatedPallets,
+      fromZip: shipment["Zip"] || '00000',
+      toZip: shipment["Zip_1"] || '00000',
+      pallets,
       grossWeight: weight,
-      isStackable: false, // Conservative default
-      isReefer: false, // Default to dry goods
-      accessorial: parseAccessorials(shipment["Accessorials"]),
-      freightClass: shipment["Max Freight Class"] || '70',
-      commodityDescription: shipment["Commodities"] || 'General Freight',
+      isStackable: false,
+      isReefer,
+      accessorial: [],
       originCity: shipment["Origin City"],
-      originState: cleanState(shipment["State"]),
+      originState: shipment["State"],
       destinationCity: shipment["Destination City"],
-      destinationState: cleanState(shipment["State_1"]),
-      totalLinearFeet: shipment["Tot Linear Ft"] ? parseNumeric(shipment["Tot Linear Ft"]) : undefined
+      destinationState: shipment["State_1"],
+      commodityDescription: shipment["Commodities"],
+      freightClass: shipment["Max Freight Class"] || '70'
     };
   };
 
   const classifyShipment = (rfq: RFQRow): {quoting: 'freshx' | 'project44-standard' | 'project44-volume' | 'project44-dual', reason: string} => {
-    // Check the isReefer field first - this is the primary quoting control
     if (rfq.isReefer === true) {
       return {
         quoting: 'freshx',
-        reason: `Marked as reefer shipment (isReefer=TRUE) - quoted through FreshX reefer network`
+        reason: `Reefer shipment - quoted through FreshX reefer network`
       };
     }
     
-    // For non-reefer shipments (isReefer=FALSE or undefined), quote through Project44
-    // Determine LTL vs VLTL based on size and weight
     if (rfq.pallets >= 10 || rfq.grossWeight >= 15000) {
       return {
         quoting: 'project44-dual',
-        reason: `Large shipment (${rfq.pallets} pallets, ${rfq.grossWeight.toLocaleString()} lbs) - quoted through both Project44 Volume LTL and Standard LTL for comparison`
+        reason: `Large shipment (${rfq.pallets} pallets, ${rfq.grossWeight.toLocaleString()} lbs) - quoted through both Project44 Volume LTL and Standard LTL`
       };
     } else {
       return {
@@ -729,312 +270,234 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     }
   };
 
-  // Process RFQs in batches with rate limiting
-  const processMassRFQ = async () => {
-    const selectedCustomerNames = Object.entries(selectedCustomers)
-      .filter(([_, selected]) => selected)
-      .map(([customer, _]) => customer);
-    
-    if (selectedCustomerNames.length === 0) {
-      setError('Please select at least one customer');
-      return;
-    }
-    
+  const processSelectedShipments = async () => {
     if (!project44Client) {
       setError('Project44 client not available');
       return;
     }
-    
+
+    if (filteredShipments.length === 0) {
+      setError('No shipments to process');
+      return;
+    }
+
     const selectedCarrierIds = Object.entries(localSelectedCarriers)
       .filter(([_, selected]) => selected)
       .map(([carrierId, _]) => carrierId);
-    
+
     if (selectedCarrierIds.length === 0) {
       setError('Please select at least one carrier');
       return;
     }
-    
+
     setIsProcessing(true);
-    setError('');
-    
-    // Initialize jobs
-    const jobs: MassRFQJob[] = selectedCustomerNames.map(customerName => ({
-      id: `${customerName}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      customerName,
-      shipmentCount: customerSummaries.find(s => s.customerName === customerName)?.shipmentCount || 0,
-      status: 'pending',
-      progress: 0
-    }));
-    
-    setMassRFQJobs(jobs);
     setResults([]);
-    
-    try {
-      console.log(`🚀 Starting mass RFQ for ${selectedCustomerNames.length} customers`);
-      const allResults: ProcessingResult[] = [];
+    setError('');
+    setTotalSteps(filteredShipments.length);
+    setCurrentStep(0);
+
+    console.log(`🚀 Starting Mass RFQ processing: ${filteredShipments.length} shipments, ${selectedCarrierIds.length} carriers`);
+
+    const allResults: ProcessingResult[] = [];
+
+    for (let i = 0; i < filteredShipments.length; i++) {
+      const shipment = filteredShipments[i];
+      setCurrentStep(i + 1);
       
-      // Process each customer sequentially
-      for (let i = 0; i < selectedCustomerNames.length; i++) {
-        const customerName = selectedCustomerNames[i];
-        const jobId = jobs[i].id;
+      try {
+        const rfqData = convertShipmentToRFQ(shipment);
+        const classification = classifyShipment(rfqData);
         
-        // Update job status
-        setMassRFQJobs(prev => prev.map(job => 
-          job.id === jobId 
-            ? { ...job, status: 'processing', startTime: new Date() }
-            : job
-        ));
+        setCurrentCarrier(`Shipment ${i + 1}: ${classification.quoting.toUpperCase()}`);
         
-        try {
-          console.log(`📋 Processing customer ${i + 1}/${selectedCustomerNames.length}: ${customerName}`);
+        console.log(`🧠 Shipment ${i + 1}/${filteredShipments.length} - ${classification.reason}`);
+
+        const result: ProcessingResult = {
+          rowIndex: i,
+          originalData: rfqData,
+          quotes: [],
+          status: 'processing'
+        };
+
+        let quotes: any[] = [];
+
+        if (classification.quoting === 'freshx' && freshxClient) {
+          console.log(`🌡️ Getting FreshX quotes for shipment ${i + 1}`);
+          quotes = await freshxClient.getQuotes(rfqData);
+        } else if (classification.quoting === 'project44-dual') {
+          console.log(`📦 Getting dual quotes for shipment ${i + 1}`);
           
-          // Load shipments for this customer
-          let query = supabase
-            .from('Shipments')
-            .select('*')
-            .eq('"Customer"', customerName)
-            .gte('"Scheduled Pickup Date"', dateRange.start)
-            .lte('"Scheduled Pickup Date"', dateRange.end);
+          const [volumeQuotes, standardQuotes] = await Promise.all([
+            project44Client.getQuotes(rfqData, selectedCarrierIds, true, false, false),
+            project44Client.getQuotes(rfqData, selectedCarrierIds, false, false, false)
+          ]);
           
-          if (selectedBranch) {
-            query = query.eq('"Branch"', selectedBranch);
-          }
+          const taggedVolumeQuotes = volumeQuotes.map(quote => ({
+            ...quote,
+            quoteMode: 'volume',
+            quoteModeLabel: 'Volume LTL'
+          }));
           
-          if (selectedSalesRep) {
-            query = query.eq('"Sales Rep"', selectedSalesRep);
-          }
+          const taggedStandardQuotes = standardQuotes.map(quote => ({
+            ...quote,
+            quoteMode: 'standard',
+            quoteModeLabel: 'Standard LTL'
+          }));
           
-          const { data: customerShipments, error: shipmentError } = await query;
-          
-          if (shipmentError) {
-            throw shipmentError;
-          }
-          
-          if (!customerShipments || customerShipments.length === 0) {
-            throw new Error('No shipments found for customer');
-          }
-          
-          console.log(`📦 Found ${customerShipments.length} shipments for ${customerName}`);
-          
-          // Convert shipments to RFQs
-          const rfqs: RFQRow[] = customerShipments.map(convertShipmentToRFQ);
-          
-          // Process RFQs in batches
-          const customerResults: ProcessingResult[] = [];
-          let processedCount = 0;
-          
-          for (let rfqIndex = 0; rfqIndex < rfqs.length; rfqIndex++) {
-            const rfq = rfqs[rfqIndex];
-            
-            // Skip if we have invalid ZIP codes or state codes
-            if (rfq.fromZip === '00000' || rfq.toZip === '00000') {
-              console.log(`⚠️ Skipping RFQ ${rfqIndex + 1} due to invalid ZIP codes: ${rfq.fromZip} → ${rfq.toZip}`);
-              
-              const result: ProcessingResult = {
-                rowIndex: rfqIndex,
-                originalData: rfq,
-                quotes: [],
-                status: 'error',
-                error: `Invalid ZIP codes: ${rfq.fromZip} → ${rfq.toZip}`
-              };
-              
-              customerResults.push(result);
-              continue;
-            }
-            
-            // Update progress
-            const progress = ((rfqIndex + 1) / rfqs.length) * 100;
-            setMassRFQJobs(prev => prev.map(job => 
-              job.id === jobId 
-                ? { ...job, progress: Math.min(progress, 99) } // Cap at 99% until fully complete
-                : job
-            ));
-            
-            try {
-              // Classify shipment for smart routing
-              const classification = classifyShipment(rfq);
-              
-              let quotes: any[] = [];
-              
-              // Log accessorials for debugging
-              if (rfq.accessorial && rfq.accessorial.length > 0) {
-                console.log(`📋 RFQ ${rfqIndex + 1} has ${rfq.accessorial.length} accessorials: ${rfq.accessorial.join(', ')}`);
-              }
-               
-              try {
-                if (classification.quoting === 'freshx' && freshxClient) {
-                quotes = await freshxClient.getQuotes(rfq);
-              } else if (classification.quoting === 'project44-dual') {
-                const [volumeQuotes, standardQuotes] = await Promise.all([
-                  project44Client.getQuotes(rfq, selectedCarrierIds, true, false, false),
-                  project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false)
-                ]);
-                
-                const taggedVolumeQuotes = volumeQuotes.map(quote => ({
-                  ...quote,
-                  quoteMode: 'volume',
-                  quoteModeLabel: 'Volume LTL'
-                }));
-                
-                const taggedStandardQuotes = standardQuotes.map(quote => ({
-                  ...quote,
-                  quoteMode: 'standard',
-                  quoteModeLabel: 'Standard LTL'
-                }));
-                
-                quotes = [...taggedVolumeQuotes, ...taggedStandardQuotes];
-              } else {
-                quotes = await project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false);
-              }
-              } catch (quoteError) {
-                console.error(`❌ Failed to get quotes for RFQ ${rfqIndex + 1}:`, quoteError);
-                throw quoteError;
-              }
-              
-              // Apply pricing
-              const quotesWithPricing = await Promise.all(
-                quotes.map(quote => {
-                  try {
-                    return calculatePricingWithCustomerMargins(quote, pricingSettings, customerName);
-                  } catch (pricingError) {
-                    console.error(`❌ Error calculating pricing for quote:`, pricingError);
-                    // Return a default pricing if calculation fails
-                    return {
-                      ...quote,
-                      carrierTotalRate: quote.rateQuoteDetail?.total || 0,
-                      customerPrice: (quote.rateQuoteDetail?.total || 0) * 1.15, // 15% markup
-                      profit: (quote.rateQuoteDetail?.total || 0) * 0.15,
-                      markupApplied: (quote.rateQuoteDetail?.total || 0) * 0.15,
-                      isCustomPrice: false,
-                      chargeBreakdown: {
-                        baseCharges: [],
-                        fuelCharges: [],
-                        accessorialCharges: [],
-                        discountCharges: [],
-                        premiumCharges: [],
-                        otherCharges: []
-                      }
-                    };
-                  }
-                })
-              );
-              
-              const result: ProcessingResult = {
-                rowIndex: rfqIndex,
-                originalData: rfq,
-                quotes: quotesWithPricing,
-                status: 'success'
-              };
-              
-              // Add smart quoting metadata
-              (result as any).quotingDecision = classification.quoting;
-              (result as any).quotingReason = classification.reason;
-              
-              customerResults.push(result);
-              
-              // Update processed count
-              processedCount++;
-              console.log(`✅ Processed ${processedCount}/${rfqs.length} RFQs for ${customerName}`);
-              
-            } catch (rfqError) {
-              console.error(`❌ RFQ ${rfqIndex + 1} failed for ${customerName}:`, rfqError);
-              
-              const result: ProcessingResult = {
-                rowIndex: rfqIndex,
-                originalData: rfq,
-                quotes: [],
-                status: 'error',
-                error: rfqError instanceof Error ? rfqError.message : 'Unknown error'
-              };
-              
-              customerResults.push(result);
-            }
-            
-            // Add delay between requests to respect rate limits (5 per second)
-            await new Promise(resolve => setTimeout(resolve, 200));
-            
-            // Add a delay between requests to avoid rate limiting
-            // Project44 has a limit of 5 requests per second per carrier
-            // We'll use a 200ms delay to be safe (5 requests per second)
-            await new Promise(resolve => setTimeout(resolve, 200));
-            
-          }
-          
-          // Update job completion
-          setMassRFQJobs(prev => prev.map(job => 
-            job.id === jobId ? { 
-              ...job, 
-              status: 'completed', 
-              progress: 100,
-              results: customerResults,
-              endTime: new Date()
-            } : job
-          ));
-          
-          allResults.push(...customerResults);
-          console.log(`✅ Completed customer ${customerName}: ${customerResults.length} results`);
-          
-        } catch (customerError) {
-          console.error(`❌ Customer ${customerName} failed:`, customerError);
-          
-          setMassRFQJobs(prev => prev.map(job => 
-            job.id === jobId ? { 
-              ...job, 
-              status: 'error', 
-              error: customerError instanceof Error ? customerError.message : 'Unknown error',
-              endTime: new Date()
-            } : job
-          ));
+          quotes = [...taggedVolumeQuotes, ...taggedStandardQuotes];
+        } else {
+          console.log(`🚛 Getting Standard LTL quotes for shipment ${i + 1}`);
+          quotes = await project44Client.getQuotes(rfqData, selectedCarrierIds, false, false, false);
         }
+        
+        if (quotes.length > 0) {
+          const quotesWithPricing = await Promise.all(
+            quotes.map(quote => 
+              calculatePricingWithCustomerMargins(quote, localPricingSettings, localSelectedCustomer)
+            )
+          );
+          
+          result.quotes = quotesWithPricing;
+          result.status = 'success';
+          console.log(`✅ Shipment ${i + 1} completed: ${quotes.length} quotes received`);
+        } else {
+          result.status = 'success';
+          console.log(`ℹ️ Shipment ${i + 1} completed: No quotes received`);
+        }
+      } catch (error) {
+        result.error = error instanceof Error ? error.message : 'Unknown error';
+        result.status = 'error';
+        console.error(`❌ Shipment ${i + 1} failed:`, error);
       }
+
+      allResults.push(result);
+      setResults([...allResults]);
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    setIsProcessing(false);
+    setCurrentCarrier('');
+    console.log(`🏁 Mass RFQ processing completed: ${allResults.length} total results`);
+  };
+
+  const handleSaveBatch = async () => {
+    if (!batchName.trim()) {
+      setError('Please enter a batch name');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+
+    try {
+      const batchSummary = calculateBatchSummary(results);
       
-      setResults(allResults);
-      console.log('🏁 Mass RFQ processing completed');
+      const batch: Omit<MassRFQBatch, 'id' | 'created_at' | 'updated_at'> = {
+        batch_name: batchName.trim(),
+        customer_name: filters.customer || undefined,
+        branch_filter: filters.branch || undefined,
+        sales_rep_filter: filters.salesRep || undefined,
+        carrier_filter: filters.carrier || undefined,
+        date_range_start: filters.dateStart || undefined,
+        date_range_end: filters.dateEnd || undefined,
+        ...batchSummary,
+        pricing_settings: localPricingSettings,
+        selected_carriers: localSelectedCarriers,
+        rfq_data: filteredShipments,
+        results_data: results,
+        created_by: 'user'
+      };
+
+      await saveMassRFQBatch(batch);
       
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Mass RFQ processing failed';
+      setShowSaveDialog(false);
+      setBatchName('');
+      await loadSavedBatches();
+      
+      console.log('✅ Mass RFQ batch saved successfully');
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to save batch';
       setError(errorMsg);
-      console.error('❌ Mass RFQ processing failed:', error);
+      console.error('❌ Failed to save batch:', err);
     } finally {
-      setIsProcessing(false);
+      setSaving(false);
     }
   };
 
-  const exportAllResults = () => {
-    const completedJobs = massRFQJobs.filter(job => job.status === 'completed' && job.results);
-    
-    if (completedJobs.length === 0) {
-      alert('No completed jobs to export');
-      return;
+  const handleLoadBatch = async (batch: MassRFQBatch) => {
+    try {
+      // Load the batch configuration
+      setFilters({
+        customer: batch.customer_name || '',
+        branch: batch.branch_filter || '',
+        salesRep: batch.sales_rep_filter || '',
+        carrier: batch.carrier_filter || '',
+        dateStart: batch.date_range_start || '',
+        dateEnd: batch.date_range_end || ''
+      });
+      
+      setLocalPricingSettings(batch.pricing_settings);
+      setLocalSelectedCarriers(batch.selected_carriers);
+      
+      if (batch.customer_name) {
+        setLocalSelectedCustomer(batch.customer_name);
+      }
+      
+      // Load the results if available
+      if (batch.results_data) {
+        setResults(batch.results_data);
+      }
+      
+      setShowSavedBatches(false);
+      console.log('✅ Batch loaded successfully:', batch.batch_name);
+    } catch (err) {
+      console.error('❌ Failed to load batch:', err);
+      setError('Failed to load batch');
     }
+  };
+
+  const handleDeleteBatch = async (batchId: string) => {
+    if (!confirm('Are you sure you want to delete this batch?')) return;
     
-    const exportData = completedJobs.flatMap(job => 
-      job.results!.flatMap(result => 
-        (result.quotes || []).map(quote => {
-          const quoteWithPricing = quote as QuoteWithPricing;
-          
-          return {
-            'Customer': job.customerName,
-            'RFQ Number': result.rowIndex + 1,
-            'Origin ZIP': result.originalData.fromZip,
-            'Destination ZIP': result.originalData.toZip,
-            'Pallets': result.originalData.pallets,
-            'Weight (lbs)': result.originalData.grossWeight,
-            'Pickup Date': result.originalData.fromDate,
-            'Carrier Name': quote.carrier.name,
-            'Carrier SCAC': quote.carrier.scac || '',
-            'Service Level': quote.serviceLevel?.description || '',
-            'Transit Days': quote.transitDays || '',
-            'Carrier Rate': quoteWithPricing.carrierTotalRate || 0,
-            'Customer Price': quoteWithPricing.customerPrice || 0,
-            'Profit Margin': quoteWithPricing.profit || 0,
-            'Processing Status': result.status.toUpperCase(),
-            'Error Message': result.error || ''
-          };
-        })
-      )
-    );
-    
+    try {
+      await deleteMassRFQBatch(batchId);
+      await loadSavedBatches();
+      console.log('✅ Batch deleted successfully');
+    } catch (err) {
+      console.error('❌ Failed to delete batch:', err);
+      setError('Failed to delete batch');
+    }
+  };
+
+  const exportResults = () => {
+    if (results.length === 0) return;
+
+    const exportData = results.flatMap(result => {
+      return result.quotes.map(quote => {
+        const quoteWithPricing = quote as QuoteWithPricing;
+        
+        return {
+          'Shipment Index': result.rowIndex + 1,
+          'Origin ZIP': result.originalData.fromZip,
+          'Destination ZIP': result.originalData.toZip,
+          'Pallets': result.originalData.pallets,
+          'Weight (lbs)': result.originalData.grossWeight,
+          'Is Reefer': result.originalData.isReefer ? 'TRUE' : 'FALSE',
+          'Pickup Date': result.originalData.fromDate,
+          'Carrier Name': quote.carrier.name,
+          'Carrier SCAC': quote.carrier.scac || '',
+          'Service Level': quote.serviceLevel?.description || '',
+          'Transit Days': quote.transitDays || '',
+          'Carrier Rate': quoteWithPricing.carrierTotalRate || 0,
+          'Customer Price': quoteWithPricing.customerPrice || 0,
+          'Profit Margin': quoteWithPricing.profit || 0,
+          'Processing Status': result.status.toUpperCase(),
+          'Error Message': result.error || ''
+        };
+      });
+    });
+
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Mass RFQ Results');
@@ -1043,107 +506,198 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     XLSX.writeFile(wb, fileName);
   };
 
-  const selectedCount = Object.values(selectedCustomers).filter(Boolean).length;
-  const totalShipments = customerSummaries
-    .filter(summary => selectedCustomers[summary.customerName])
-    .reduce((sum, summary) => sum + summary.shipmentCount, 0);
+  const handlePriceUpdate = (resultIndex: number, quoteId: number, newPrice: number) => {
+    setResults(prevResults => {
+      const newResults = [...prevResults];
+      const result = newResults[resultIndex];
+      
+      if (result && result.quotes) {
+        const updatedQuotes = result.quotes.map(quote => {
+          if (quote.quoteId === quoteId) {
+            return calculatePricingWithCustomerMargins(quote, localPricingSettings, localSelectedCustomer, newPrice);
+          }
+          return quote;
+        });
+        
+        newResults[resultIndex] = {
+          ...result,
+          quotes: updatedQuotes
+        };
+      }
+      
+      return newResults;
+    });
+  };
+
+  const getSuccessfulResults = () => results.filter(r => r.status === 'success');
+  const getErrorResults = () => results.filter(r => r.status === 'error');
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="bg-purple-600 p-2 rounded-lg">
-              <BarChart3 className="h-6 w-6 text-white" />
+              <Database className="h-6 w-6 text-white" />
             </div>
             <div>
               <h1 className="text-xl font-semibold text-gray-900">Mass RFQ from Shipments</h1>
               <p className="text-sm text-gray-600">
-                Analyze historical shipments and generate bulk RFQs by customer for competitive pricing analysis
+                Process multiple shipments from your database for competitive freight quotes
               </p>
             </div>
           </div>
-          <div className="flex items-center space-x-4">
-            {/* Batch Management */}
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setShowLoadDialog(true)}
-                className="flex items-center space-x-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                <FolderOpen className="h-4 w-4" />
-                <span>Load</span>
-              </button>
-              
-              <button
-                onClick={() => setShowSaveDialog(true)}
-                disabled={filteredShipments.length === 0}
-                className="flex items-center space-x-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-              >
-                <Save className="h-4 w-4" />
-                <span>Save</span>
-              </button>
-              
-              {currentBatchId && (
-                <>
-                  <button
-                    onClick={handleRerunBatch}
-                    disabled={isProcessing}
-                    className="flex items-center space-x-2 px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    <span>Rerun</span>
-                  </button>
-                  
-                  <button
-                    onClick={handleNewBatch}
-                    className="flex items-center space-x-2 px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>New</span>
-                  </button>
-                </>
-              )}
-            </div>
-            
+          <div className="flex items-center space-x-3">
             <button
-              onClick={exportAllResults}
-              disabled={massRFQJobs.filter(job => job.status === 'completed').length === 0}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              onClick={() => setShowSavedBatches(!showSavedBatches)}
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
             >
-              <Download className="h-4 w-4" />
-              <span>Export Results</span>
+              <FolderOpen className="h-4 w-4" />
+              <span>Saved Batches ({savedBatches.length})</span>
+            </button>
+            <button
+              onClick={loadShipments}
+              disabled={loading}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              <span>Refresh Data</span>
             </button>
           </div>
         </div>
-        
-        {/* Current Batch Info */}
-        {currentBatchId && (
-          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-center space-x-2 text-blue-800">
-              <History className="h-4 w-4" />
-              <span className="font-medium">Current Batch: {saveBatchName}</span>
-              <span className="text-blue-600">•</span>
-              <span className="text-sm">
-                {filteredShipments.length} shipments • 
-                {results.length > 0 ? ` ${results.reduce((sum, r) => sum + r.quotes.length, 0)} quotes` : ' Ready to process'}
-              </span>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Date Range and Filters */}
+      {/* Saved Batches Panel */}
+      {showSavedBatches && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Saved Mass RFQ Batches</h3>
+            <button
+              onClick={() => setShowSavedBatches(false)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          
+          {savedBatches.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">No saved batches found</p>
+          ) : (
+            <div className="space-y-3">
+              {savedBatches.map((batch) => (
+                <div key={batch.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900">{batch.batch_name}</h4>
+                      <div className="text-sm text-gray-600 mt-1">
+                        <span>{batch.shipment_count} shipments • </span>
+                        <span>{batch.total_quotes_received} quotes • </span>
+                        <span>Created {new Date(batch.created_at!).toLocaleDateString()}</span>
+                      </div>
+                      {batch.customer_name && (
+                        <div className="text-sm text-blue-600 mt-1">
+                          Customer: {batch.customer_name}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => handleLoadBatch(batch)}
+                        className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                      >
+                        Load
+                      </button>
+                      <button
+                        onClick={() => handleDeleteBatch(batch.id!)}
+                        className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Filters */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis Parameters</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Filter Shipments</h3>
+          <button
+            onClick={clearFilters}
+            className="text-blue-600 hover:text-blue-700 text-sm"
+          >
+            Clear All Filters
+          </button>
+        </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Customer</label>
+            <select
+              value={filters.customer}
+              onChange={(e) => setFilters({ ...filters, customer: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="">All Customers</option>
+              {filterOptions.customers.map(customer => (
+                <option key={customer} value={customer}>{customer}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+            <select
+              value={filters.branch}
+              onChange={(e) => setFilters({ ...filters, branch: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="">All Branches</option>
+              {filterOptions.branches.map(branch => (
+                <option key={branch} value={branch}>{branch}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sales Rep</label>
+            <select
+              value={filters.salesRep}
+              onChange={(e) => setFilters({ ...filters, salesRep: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="">All Sales Reps</option>
+              {filterOptions.salesReps.map(rep => (
+                <option key={rep} value={rep}>{rep}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Carrier</label>
+            <select
+              value={filters.carrier}
+              onChange={(e) => setFilters({ ...filters, carrier: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="">All Carriers</option>
+              {filterOptions.carriers.map(carrier => (
+                <option key={carrier} value={carrier}>{carrier}</option>
+              ))}
+            </select>
+          </div>
+          
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
             <input
               type="date"
-              value={dateRange.start}
-              onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+              value={filters.dateStart}
+              onChange={(e) => setFilters({ ...filters, dateStart: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
             />
           </div>
@@ -1152,464 +706,107 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
             <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
             <input
               type="date"
-              value={dateRange.end}
-              onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+              value={filters.dateEnd}
+              onChange={(e) => setFilters({ ...filters, dateEnd: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
             />
           </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Min Shipments</label>
-            <input
-              type="number"
-              min="1"
-              value={minShipments}
-              onChange={(e) => setMinShipments(parseInt(e.target.value) || 1)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Min Revenue</label>
-            <input
-              type="number"
-              min="0"
-              value={minRevenue}
-              onChange={(e) => setMinRevenue(parseInt(e.target.value) || 0)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Branch Filter</label>
-            <select
-              value={selectedBranch}
-              onChange={(e) => setSelectedBranch(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
-            >
-              <option value="">All Branches</option>
-              {branches.map(branch => (
-                <option key={branch} value={branch}>{branch}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Sales Rep Filter</label>
-            <select
-              value={selectedSalesRep}
-              onChange={(e) => setSelectedSalesRep(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
-            >
-              <option value="">All Sales Reps</option>
-              {salesReps.map(rep => (
-                <option key={rep} value={rep}>{rep}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        
-        <div className="mt-4 flex items-center space-x-4">
-          <button
-            onClick={loadCustomerShipments}
-            disabled={isLoadingShipments}
-            className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400"
-          >
-            {isLoadingShipments ? (
-              <Loader className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            <span>Analyze Shipments</span>
-          </button>
-          
-          {customerSummaries.length > 0 && (
-            <div className="text-sm text-gray-600">
-              Found {customerSummaries.length} customers with {customerSummaries.reduce((sum, s) => sum + s.shipmentCount, 0)} total shipments
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Carrier Selection */}
-      <div className="bg-white rounded-lg shadow-md overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Carrier Selection</h3>
-            <div className="flex items-center space-x-4">
-              {carrierLoadError && (
-                <div className="text-sm text-red-600 flex items-center space-x-1">
-                  <AlertCircle className="h-4 w-4" />
-                  <span>{carrierLoadError}</span>
-                </div>
-              )}
-            {!carriersLoaded && (
-              <button
-                onClick={loadCarriers}
-                disabled={isLoadingCarriers}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
-              >
-                {isLoadingCarriers ? (
-                  <Loader className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Truck className="h-4 w-4" />
-                )}
-                <span>{isLoadingCarriers ? 'Loading All Carriers...' : 'Load All Carriers'}</span>
-              </button>
-            )}
-            </div>
+      {/* Shipments Summary */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">
+              Filtered Shipments ({filteredShipments.length})
+            </h3>
+            <p className="text-sm text-gray-600 mt-1">
+              {filteredShipments.length} shipments ready for mass RFQ processing
+            </p>
           </div>
-          {carriersLoaded && (
-            <div className="mt-2 text-sm text-gray-600">
-              Loaded {carrierGroups.length} account groups with {carrierGroups.reduce((sum, g) => sum + g.carriers.length, 0)} total carriers (LTL + VLTL)
-            </div>
-          )}
-        </div>
-        
-        {carriersLoaded && (
-          <CarrierSelection
-            carrierGroups={carrierGroups}
-            selectedCarriers={localSelectedCarriers}
-            onToggleCarrier={handleCarrierToggle}
-            onSelectAll={handleSelectAllCarriers}
-            onSelectAllInGroup={handleSelectAllInGroup}
-            isLoading={isLoadingCarriers}
-          />
-        )}
-        
-        {carrierLoadError && !isLoadingCarriers && (
-          <div className="p-6 bg-red-50 border-t border-red-200">
-            <div className="flex items-center space-x-2 text-red-700">
-              <AlertCircle className="h-4 w-4" />
-              <span className="text-sm">Failed to load carriers: {carrierLoadError}</span>
-            </div>
+          
+          {filteredShipments.length > 0 && !isProcessing && (
             <button
-              onClick={loadCarriers}
-              className="mt-2 text-sm text-red-600 hover:text-red-700 underline"
+              onClick={processSelectedShipments}
+              disabled={!project44Client}
+              className="flex items-center space-x-2 px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors"
             >
-              Try again
+              <Play className="h-5 w-5" />
+              <span>Process {filteredShipments.length} Shipments</span>
             </button>
-          </div>
-        )}
-      </div>
-
-      {/* Customer Selection */}
-      {customerSummaries.length > 0 && (
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">Customer Selection</h3>
-              <div className="flex items-center space-x-4">
-                <button
-                  onClick={() => handleSelectAll(true)}
-                  className="px-3 py-1.5 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
-                >
-                  Select All
-                </button>
-                <button
-                  onClick={() => handleSelectAll(false)}
-                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
-                >
-                  Clear All
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          <div className="p-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {customerSummaries.map((summary) => (
-                <div
-                  key={summary.customerName}
-                  className={`border rounded-lg p-4 cursor-pointer transition-all duration-200 ${
-                    selectedCustomers[summary.customerName]
-                      ? 'border-purple-500 bg-purple-50 shadow-md'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                  }`}
-                  onClick={() => handleCustomerToggle(summary.customerName, !selectedCustomers[summary.customerName])}
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center space-x-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedCustomers[summary.customerName] || false}
-                        onChange={() => {}}
-                        className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                      />
-                      <div>
-                        <h4 className="font-semibold text-gray-900">{summary.customerName}</h4>
-                        <p className="text-sm text-gray-600">
-                          {summary.dateRange.start} to {summary.dateRange.end}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-green-600">
-                        {formatCurrency(summary.totalRevenue)}
-                      </div>
-                      <div className="text-sm text-gray-500">Total Revenue</div>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4 mb-3">
-                    <div className="flex items-center space-x-2">
-                      <Package className="h-4 w-4 text-gray-400" />
-                      <span className="text-sm text-gray-700">
-                        {summary.shipmentCount} shipments
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <DollarSign className="h-4 w-4 text-gray-400" />
-                      <span className="text-sm text-gray-700">
-                        {formatCurrency(summary.avgRevenue)} avg
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {summary.topLanes.length > 0 && (
-                    <div className="mb-2">
-                      <div className="text-xs font-medium text-gray-700 mb-1">Top Lanes:</div>
-                      <div className="text-xs text-gray-600">
-                        {summary.topLanes.map(lane => `${lane.lane} (${lane.count})`).join(', ')}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {summary.topCarriers.length > 0 && (
-                    <div>
-                      <div className="text-xs font-medium text-gray-700 mb-1">Top Carriers:</div>
-                      <div className="text-xs text-gray-600">
-                        {summary.topCarriers.map(carrier => `${carrier.carrier} (${carrier.count})`).join(', ')}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-          
-          {selectedCount > 0 && (
-            <div className="px-6 py-4 bg-purple-50 border-t border-purple-200">
-              <div className="flex items-center justify-between">
-                <div className="text-purple-800">
-                  <span className="font-medium">{selectedCount} customers selected</span>
-                  <span className="ml-2 text-sm">({totalShipments} total shipments)</span>
-                </div> 
-                <button
-                  onClick={processMassRFQ}
-                  disabled={isProcessing || !project44Client || !carriersLoaded || Object.values(localSelectedCarriers).filter(Boolean).length === 0}
-                  className="flex items-center space-x-2 px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors"
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader className="h-5 w-5 animate-spin" />
-                      <span>Processing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play className="h-5 w-5" />
-                      <span>Start Mass RFQ</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
           )}
         </div>
-      )}
+      </div>
 
-      {/* Processing Jobs */}
-      {massRFQJobs.length > 0 && (
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">Mass RFQ Jobs</h3>
-              {massRFQJobs.some(job => job.status === 'completed') && (
-                <button
-                  onClick={exportAllResults}
-                  className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                >
-                  <Download className="h-4 w-4" />
-                  <span>Export All Results</span>
-                </button>
-              )}
-            </div>
-          </div>
-          
-          <div className="p-6">
-            <div className="space-y-4">
-              {massRFQJobs.map((job) => (
-                <div key={job.id} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center space-x-3">
-                      <div className={`p-2 rounded-lg ${
-                        job.status === 'completed' ? 'bg-green-100' :
-                        job.status === 'processing' ? 'bg-blue-100' :
-                        job.status === 'error' ? 'bg-red-100' :
-                        'bg-gray-100'
-                      }`}>
-                        {job.status === 'completed' ? (
-                          <CheckCircle className="h-5 w-5 text-green-600" />
-                        ) : job.status === 'processing' ? (
-                          <Loader className="h-5 w-5 text-blue-600 animate-spin" />
-                        ) : job.status === 'error' ? (
-                          <XCircle className="h-5 w-5 text-red-600" />
-                        ) : (
-                          <Clock className="h-5 w-5 text-gray-600" />
-                        )}
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">{job.customerName}</h4>
-                        <p className="text-sm text-gray-600">
-                          {job.shipmentCount} shipments • Status: {job.status}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="text-right">
-                      {job.status === 'processing' && (
-                        <div className="text-sm text-blue-600 font-medium">
-                          {job.progress.toFixed(0)}% complete
-                        </div>
-                      )}
-                      {job.status === 'completed' && job.results && (
-                        <div className="text-sm text-green-600 font-medium">
-                          {job.results.filter(r => r.status === 'success').length} successful
-                        </div>
-                      )}
-                      {job.endTime && job.startTime && (
-                        <div className="text-xs text-gray-500">
-                          {Math.round((job.endTime.getTime() - job.startTime.getTime()) / 1000)}s
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {job.status === 'processing' && (
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-blue-500 h-2 rounded-full transition-all duration-300" 
-                        style={{ width: `${job.progress}%` }}
-                      />
-                    </div>
-                  )}
-                  
-                  {job.error && (
-                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                      <div className="flex items-center space-x-2 text-red-700">
-                        <AlertCircle className="h-4 w-4" />
-                        <span className="text-sm">{job.error}</span>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {job.status === 'completed' && job.results && (
-                    <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
-                      <div className="text-center">
-                        <div className="font-semibold text-green-600">
-                          {job.results?.filter(r => r.status === 'success').length || 0}
-                        </div>
-                        <div className="text-gray-600">Successful</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="font-semibold text-red-600">
-                          {job.results?.filter(r => r.status === 'error').length || 0}
-                        </div>
-                        <div className="text-gray-600">Failed</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="font-semibold text-blue-600">
-                          {job.results?.reduce((sum, r) => sum + (r.quotes?.length || 0), 0) || 0}
-                        </div>
-                        <div className="text-gray-600">Total Quotes</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+      {/* Pricing Settings */}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <PricingSettingsComponent
+          settings={localPricingSettings}
+          onSettingsChange={setLocalPricingSettings}
+          selectedCustomer={localSelectedCustomer}
+          onCustomerChange={setLocalSelectedCustomer}
+          showAsCard={false}
+        />
+      </div>
+
+      {/* Processing Status */}
+      {(isProcessing || results.length > 0) && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <ProcessingStatus
+            total={totalSteps}
+            completed={currentStep}
+            success={getSuccessfulResults().length}
+            errors={getErrorResults().length}
+            isProcessing={isProcessing}
+            currentCarrier={currentCarrier}
+          />
         </div>
       )}
 
-      {/* Results Display */}
-      {(results.length > 0 || massRFQJobs.some(job => job.status === 'completed' && job.results)) && (
+      {/* Results Section */}
+      {results.length > 0 && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-md p-6"> 
-            <div className="flex items-center space-x-3">
-              <CheckCircle className="h-6 w-6 text-green-500" />
+          {/* Results Header with Save Button */}
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold text-gray-900">Mass RFQ Results</h2>
                 <p className="text-sm text-gray-600">
-                  {results.length} total results across {massRFQJobs.filter(job => job.status === 'completed').length} customers
+                  {results.length} shipments processed • {getSuccessfulResults().length} successful • {getErrorResults().length} errors
                 </p>
+              </div>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => setShowSaveDialog(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  <Save className="h-4 w-4" />
+                  <span>Save Batch</span>
+                </button>
+                <button
+                  onClick={exportResults}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>Export Results</span>
+                </button>
               </div>
             </div>
           </div>
-          
-          {/* Show results from completed jobs */}
-          {massRFQJobs.length > 0 && massRFQJobs
-            .filter(job => job.status === 'completed' && job.results)
-            .map(job => job && job.results && (
-              <div key={job.id} className="space-y-4">
-                <div className="bg-white rounded-lg shadow-md p-4">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                    Results for {job.customerName}
-                  </h3> 
-                  <div className="text-sm text-gray-600">
-                    {job.results && job.results.filter(r => r.status === 'success').length} successful RFQs • 
-                    {job.results && job.results.reduce((sum, r) => sum + (r.quotes?.length || 0), 0)} total quotes received
-                  </div>
-                </div>
-                
-                {job.results && job.results
-                  .filter(result => result && result.status === 'success' && result.quotes && result.quotes.length > 0)
-                  .slice(0, 3) // Show first 3 results
-                  .map((result, index) => (
-                    <RFQCard
-                      key={`${job.id}-${index}`}
-                      result={result}
-                      onPriceUpdate={() => {}} // Read-only for mass results
-                    />
-                  ))}
-                
-                {job.results!.filter(r => r && r.status === 'success' && r.quotes && r.quotes.length > 0).length > 3 && (
-                  <div className="bg-gray-50 rounded-lg p-4 text-center">
-                    <p className="text-gray-600">
-                      Showing 3 of {job.results!.filter(r => r && r.status === 'success' && r.quotes && r.quotes.length > 0).length} successful results.
-                      Export all results to see complete data.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )).filter(Boolean)}
-            
-          {/* Show results directly if no jobs are completed yet */}
-          {results.length > 0 && massRFQJobs.filter(job => job.status === 'completed').length === 0 && (
-            <div className="space-y-4">
-              {results
-                .filter(result => result.status === 'success' && result.quotes && result.quotes.length > 0)
-                .slice(0, 3)
-                .map((result, index) => (
-                  <RFQCard
-                    key={`direct-result-${index}`}
-                    result={result}
-                    onPriceUpdate={() => {}} // Read-only for mass results
-                  />
-                ))}
-              
-              {results.filter(r => r.status === 'success' && r.quotes && r.quotes.length > 0).length > 3 && (
-                <div className="bg-gray-50 rounded-lg p-4 text-center">
-                  <p className="text-gray-600">
-                    Showing 3 of {results.filter(r => r.status === 'success' && r.quotes && r.quotes.length > 0).length} successful results.
-                    Export all results to see complete data.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+
+          {/* Results Table */}
+          <ResultsTable
+            results={results}
+            onExport={exportResults}
+            onPriceUpdate={handlePriceUpdate}
+          />
+
+          {/* Analytics */}
+          <Analytics
+            results={getSuccessfulResults()}
+            onExport={() => console.log('Export analytics')}
+          />
         </div>
       )}
 
@@ -1617,40 +814,48 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       {showSaveDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">
-              {currentBatchId ? 'Update Batch' : 'Save Mass RFQ Batch'}
-            </h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Save Mass RFQ Batch</h3>
             
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Batch Name
+                  Batch Name *
                 </label>
                 <input
                   type="text"
-                  value={saveBatchName}
-                  onChange={(e) => setSaveBatchName(e.target.value)}
+                  value={batchName}
+                  onChange={(e) => setBatchName(e.target.value)}
                   placeholder="Enter a name for this batch..."
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
-                  autoFocus
                 />
               </div>
               
               <div className="bg-gray-50 rounded-lg p-3">
-                <div className="text-sm text-gray-700">
-                  <div><strong>Shipments:</strong> {filteredShipments.length}</div>
-                  <div><strong>Customer:</strong> {selectedCustomer || 'All'}</div>
-                  <div><strong>Date Range:</strong> {dateRange.start || 'All'} to {dateRange.end || 'All'}</div>
-                  <div><strong>Results:</strong> {results.length > 0 ? `${results.length} processed` : 'Not processed yet'}</div>
-                </div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">What will be saved:</h4>
+                <ul className="text-sm text-gray-600 space-y-1">
+                  <li>• All filter settings and shipment data</li>
+                  <li>• Complete results with quotes and pricing</li>
+                  <li>• Pricing settings and carrier selection</li>
+                  <li>• Configuration for easy re-running</li>
+                </ul>
               </div>
             </div>
+            
+            {error && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center space-x-2 text-red-700">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-sm">{error}</span>
+                </div>
+              </div>
+            )}
             
             <div className="flex justify-end space-x-3 mt-6">
               <button
                 onClick={() => {
                   setShowSaveDialog(false);
-                  setSaveBatchName('');
+                  setBatchName('');
+                  setError('');
                 }}
                 className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
               >
@@ -1658,114 +863,20 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
               </button>
               <button
                 onClick={handleSaveBatch}
-                disabled={!saveBatchName.trim() || isSaving}
+                disabled={!batchName.trim() || saving}
                 className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400"
               >
-                {isSaving && <Loader className="h-4 w-4 animate-spin" />}
-                <Save className="h-4 w-4" />
-                <span>{currentBatchId ? 'Update' : 'Save'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Load Dialog */}
-      {showLoadDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[80vh] overflow-hidden">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Load Saved Mass RFQ Batch</h3>
-              <button
-                onClick={() => setShowLoadDialog(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            </div>
-            
-            {isLoadingBatches ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader className="h-8 w-8 animate-spin text-blue-500" />
-              </div>
-            ) : savedBatches.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <History className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <p>No saved batches found</p>
-              </div>
-            ) : (
-              <div className="overflow-y-auto max-h-96">
-                <div className="space-y-3">
-                  {savedBatches.map((batch) => (
-                    <div
-                      key={batch.id}
-                      className={`border rounded-lg p-4 hover:bg-gray-50 transition-colors ${
-                        currentBatchId === batch.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-3 mb-2">
-                            <h4 className="font-medium text-gray-900">{batch.batch_name}</h4>
-                            {currentBatchId === batch.id && (
-                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                Current
-                              </span>
-                            )}
-                          </div>
-                          
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600">
-                            <div>
-                              <span className="font-medium">Shipments:</span> {batch.shipment_count}
-                            </div>
-                            <div>
-                              <span className="font-medium">Customer:</span> {batch.customer_name || 'All'}
-                            </div>
-                            <div>
-                              <span className="font-medium">Total Value:</span> {formatCurrency(batch.best_total_price)}
-                            </div>
-                            <div>
-                              <span className="font-medium">Created:</span> {new Date(batch.created_at!).toLocaleDateString()}
-                            </div>
-                          </div>
-                          
-                          {batch.results_data && (
-                            <div className="mt-2 text-sm text-green-600">
-                              ✅ Has results ({batch.total_quotes_received} quotes)
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="flex items-center space-x-2 ml-4">
-                          <button
-                            onClick={() => handleLoadBatch(batch)}
-                            className="flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
-                          >
-                            <FolderOpen className="h-3 w-3" />
-                            <span>Load</span>
-                          </button>
-                          
-                          <button
-                            onClick={() => handleDeleteBatch(batch.id!, batch.batch_name)}
-                            className="flex items-center space-x-1 px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            <span>Delete</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={() => setShowLoadDialog(false)}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                Close
+                {saving ? (
+                  <>
+                    <Loader className="h-4 w-4 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    <span>Save Batch</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -1773,12 +884,19 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       )}
 
       {/* Error Display */}
-      {error && (
+      {error && !showSaveDialog && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <div className="flex items-center space-x-2">
             <AlertCircle className="h-5 w-5 text-red-600" />
             <span className="text-red-800">{error}</span>
           </div>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && (
+        <div className="flex items-center justify-center py-8">
+          <Loader className="h-8 w-8 animate-spin text-purple-500" />
         </div>
       )}
     </div>
