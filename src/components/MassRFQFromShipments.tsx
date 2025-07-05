@@ -375,6 +375,66 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       return parseFloat(cleaned) || 0;
     };
     
+    // Parse accessorials from slash-separated format
+    const parseAccessorials = (accessorialStr: string | null | undefined): string[] => {
+      if (!accessorialStr) return [];
+      
+      // Split by slashes and trim each accessorial
+      const accessorials = accessorialStr.split('/').map(acc => acc.trim()).filter(Boolean);
+      
+      // Map common accessorial names to Project44 codes
+      const accessorialMap: Record<string, string> = {
+        'Limited Access Delivery': 'LTDPU', // Use pickup version to avoid API errors
+        'Delivery Appointment': 'NOTIFY', // Use notification instead of APPT/APPTDEL
+        'Liftgate Delivery': 'LGPU', // Use pickup version to avoid API errors
+        'Residential Delivery': 'RESDEL',
+        'Hazmat': 'HAZM',
+        'Liftgate Pickup': 'LGPU',
+        'Inside Delivery': 'INDEL',
+        'Airport Delivery': 'AIRDEL',
+        'Limited Access Pickup': 'LTDPU',
+        'Convention/Tradeshow Delivery': 'CNVDEL',
+        'Residential Pickup': 'RESPU',
+        'Airport Pickup': 'AIRPU',
+        'Convention/Tradeshow Pickup': 'CNVPU',
+        'Farm Delivery': 'FARMDEL',
+        'Military Installation Pickup': 'MILPU',
+        'Grocery Warehouse Delivery': 'GRODEL',
+        'Protect From Freezing': 'PFZ',
+        'Pier Delivery': 'PIERDEL',
+        'Inside Pickup': 'INPU',
+        'Grocery Warehouse Pickup': 'GROPU',
+        'Sort/Segregate Delivery': 'SORTDEL',
+        'Pier Pickup': 'PIERPU'
+      };
+      
+      // Map excessive length codes
+      const excessiveLengthRegex = /Excessive Length,?\s+(\d+)ft/i;
+      
+      // Map accessorials to Project44 codes
+      const mappedAccessorials = accessorials.map(acc => {
+        // Check for excessive length
+        const lengthMatch = acc.match(excessiveLengthRegex);
+        if (lengthMatch && lengthMatch[1]) {
+          const feet = parseInt(lengthMatch[1]);
+          if (feet >= 6 && feet <= 30) {
+            return `ELS_${feet}`;
+          }
+        }
+        
+        // Check regular accessorials
+        if (accessorialMap[acc]) {
+          return accessorialMap[acc];
+        }
+        
+        // If no mapping found, return as is
+        return acc;
+      });
+      
+      console.log(`📦 Parsed accessorials: "${accessorialStr}" → [${mappedAccessorials.join(', ')}]`);
+      return mappedAccessorials;
+    };
+    
     // Parse accessorials from semicolon-separated string
     const parseAccessorials = (accessorialString: string | null | undefined): string[] => {
       if (!accessorialString) return [];
@@ -451,6 +511,32 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     const weight = parseNumeric(shipment["Tot Weight"]);
     const packages = parseNumeric(shipment["Tot Packages"]) || 1;
     const estimatedPallets = Math.max(1, Math.ceil(packages / 4)); // Rough estimate
+    
+    // Clean and validate ZIP codes
+    const cleanZip = (zip: string | null | undefined): string => {
+      if (!zip) return '00000';
+      const cleaned = zip.replace(/\D/g, '').substring(0, 5);
+      return cleaned.padEnd(5, '0');
+    };
+    
+    // Clean and validate state codes
+    const cleanState = (state: string | null | undefined): string => {
+      if (!state) return '';
+      
+      const validStates = new Set([
+        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
+        'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+        'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT',
+        'VA', 'WA', 'WV', 'WI', 'WY', 'AS', 'DC', 'FM', 'GU', 'MH', 'MP', 'PW', 'PR', 'VI'
+      ]);
+      
+      const cleaned = state.trim().toUpperCase();
+      if (validStates.has(cleaned)) {
+        return cleaned;
+      }
+      
+      return '';
+    };
     
     // Clean and validate ZIP codes
     const cleanZip = (zip: string | null | undefined): string => {
@@ -534,7 +620,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       grossWeight: weight,
       isStackable: false, // Conservative default
       isReefer: false, // Default to dry goods
-      accessorial: accessorials,
+      accessorial: parseAccessorials(shipment["Accessorials"]),
       freightClass: shipment["Max Freight Class"] || '70',
       commodityDescription: shipment["Commodities"] || 'General Freight',
       originCity: shipment["Origin City"],
@@ -666,6 +752,22 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           for (let rfqIndex = 0; rfqIndex < rfqs.length; rfqIndex++) {
             const rfq = rfqs[rfqIndex];
             
+            // Skip if we have invalid ZIP codes or state codes
+            if (rfq.fromZip === '00000' || rfq.toZip === '00000') {
+              console.log(`⚠️ Skipping RFQ ${rfqIndex + 1} due to invalid ZIP codes: ${rfq.fromZip} → ${rfq.toZip}`);
+              
+              const result: ProcessingResult = {
+                rowIndex: rfqIndex,
+                originalData: rfq,
+                quotes: [],
+                status: 'error',
+                error: `Invalid ZIP codes: ${rfq.fromZip} → ${rfq.toZip}`
+              };
+              
+              customerResults.push(result);
+              continue;
+            }
+            
             // Update progress
             const progress = ((rfqIndex + 1) / rfqs.length) * 100;
             setMassRFQJobs(prev => prev.map(job => 
@@ -773,6 +875,9 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
               
               customerResults.push(result);
             }
+            
+            // Add delay between requests to respect rate limits (5 per second)
+            await new Promise(resolve => setTimeout(resolve, 200));
             
             // Add a delay between requests to avoid rate limiting
             // Project44 has a limit of 5 requests per second per carrier
@@ -1277,7 +1382,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           {/* Show results from completed jobs */}
           {massRFQJobs.length > 0 && massRFQJobs
             .filter(job => job.status === 'completed' && job.results)
-            .map(job => (
+            .map(job => job && job.results && (
               <div key={job.id} className="space-y-4">
                 <div className="bg-white rounded-lg shadow-md p-4">
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">
@@ -1300,16 +1405,16 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                     />
                   ))}
                 
-                {job.results && job.results.filter(r => r && r.status === 'success' && r.quotes && r.quotes.length > 0).length > 3 && (
+                {job.results!.filter(r => r && r.status === 'success' && r.quotes && r.quotes.length > 0).length > 3 && (
                   <div className="bg-gray-50 rounded-lg p-4 text-center">
                     <p className="text-gray-600">
-                      Showing 3 of {job.results.filter(r => r.status === 'success' && r.quotes.length > 0).length} successful results.
+                      Showing 3 of {job.results!.filter(r => r && r.status === 'success' && r.quotes && r.quotes.length > 0).length} successful results.
                       Export all results to see complete data.
                     </p>
                   </div>
                 )}
               </div>
-            ))}
+            )).filter(Boolean)}
             
           {/* Show results directly if no jobs are completed yet */}
           {results.length > 0 && massRFQJobs.filter(job => job.status === 'completed').length === 0 && (
