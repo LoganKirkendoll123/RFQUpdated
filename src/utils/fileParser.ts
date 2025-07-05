@@ -2,6 +2,30 @@ import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import { RFQRow, LineItemData } from '../types';
 
+// US State abbreviations mapping
+const stateAbbreviations: { [key: string]: string } = {
+  'alabama': 'AL', 'alaska': 'AK', 'arizona': 'AZ', 'arkansas': 'AR', 'california': 'CA',
+  'colorado': 'CO', 'connecticut': 'CT', 'delaware': 'DE', 'florida': 'FL', 'georgia': 'GA',
+  'hawaii': 'HI', 'idaho': 'ID', 'illinois': 'IL', 'indiana': 'IN', 'iowa': 'IA',
+  'kansas': 'KS', 'kentucky': 'KY', 'louisiana': 'LA', 'maine': 'ME', 'maryland': 'MD',
+  'massachusetts': 'MA', 'michigan': 'MI', 'minnesota': 'MN', 'mississippi': 'MS', 'missouri': 'MO',
+  'montana': 'MT', 'nebraska': 'NE', 'nevada': 'NV', 'new hampshire': 'NH', 'new jersey': 'NJ',
+  'new mexico': 'NM', 'new york': 'NY', 'north carolina': 'NC', 'north dakota': 'ND', 'ohio': 'OH',
+  'oklahoma': 'OK', 'oregon': 'OR', 'pennsylvania': 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
+  'south dakota': 'SD', 'tennessee': 'TN', 'texas': 'TX', 'utah': 'UT', 'vermont': 'VT',
+  'virginia': 'VA', 'washington': 'WA', 'west virginia': 'WV', 'wisconsin': 'WI', 'wyoming': 'WY',
+  'american samoa': 'AS', 'district of columbia': 'DC', 'federated states of micronesia': 'FM',
+  'guam': 'GU', 'marshall islands': 'MH', 'northern mariana islands': 'MP', 'palau': 'PW',
+  'puerto rico': 'PR', 'virgin islands': 'VI'
+};
+
+const validStateAbbreviations = new Set([
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
+  'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+  'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT',
+  'VA', 'WA', 'WV', 'WI', 'WY', 'AS', 'DC', 'FM', 'GU', 'MH', 'MP', 'PW', 'PR', 'VI'
+]);
+
 // Project44 LTL/VLTL accessorial codes
 const PROJECT44_ACCESSORIAL_CODES = [
   'AIRPU', 'APPTPU', 'CAMPPU', 'CFSPU', 'CHRCPU', 'CLUBPU', 'CNVPU', 'CONPU', 'DOCKPU', 'EDUPU',
@@ -20,6 +44,38 @@ const FRESHX_ACCESSORIAL_CODES = [
   'LIFTGATE_PICKUP', 'LIFTGATE_DROPOFF', 'LIMITED_ACCESS_PICKUP', 'LIMITED_ACCESS_DROPOFF',
   'NIGHTTIME_DELIVERY_PICKUP', 'NIGHTTIME_DELIVERY_DROPOFF'
 ];
+
+const convertToStateAbbreviation = (state: string): string => {
+  if (!state) return '';
+  
+  const cleanState = state.trim();
+  
+  // If it's already a valid abbreviation, return it uppercase
+  if (validStateAbbreviations.has(cleanState.toUpperCase())) {
+    return cleanState.toUpperCase();
+  }
+  
+  // Try to convert from full name to abbreviation
+  const lowerState = cleanState.toLowerCase();
+  if (stateAbbreviations[lowerState]) {
+    return stateAbbreviations[lowerState];
+  }
+  
+  // Return original if no conversion found
+  return cleanState.toUpperCase();
+};
+
+const isValidStateAbbreviation = (state: string): boolean => {
+  return validStateAbbreviations.has(state.toUpperCase());
+};
+
+const cleanPostalCode = (zip: string): string => {
+  if (!zip) return '';
+  
+  // Remove any non-digit characters and get first 5 digits
+  const cleaned = zip.replace(/\D/g, '');
+  return cleaned.substring(0, 5);
+};
 
 export const parseCSV = (file: File, isProject44: boolean = false): Promise<RFQRow[]> => {
   return new Promise((resolve, reject) => {
@@ -83,8 +139,8 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
   
   // Core required fields
   const fromDate = row.fromdate || row.pickupdate || row.date || '';
-  const fromZip = row.fromzip || row.pickupzip || row.originzip || '';
-  const toZip = row.tozip || row.deliveryzip || row.destinationzip || '';
+  const fromZip = cleanPostalCode(row.fromzip || row.pickupzip || row.originzip || '');
+  const toZip = cleanPostalCode(row.tozip || row.deliveryzip || row.destinationzip || '');
   const pallets = parseInt(row.pallets || row.palletcount || '0');
   const grossWeight = parseInt(row.grossweight || row.weight || '0');
   const temperature = (row.temperature || '').toUpperCase();
@@ -153,11 +209,11 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
   // Address details
   const originAddressLines = parseAddressLines(row.originaddresslines || '');
   const originCity = row.origincity || '';
-  const originState = row.originstate || '';
+  const originState = convertToStateAbbreviation(row.originstate || '');
   const originCountry = row.origincountry || '';
   const destinationAddressLines = parseAddressLines(row.destinationaddresslines || '');
   const destinationCity = row.destinationcity || '';
-  const destinationState = row.destinationstate || '';
+  const destinationState = convertToStateAbbreviation(row.destinationstate || '');
   const destinationCountry = row.destinationcountry || '';
   
   // Contact information
@@ -197,6 +253,12 @@ const parseRow = (row: any, index: number, isProject44: boolean = false): RFQRow
   }
   if (!toZip || !isValidZip(toZip)) {
     errors.push('Invalid or missing toZip');
+  }
+  if (originState && !isValidStateAbbreviation(originState)) {
+    errors.push(`Invalid origin state: ${originState}`);
+  }
+  if (destinationState && !isValidStateAbbreviation(destinationState)) {
+    errors.push(`Invalid destination state: ${destinationState}`);
   }
   if (!pallets || pallets < 1 || pallets > 100) {
     errors.push('Pallets must be between 1 and 100');

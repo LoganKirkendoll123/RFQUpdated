@@ -536,7 +536,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
             console.log(`🔄 Processing batch ${batchCount}/${Math.ceil(rfqs.length/BATCH_SIZE)} (${batchRfqs.length} RFQs)`);
             
             // Prepare all promises for this batch
-            const batchPromises = batchRfqs.map(async (rfq, batchIndex) => {
+            const batchPromises = batchRfqs.map(async (rfq, batchIndex): Promise<ProcessingResult> => {
               const overallIndex = i + batchIndex;
               
               // Update progress
@@ -598,6 +598,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 
                 customerResults.push(result);
                 
+                return result;
               } catch (rfqError) {
                 console.error(`❌ RFQ ${overallIndex + 1} failed for ${customerName}:`, rfqError);
                 
@@ -610,14 +611,19 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 };
                 
                 customerResults.push(result);
+                return result;
               }
-              return null; // Just to satisfy TypeScript with the Promise.all below
             }); 
             
             // Execute all promises in the batch simultaneously
             console.log(`🚀 Executing batch of ${batchPromises.length} requests simultaneously`);
             const batchResults = await Promise.all(batchPromises);
-            customerResults.push(...batchResults);
+            
+            // Filter out any null/undefined results (shouldn't happen now, but safety check)
+            const validBatchResults = batchResults.filter(result => result != null);
+            if (validBatchResults.length !== batchResults.length) {
+              console.warn(`⚠️ Filtered out ${batchResults.length - validBatchResults.length} null results`);
+            }
             
             // Wait between batches to respect rate limits
             if (i + BATCH_SIZE < rfqs.length) {
