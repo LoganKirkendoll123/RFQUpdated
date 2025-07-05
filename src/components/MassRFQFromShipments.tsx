@@ -380,24 +380,53 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     const packages = parseNumeric(shipment["Tot Packages"]) || 1;
     const estimatedPallets = Math.max(1, Math.ceil(packages / 4)); // Rough estimate
     
-    // Filter out any problematic accessorial codes
-    let accessorialCodes: string[] = []; 
+    // Parse accessorials from semicolon-separated string
+    let accessorialCodes: string[] = [];
     if (shipment["Accessorials"]) {
+      console.log(`🔍 Parsing accessorials from: "${shipment["Accessorials"]}"`);
+      
+      // Split by semicolons and clean up each code
       accessorialCodes = shipment["Accessorials"]
         .split(';')
-        .filter((code: string) => {
-          const trimmedCode = code.trim();
-          // Filter out unsupported accessorial codes
-          const unsupportedCodes = ['APPT', 'APPTDEL', 'LGDEL', 'LTDDEL', 'UNLOADDEL'];
-          return trimmedCode !== '' && !unsupportedCodes.includes(trimmedCode);
-        })
-        .map((code: string) => code.trim());
+        .map((code: string) => code.trim())
+        .filter((code: string) => code !== '');
+      
+      console.log(`📋 Parsed ${accessorialCodes.length} accessorial codes: ${accessorialCodes.join(', ')}`);
     }
+    
+    // Clean up state codes
+    const cleanStateCode = (state: string | undefined): string => {
+      if (!state) return '';
+      
+      // Convert to uppercase and trim
+      const cleaned = state.trim().toUpperCase();
+      
+      // Check if it's a valid 2-letter state code
+      const validStates = new Set([
+        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
+        'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+        'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT',
+        'VA', 'WA', 'WV', 'WI', 'WY', 'AS', 'DC', 'FM', 'GU', 'MH', 'MP', 'PW', 'PR', 'VI'
+      ]);
+      
+      return validStates.has(cleaned) ? cleaned : '';
+    };
+    
+    // Clean up ZIP codes
+    const cleanZipCode = (zip: string | undefined): string => {
+      if (!zip) return '00000';
+      
+      // Remove non-digits and take first 5 digits
+      const cleaned = zip.replace(/\D/g, '').substring(0, 5);
+      
+      // Pad with zeros if needed
+      return cleaned.padEnd(5, '0');
+    };
     
     return {
       fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
-      fromZip: shipment["Zip"] || '00000',
-      toZip: shipment["Zip_1"] || '00000',
+      fromZip: cleanZipCode(shipment["Zip"]),
+      toZip: cleanZipCode(shipment["Zip_1"]),
       pallets: estimatedPallets,
       grossWeight: weight,
       isStackable: false, // Conservative default
@@ -406,9 +435,9 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       freightClass: shipment["Max Freight Class"] || '70',
       commodityDescription: shipment["Commodities"] || 'General Freight',
       originCity: shipment["Origin City"],
-      originState: shipment["State"],
+      originState: cleanStateCode(shipment["State"]),
       destinationCity: shipment["Destination City"],
-      destinationState: shipment["State_1"],
+      destinationState: cleanStateCode(shipment["State_1"]),
       totalLinearFeet: shipment["Tot Linear Ft"] ? parseNumeric(shipment["Tot Linear Ft"]) : undefined
     };
   };
@@ -530,7 +559,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           // Process RFQs in batches
           const customerResults: ProcessingResult[] = [];
           let batchCount = 0;
-          const totalBatches = Math.ceil(rfqs.length / BATCH_SIZE);
+          const totalBatches = Math.ceil(rfqs.length / BATCH_SIZE); 
           
           // Process RFQs in batches with proper rate limiting
           console.log(`🔢 Processing ${rfqs.length} RFQs with rate limit of ${BATCH_SIZE} per second per carrier`);
@@ -547,11 +576,18 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
               
               // Update progress
               const progress = ((overallIndex + 1) / rfqs.length) * 100;
-              setMassRFQJobs(prev => prev.map(job => 
-                job.id === jobId 
-                  ? { ...job, progress: Math.min(progress, 99) } // Cap at 99% until fully complete
-                  : job
-              ));
+              // Use functional update to avoid race conditions
+              setMassRFQJobs(prev => {
+                const updatedJobs = [...prev];
+                const jobIndex = updatedJobs.findIndex(j => j.id === jobId);
+                if (jobIndex >= 0) {
+                  updatedJobs[jobIndex] = {
+                    ...updatedJobs[jobIndex],
+                    progress: Math.min(progress, 99) // Cap at 99% until fully complete
+                  };
+                }
+                return updatedJobs;
+              });
               
               try {
                 // Classify shipment for smart routing
@@ -559,6 +595,11 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 
                 let quotes: any[] = [];
                 
+                // Log accessorials for debugging
+                if (rfq.accessorial && rfq.accessorial.length > 0) {
+                  console.log(`📋 RFQ ${overallIndex + 1} has ${rfq.accessorial.length} accessorials: ${rfq.accessorial.join(', ')}`);
+                }
+                 
                 if (classification.quoting === 'freshx' && freshxClient) {
                   quotes = await freshxClient.getQuotes(rfq);
                 } else if (classification.quoting === 'project44-dual') {
@@ -586,9 +627,30 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 
                 // Apply pricing
                 const quotesWithPricing = await Promise.all(
-                  quotes.map(quote => 
-                    calculatePricingWithCustomerMargins(quote, pricingSettings, customerName)
-                  )
+                  quotes.map(quote => {
+                    try {
+                      return calculatePricingWithCustomerMargins(quote, pricingSettings, customerName);
+                    } catch (pricingError) {
+                      console.error(`❌ Error calculating pricing for quote:`, pricingError);
+                      // Return a default pricing if calculation fails
+                      return {
+                        ...quote,
+                        carrierTotalRate: quote.rateQuoteDetail?.total || 0,
+                        customerPrice: (quote.rateQuoteDetail?.total || 0) * 1.15, // 15% markup
+                        profit: (quote.rateQuoteDetail?.total || 0) * 0.15,
+                        markupApplied: (quote.rateQuoteDetail?.total || 0) * 0.15,
+                        isCustomPrice: false,
+                        chargeBreakdown: {
+                          baseCharges: [],
+                          fuelCharges: [],
+                          accessorialCharges: [],
+                          discountCharges: [],
+                          premiumCharges: [],
+                          otherCharges: []
+                        }
+                      };
+                    }
+                  })
                 );
                 
                 const result: ProcessingResult = {
@@ -604,22 +666,29 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 
                 customerResults.push(result);
                 
-                return result;
-              } catch (rfqError) {
-                console.error(`❌ RFQ ${overallIndex + 1} failed for ${customerName}:`, rfqError);
-                
-                const result: ProcessingResult = {
-                  rowIndex: overallIndex,
-                  originalData: rfq,
-                  quotes: [],
-                  status: 'error',
-                  error: rfqError instanceof Error ? rfqError.message : 'Unknown error'
-                };
-                
-                customerResults.push(result);
-                return result;
-              }
-            }); 
+                 // Add to global results immediately to show progress
+                 setResults(prevResults => [...prevResults, result]);
+                 
+                 return result;
+               } catch (rfqError) {
+                 console.error(`❌ RFQ ${overallIndex + 1} failed for ${customerName}:`, rfqError);
+                 
+                 const result: ProcessingResult = {
+                   rowIndex: overallIndex,
+                   originalData: rfq,
+                   quotes: [],
+                   status: 'error',
+                   error: rfqError instanceof Error ? rfqError.message : 'Unknown error'
+                 };
+                 
+                 customerResults.push(result);
+                 
+                 // Add to global results immediately to show progress
+                 setResults(prevResults => [...prevResults, result]);
+                 
+                 return result;
+               }
+              }); 
             
             // Execute all promises in the batch simultaneously
             console.log(`🚀 Executing batch of ${batchPromises.length} requests simultaneously`);
@@ -628,7 +697,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
             // Filter out any null/undefined results (shouldn't happen now, but safety check)
             const validBatchResults = batchResults.filter(result => result != null);
             if (validBatchResults.length !== batchResults.length) {
-              console.warn(`⚠️ Filtered out ${batchResults.length - validBatchResults.length} null results`);
+              console.warn(`⚠️ Filtered out ${batchResults.length - validBatchResults.length} null results`); 
             }
             
             // Wait between batches to respect rate limits
@@ -639,23 +708,20 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           }
           
           // Update job completion
-          setMassRFQJobs(prev => prev.map(job => 
-            job.id === jobId 
-              ? { 
-                  ...job, 
-                  status: 'completed', 
-                  progress: 100, 
-                  results: customerResults,
-                  endTime: new Date()
-                }
-              : job
-          ));
-          
-          // Add these results to the global results array
-          allResults.push(...customerResults);
-          
-          // Update the results state with a new array reference to trigger re-render 
-          setResults(prevResults => [...prevResults, ...customerResults]);
+          setMassRFQJobs(prev => {
+            const updatedJobs = [...prev];
+            const jobIndex = updatedJobs.findIndex(j => j.id === jobId);
+            if (jobIndex >= 0) {
+              updatedJobs[jobIndex] = {
+                ...updatedJobs[jobIndex],
+                status: 'completed',
+                progress: 100,
+                results: customerResults,
+                endTime: new Date()
+              };
+            }
+            return updatedJobs;
+          });
           
           console.log(`✅ Completed customer ${customerName}: ${customerResults.length} results`);
           
@@ -663,14 +729,12 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           console.error(`❌ Customer ${customerName} failed:`, customerError);
           
           setMassRFQJobs(prev => prev.map(job => 
-            job.id === jobId 
-              ? { 
-                  ...job, 
-                  status: 'error', 
-                  error: customerError instanceof Error ? customerError.message : 'Unknown error',
-                  endTime: new Date()
-                }
-              : job
+            job.id === jobId ? { 
+              ...job, 
+              status: 'error', 
+              error: customerError instanceof Error ? customerError.message : 'Unknown error',
+              endTime: new Date()
+            } : job
           ));
         }
       }
@@ -678,7 +742,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       console.log('🏁 Mass RFQ processing completed');
       
       // Final update to results to ensure UI refreshes
-      setResults(prevResults => [...prevResults]);
+      setResults(currentResults => [...currentResults]);
       
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Mass RFQ processing failed';
@@ -699,7 +763,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     
     const exportData = completedJobs.flatMap(job => 
       job.results!.flatMap(result => 
-        result.quotes.map(quote => {
+        (result.quotes || []).map(quote => {
           const quoteWithPricing = quote as QuoteWithPricing;
           
           return {
@@ -1102,19 +1166,19 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                     <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
                       <div className="text-center">
                         <div className="font-semibold text-green-600">
-                          {job.results.filter(r => r.status === 'success').length}
+                          {job.results?.filter(r => r.status === 'success').length || 0}
                         </div>
                         <div className="text-gray-600">Successful</div>
                       </div>
                       <div className="text-center">
                         <div className="font-semibold text-red-600">
-                          {job.results.filter(r => r.status === 'error').length}
+                          {job.results?.filter(r => r.status === 'error').length || 0}
                         </div>
                         <div className="text-gray-600">Failed</div>
                       </div>
                       <div className="text-center">
                         <div className="font-semibold text-blue-600">
-                          {job.results.reduce((sum, r) => sum + r.quotes.length, 0)}
+                          {job.results?.reduce((sum, r) => sum + (r.quotes?.length || 0), 0) || 0}
                         </div>
                         <div className="text-gray-600">Total Quotes</div>
                       </div>
@@ -1153,12 +1217,12 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                   </h3> 
                   <div className="text-sm text-gray-600">
                     {job.results && job.results.filter(r => r.status === 'success').length} successful RFQs • 
-                    {job.results && job.results.reduce((sum, r) => sum + r.quotes.length, 0)} total quotes received
+                    {job.results && job.results.reduce((sum, r) => sum + (r.quotes?.length || 0), 0)} total quotes received
                   </div>
                 </div>
                 
                 {job.results && job.results
-                  .filter(result => result.status === 'success' && result.quotes.length > 0)
+                  .filter(result => result.status === 'success' && result.quotes && result.quotes.length > 0)
                   .slice(0, 3) // Show first 3 results
                   .map((result, index) => (
                     <RFQCard
@@ -1168,10 +1232,10 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                     />
                   ))}
                 
-                {job.results && job.results.filter(r => r.status === 'success' && r.quotes.length > 0).length > 3 && (
+                {job.results && job.results.filter(r => r.status === 'success' && r.quotes && r.quotes.length > 0).length > 3 && (
                   <div className="bg-gray-50 rounded-lg p-4 text-center">
                     <p className="text-gray-600">
-                      Showing 3 of {job.results.filter(r => r.status === 'success' && r.quotes.length > 0).length} successful results.
+                      Showing 3 of {job.results.filter(r => r.status === 'success' && r.quotes && r.quotes.length > 0).length} successful results.
                       Export all results to see complete data.
                     </p>
                   </div>
@@ -1183,7 +1247,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           {results.length > 0 && massRFQJobs.filter(job => job.status === 'completed').length === 0 && (
             <div className="space-y-4">
               {results
-                .filter(result => result.status === 'success' && result.quotes.length > 0)
+                .filter(result => result.status === 'success' && result.quotes && result.quotes.length > 0)
                 .slice(0, 3)
                 .map((result, index) => (
                   <RFQCard
@@ -1193,10 +1257,10 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                   />
                 ))}
               
-              {results.filter(r => r.status === 'success' && r.quotes.length > 0).length > 3 && (
+              {results.filter(r => r.status === 'success' && r.quotes && r.quotes.length > 0).length > 3 && (
                 <div className="bg-gray-50 rounded-lg p-4 text-center">
                   <p className="text-gray-600">
-                    Showing 3 of {results.filter(r => r.status === 'success' && r.quotes.length > 0).length} successful results.
+                    Showing 3 of {results.filter(r => r.status === 'success' && r.quotes && r.quotes.length > 0).length} successful results.
                     Export all results to see complete data.
                   </p>
                 </div>
