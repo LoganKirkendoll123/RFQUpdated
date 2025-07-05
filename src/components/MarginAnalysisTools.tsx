@@ -41,6 +41,11 @@ interface MarginAnalysisJob {
   first_phase_data?: any;
   second_phase_data?: any;
   discount_analysis_data?: any;
+  phase_one_valid_shipments?: any[];
+  phase_one_api_calls?: any[];
+  phase_two_api_calls?: any[];
+  phase_one_rate_data?: any;
+  phase_two_rate_data?: any;
 }
 
 interface MarginRecommendation {
@@ -345,131 +350,211 @@ export const MarginAnalysisTools: React.FC = () => {
 
       if (updateError) throw updateError;
       
-      // Get first phase data
-      const firstPhaseData = job.benchmark_data;
-      if (!firstPhaseData) {
-        throw new Error('No first phase data available');
+      // Get valid shipments from phase one
+      const validShipments = job.phase_one_valid_shipments;
+      if (!validShipments || !Array.isArray(validShipments) || validShipments.length === 0) {
+        throw new Error('No valid shipments from phase one available');
       }
       
-      console.log('📊 First phase data:', firstPhaseData);
+      console.log(`📊 Found ${validShipments.length} valid shipments from phase one`);
       
-      // Query shipments again to see if any discounts have been applied
-      console.log(`🔍 Querying shipments again for date range: ${job.date_range_start} to ${job.date_range_end}`);
-      
-      let shipmentQuery = supabase
-        .from('Shipments')
-        .select('*')
-        .gte('"Scheduled Pickup Date"', job.date_range_start)
-        .lte('"Scheduled Pickup Date"', job.date_range_end);
-
-      const { data: currentShipments, error: shipmentError } = await shipmentQuery;
-
-      if (shipmentError) throw shipmentError;
-
-      console.log(`📦 Found ${currentShipments?.length || 0} total shipments in date range for second phase`);
-
-      if (!currentShipments || currentShipments.length === 0) {
-        throw new Error(`No shipments found in the selected date range for second phase`);
+      // Get the selected carrier from the job
+      const selectedCarrier = job.carrier_name;
+      if (!selectedCarrier) {
+        throw new Error('No carrier specified in the job');
       }
-
-      // Group shipments by customer
-      const customerShipments = currentShipments.reduce((groups, shipment) => {
-        const customer = shipment["Customer"] || 'Unknown';
+      
+      console.log(`🚚 Selected carrier for phase two: ${selectedCarrier}`);
+      
+      // Initialize Project44 client if not already done
+      if (!project44Client) {
+        const config = loadProject44Config();
+        if (!config) {
+          throw new Error('Project44 configuration not found');
+        }
+        setProject44Client(new Project44APIClient(config));
+      }
+      
+      if (!project44Client) {
+        throw new Error('Failed to initialize Project44 client');
+      }
+      
+      console.log('🔄 Making P44 API calls for phase two...');
+      
+      // Make the same API calls as in phase one, but only for valid shipments
+      const phase2ApiCalls = [];
+      const phase2ApiResponses = [];
+      const phase2RateData = [];
+      
+      for (const shipment of validShipments) {
+        try {
+          console.log(`📦 Processing shipment: ${shipment["Invoice #"]} for phase two`);
+          
+          // Convert shipment to RFQ format
+          const rfq = {
+            fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
+            fromZip: shipment["Zip"] || '',
+            toZip: shipment["Zip_1"] || '',
+            pallets: parseInt(shipment["Tot Packages"]?.toString() || '1'),
+            grossWeight: parseInt(shipment["Tot Weight"]?.toString().replace(/[^\d]/g, '') || '1000'),
+            isStackable: false,
+            accessorial: shipment["Accessorials"]?.split(';') || []
+          };
+          
+          // Call P44 API to get current rates
+          console.log(`🔍 Calling P44 API for current rates on shipment ${shipment["Invoice #"]}`);
+          const quotes = await project44Client.getQuotes(rfq, [selectedCarrier], false, false, false);
+          
+          console.log(`✅ Received ${quotes.length} quotes from P44 for phase two`);
+          
+          // Store API call details
+          phase2ApiCalls.push({
+            shipmentId: shipment["Invoice #"],
+            timestamp: new Date().toISOString(),
+            request: rfq,
+            responseCount: quotes.length
+          });
+          
+          // Store API response
+          phase2ApiResponses.push({
+            shipmentId: shipment["Invoice #"],
+            quotes: quotes
+          });
+          
+          // Calculate and store rate data
+          if (quotes.length > 0) {
+            const bestQuote = quotes.reduce((best, current) => {
+              const bestTotal = best.rateQuoteDetail?.total || 
+                (best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts);
+              
+              const currentTotal = current.rateQuoteDetail?.total || 
+                (current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts);
+              
+              return currentTotal < bestTotal ? current : best;
+            });
+            
+            const quoteTotal = bestQuote.rateQuoteDetail?.total || 
+              (bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts);
+            
+            phase2RateData.push({
+              shipmentId: shipment["Invoice #"],
+              customer: shipment["Customer"],
+              carrier: selectedCarrier,
+              originalRevenue: parseFloat(shipment["Revenue"] || '0'),
+              originalExpense: parseFloat(shipment["Carrier Expense"] || '0'),
+              originalProfit: parseFloat(shipment["Profit"] || '0'),
+              currentRate: quoteTotal,
+              timestamp: new Date().toISOString()
+            });
+          }
+        } catch (error) {
+          console.error(`❌ Error processing shipment ${shipment["Invoice #"]} for phase two:`, error);
+          // Continue with next shipment
+        }
+      }
+      
+      console.log(`✅ Completed ${phase2ApiCalls.length} API calls for phase two`);
+      
+      // Group rate data by customer for analysis
+      const customerRateData = phase2RateData.reduce((groups, data) => {
+        const customer = data.customer || 'Unknown';
         if (!groups[customer]) {
           groups[customer] = [];
         }
-        groups[customer].push(shipment);
+        groups[customer].push(data);
         return groups;
       }, {} as Record<string, any[]>);
       
-      console.log(`👥 Found ${Object.keys(customerShipments).length} customers with shipments in second phase`);
+      console.log(`👥 Found ${Object.keys(customerRateData).length} customers with rate data in phase two`);
       
-      // Process each customer separately and compare with first phase
-      const customerResults = [];
+      // Compare phase one and phase two rates to detect discounts
+      const phase1RateData = job.phase_one_rate_data || [];
       const discountAnalysis = [];
       
-      for (const [customer, shipments] of Object.entries(customerShipments)) {
-        console.log(`🔍 Second phase analysis for customer: ${customer} with ${shipments.length} shipments`);
+      for (const [customer, rateData] of Object.entries(customerRateData)) {
+        console.log(`🔍 Analyzing phase two rates for customer: ${customer} with ${rateData.length} shipments`);
         
-        // Find this customer in first phase results
-        const firstPhaseCustomerData = firstPhaseData.customer_results.find(
-          (cr: any) => cr.customer === customer
-        );
+        // Find matching phase one data for this customer
+        const phase1CustomerData = phase1RateData.filter((p1: any) => p1.customer === customer);
         
-        if (!firstPhaseCustomerData) {
-          console.log(`⚠️ Customer ${customer} not found in first phase data, skipping`);
+        if (!phase1CustomerData || phase1CustomerData.length === 0) {
+          console.log(`⚠️ No phase one data found for customer ${customer}, skipping`);
           continue;
         }
         
-        // Calculate current margin from new shipment data
-        const revenues = shipments
-          .map(s => parseFloat(s["Revenue"] || '0'))
-          .filter(r => r > 0);
+        // Match shipments between phases
+        const matchedShipments = [];
+        for (const p2Data of rateData) {
+          const p1Match = phase1CustomerData.find((p1: any) => p1.shipmentId === p2Data.shipmentId);
+          if (p1Match) {
+            matchedShipments.push({
+              shipmentId: p2Data.shipmentId,
+              phase1Rate: p1Match.currentRate,
+              phase2Rate: p2Data.currentRate,
+              originalRevenue: p2Data.originalRevenue,
+              originalExpense: p2Data.originalExpense,
+              originalProfit: p2Data.originalProfit,
+              rateDifference: p2Data.currentRate - p1Match.currentRate,
+              percentChange: p1Match.currentRate > 0 ? 
+                ((p2Data.currentRate - p1Match.currentRate) / p1Match.currentRate) * 100 : 0
+            });
+          }
+        }
         
-        const carrierExpenses = shipments
-          .map(s => parseFloat(s["Carrier Expense"] || '0'))
-          .filter(e => e > 0);
+        console.log(`🔍 Matched ${matchedShipments.length} shipments between phases for ${customer}`);
         
-        const profits = shipments
-          .map(s => parseFloat(s["Profit"] || '0'))
-          .filter(p => !isNaN(p));
+        if (matchedShipments.length === 0) continue;
         
-        const avgRevenue = revenues.length > 0 ? revenues.reduce((sum, r) => sum + r, 0) / revenues.length : 0;
-        const avgExpense = carrierExpenses.length > 0 ? carrierExpenses.reduce((sum, e) => sum + e, 0) / carrierExpenses.length : 0;
-        const avgProfit = profits.length > 0 ? profits.reduce((sum, p) => sum + p, 0) / profits.length : 0;
+        // Calculate average rate changes
+        const totalPhase1Rate = matchedShipments.reduce((sum, s) => sum + s.phase1Rate, 0);
+        const totalPhase2Rate = matchedShipments.reduce((sum, s) => sum + s.phase2Rate, 0);
+        const avgPhase1Rate = totalPhase1Rate / matchedShipments.length;
+        const avgPhase2Rate = totalPhase2Rate / matchedShipments.length;
+        const avgRateChange = avgPhase2Rate - avgPhase1Rate;
+        const avgPercentChange = avgPhase1Rate > 0 ? (avgRateChange / avgPhase1Rate) * 100 : 0;
         
-        // Calculate current margin as a percentage
-        const currentMargin = avgRevenue > 0 ? (avgProfit / avgRevenue) * 100 : 0;
+        // Calculate original margins
+        const totalRevenue = matchedShipments.reduce((sum, s) => sum + s.originalRevenue, 0);
+        const totalExpense = matchedShipments.reduce((sum, s) => sum + s.originalExpense, 0);
+        const totalProfit = matchedShipments.reduce((sum, s) => sum + s.originalProfit, 0);
+        const originalMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
         
-        // Compare with first phase
-        const firstPhaseMargin = firstPhaseCustomerData.currentMargin;
-        const marginDifference = currentMargin - firstPhaseMargin;
+        // Detect rate changes
+        const significantRateChange = Math.abs(avgPercentChange) > 1; // More than 1% change
+        const rateDecreased = avgPercentChange < 0;
         
-        // Calculate discount percentage if margin decreased
-        const discountDetected = marginDifference < -1; // More than 1% decrease in margin
-        const discountPercentage = discountDetected ? Math.abs(marginDifference) : 0;
+        // Calculate confidence score
+        const confidenceScore = Math.min(95, Math.max(60, 70 + (matchedShipments.length * 2)));
         
-        // Calculate confidence score for discount detection
-        const discountConfidence = discountDetected 
-          ? Math.min(90, Math.max(60, 70 + (shipments.length * 2)))
-          : 0;
-        
-        console.log(`📊 Second phase analysis for ${customer}:`, {
-          shipmentCount: shipments.length,
-          avgRevenue: avgRevenue.toFixed(2),
-          avgExpense: avgExpense.toFixed(2),
-          avgProfit: avgProfit.toFixed(2),
-          currentMargin: currentMargin.toFixed(2),
-          firstPhaseMargin: firstPhaseMargin.toFixed(2),
-          marginDifference: marginDifference.toFixed(2),
-          discountDetected,
-          discountPercentage: discountPercentage.toFixed(2)
+        console.log(`📊 Rate analysis for ${customer}:`, {
+          matchedShipments: matchedShipments.length,
+          avgPhase1Rate: avgPhase1Rate.toFixed(2),
+          avgPhase2Rate: avgPhase2Rate.toFixed(2),
+          avgRateChange: avgRateChange.toFixed(2),
+          avgPercentChange: avgPercentChange.toFixed(2),
+          originalMargin: originalMargin.toFixed(2),
+          significantRateChange,
+          rateDecreased
         });
         
-        // Store results for this customer
-        customerResults.push({
-          customer,
-          shipmentCount: shipments.length,
-          avgRevenue,
-          avgExpense,
-          avgProfit,
-          currentMargin,
-          firstPhaseMargin,
-          marginDifference,
-          discountDetected,
-          discountPercentage
-        });
-        
-        // Add to discount analysis if discount detected
-        if (discountDetected) {
+        // Add to discount analysis if rate decreased
+        if (significantRateChange && rateDecreased) {
           discountAnalysis.push({
             customer,
-            carrier: job.carrier_name,
-            firstPhaseMargin,
-            secondPhaseMargin: currentMargin,
-            discountPercentage,
-            confidence: discountConfidence,
-            shipmentCount: shipments.length
+            carrier: selectedCarrier,
+            shipmentCount: matchedShipments.length,
+            avgPhase1Rate,
+            avgPhase2Rate,
+            avgRateChange,
+            avgPercentChange,
+            originalMargin,
+            confidence: confidenceScore,
+            matchedShipments: matchedShipments.map(s => ({
+              shipmentId: s.shipmentId,
+              phase1Rate: s.phase1Rate,
+              phase2Rate: s.phase2Rate,
+              percentChange: s.percentChange
+            }))
           });
           
           // Update recommendation with discount data
@@ -477,22 +562,52 @@ export const MarginAnalysisTools: React.FC = () => {
             .from('MarginRecommendations')
             .update({
               discount_pattern_detected: true,
-              avg_discount_percentage: discountPercentage,
-              discount_confidence_score: discountConfidence,
+              avg_discount_percentage: Math.abs(avgPercentChange),
+              discount_confidence_score: confidenceScore,
               discount_data: {
-                first_phase_margin: firstPhaseMargin,
-                second_phase_margin: currentMargin,
-                margin_difference: marginDifference,
-                first_phase_shipments: firstPhaseCustomerData.shipmentCount,
-                second_phase_shipments: shipments.length
+                phase1_avg_rate: avgPhase1Rate,
+                phase2_avg_rate: avgPhase2Rate,
+                rate_change_percent: avgPercentChange,
+                matched_shipment_count: matchedShipments.length,
+                original_margin: originalMargin
               }
             })
             .eq('customer_name', customer)
-            .eq('carrier_name', job.carrier_name);
+            .eq('carrier_name', selectedCarrier);
 
           if (recError) console.error(`Failed to update recommendation with discount data for ${customer}:`, recError);
         }
       }
+      
+      // Create customer results summary for the job update
+      const customerResults = Object.entries(customerRateData).map(([customer, rateData]) => {
+        const phase1CustomerData = phase1RateData.filter((p1: any) => p1.customer === customer);
+        const matchedShipments = rateData.filter(p2 => 
+          phase1CustomerData.some(p1 => p1.shipmentId === p2.shipmentId)
+        );
+        
+        const totalPhase1Rate = matchedShipments.reduce((sum, s) => {
+          const p1Match = phase1CustomerData.find(p1 => p1.shipmentId === s.shipmentId);
+          return sum + (p1Match ? p1Match.currentRate : 0);
+        }, 0);
+        
+        const totalPhase2Rate = matchedShipments.reduce((sum, s) => sum + s.currentRate, 0);
+        const avgPhase1Rate = matchedShipments.length > 0 ? totalPhase1Rate / matchedShipments.length : 0;
+        const avgPhase2Rate = matchedShipments.length > 0 ? totalPhase2Rate / matchedShipments.length : 0;
+        const avgRateChange = avgPhase2Rate - avgPhase1Rate;
+        const avgPercentChange = avgPhase1Rate > 0 ? (avgRateChange / avgPhase1Rate) * 100 : 0;
+        
+        return {
+          customer,
+          shipmentCount: rateData.length,
+          matchedShipmentCount: matchedShipments.length,
+          avgPhase1Rate,
+          avgPhase2Rate,
+          avgRateChange,
+          avgPercentChange,
+          rateDecreased: avgPercentChange < 0,
+          significantChange: Math.abs(avgPercentChange) > 1
+        });
 
       // Update job with second phase results
       const { error: updateError2 } = await supabase
@@ -500,9 +615,13 @@ export const MarginAnalysisTools: React.FC = () => {
         .update({
           status: 'completed',
           second_phase_completed_at: new Date().toISOString(),
+          phase_two_api_calls: phase2ApiCalls,
+          phase_two_api_responses: phase2ApiResponses,
+          phase_two_rate_data: phase2RateData,
           second_phase_data: {
-            customer_count: Object.keys(customerShipments).length,
-            total_shipments: currentShipments.length,
+            customer_count: Object.keys(customerRateData).length,
+            total_shipments: phase2ApiCalls.length,
+            matched_shipments: phase2RateData.length,
             customer_results: customerResults,
             date_range: {
               start: job.date_range_start,
@@ -607,23 +726,103 @@ export const MarginAnalysisTools: React.FC = () => {
         throw new Error(`No shipments found in the selected date range`);
       }
 
+      // Initialize arrays to store API call data
+      const apiCalls = [];
+      const apiResponses = [];
+      const rateData = [];
+      const validShipments = [];
+      
+      // Process each shipment with P44 API
+      console.log(`🔄 Making P44 API calls for ALL shipments...`);
+      
+      for (const shipment of allShipments) {
+        try {
+          console.log(`📦 Processing shipment: ${shipment["Invoice #"]}`);
+          
+          // Convert shipment to RFQ format
+          const rfq = {
+            fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
+            fromZip: shipment["Zip"] || '',
+            toZip: shipment["Zip_1"] || '',
+            pallets: parseInt(shipment["Tot Packages"]?.toString() || '1'),
+            grossWeight: parseInt(shipment["Tot Weight"]?.toString().replace(/[^\d]/g, '') || '1000'),
+            isStackable: false,
+            accessorial: shipment["Accessorials"]?.split(';') || []
+          };
+          
+          // Call P44 API to get current rates
+          console.log(`🔍 Calling P44 API for current rates on shipment ${shipment["Invoice #"]}`);
+          const quotes = await project44Client!.getQuotes(rfq, [selectedCarrierId], false, false, false);
+          
+          console.log(`✅ Received ${quotes.length} quotes from P44`);
+          
+          // Store API call details
+          apiCalls.push({
+            shipmentId: shipment["Invoice #"],
+            timestamp: new Date().toISOString(),
+            request: rfq,
+            responseCount: quotes.length
+          });
+          
+          // Store API response
+          apiResponses.push({
+            shipmentId: shipment["Invoice #"],
+            quotes: quotes
+          });
+          
+          // If we got valid quotes, store the shipment and rate data
+          if (quotes.length > 0) {
+            validShipments.push(shipment);
+            
+            const bestQuote = quotes.reduce((best, current) => {
+              const bestTotal = best.rateQuoteDetail?.total || 
+                (best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts);
+              
+              const currentTotal = current.rateQuoteDetail?.total || 
+                (current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts);
+              
+              return currentTotal < bestTotal ? current : best;
+            });
+            
+            const quoteTotal = bestQuote.rateQuoteDetail?.total || 
+              (bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts);
+            
+            rateData.push({
+              shipmentId: shipment["Invoice #"],
+              customer: shipment["Customer"],
+              carrier: selectedCarrier.name,
+              originalRevenue: parseFloat(shipment["Revenue"] || '0'),
+              originalExpense: parseFloat(shipment["Carrier Expense"] || '0'),
+              originalProfit: parseFloat(shipment["Profit"] || '0'),
+              currentRate: quoteTotal,
+              timestamp: new Date().toISOString()
+            });
+          }
+        } catch (error) {
+          console.error(`❌ Error processing shipment ${shipment["Invoice #"]}:`, error);
+          // Continue with next shipment
+        }
+      }
+      
+      console.log(`✅ Completed ${apiCalls.length} API calls, found ${validShipments.length} valid shipments`);
+      
       // Group shipments by customer
-      const customerShipments = allShipments.reduce((groups, shipment) => {
-        const customer = shipment["Customer"] || 'Unknown';
+      const customerRateData = rateData.reduce((groups, data) => {
+        const customer = data.customer || 'Unknown';
         if (!groups[customer]) {
           groups[customer] = [];
         }
-        groups[customer].push(shipment);
+        groups[customer].push(data);
         return groups;
-      }, {} as Record<string, typeof carrierShipments>);
+      }, {} as Record<string, any[]>);
       
-      console.log(`👥 Found ${Object.keys(customerShipments).length} customers with shipments in date range`);
+      console.log(`👥 Found ${Object.keys(customerRateData).length} customers with rate data`);
       
       // Process each customer separately
       const customerResults = [];
       
-      for (const [customer, shipments] of Object.entries(customerShipments)) {
-        console.log(`🔍 Analyzing customer: ${customer} with ${shipments.length} shipments`);
+      for (const [customer, customerRates] of Object.entries(customerRateData)) {
+        console.log(`🔍 Analyzing customer: ${customer} with ${customerRates.length} shipments`);
         
         // Get customer-specific margin from CustomerCarriers table
         const { data: customerCarriers, error: ccError } = await supabase
@@ -636,22 +835,18 @@ export const MarginAnalysisTools: React.FC = () => {
           console.error(`Error fetching margin for ${customer}:`, ccError);
         }
         
-        // Calculate current margin from shipment data
-        const revenues = shipments
-          .map(s => parseFloat(s["Revenue"] || '0'))
-          .filter(r => r > 0);
+        // Calculate current margin from rate data
+        const totalRevenue = customerRates.reduce((sum, r) => sum + r.originalRevenue, 0);
+        const totalExpense = customerRates.reduce((sum, r) => sum + r.originalExpense, 0);
+        const totalProfit = customerRates.reduce((sum, r) => sum + r.originalProfit, 0);
         
-        const carrierExpenses = shipments
-          .map(s => parseFloat(s["Carrier Expense"] || '0'))
-          .filter(e => e > 0);
+        const avgRevenue = customerRates.length > 0 ? totalRevenue / customerRates.length : 0;
+        const avgExpense = customerRates.length > 0 ? totalExpense / customerRates.length : 0;
+        const avgProfit = customerRates.length > 0 ? totalProfit / customerRates.length : 0;
         
-        const profits = shipments
-          .map(s => parseFloat(s["Profit"] || '0'))
-          .filter(p => !isNaN(p));
-        
-        const avgRevenue = revenues.length > 0 ? revenues.reduce((sum, r) => sum + r, 0) / revenues.length : 0;
-        const avgExpense = carrierExpenses.length > 0 ? carrierExpenses.reduce((sum, e) => sum + e, 0) / carrierExpenses.length : 0;
-        const avgProfit = profits.length > 0 ? profits.reduce((sum, p) => sum + p, 0) / profits.length : 0;
+        // Calculate current P44 rates
+        const totalCurrentRate = customerRates.reduce((sum, r) => sum + r.currentRate, 0);
+        const avgCurrentRate = customerRates.length > 0 ? totalCurrentRate / customerRates.length : 0;
         
         // Calculate current margin as a percentage
         const currentMargin = avgRevenue > 0 ? (avgProfit / avgRevenue) * 100 : 0;
@@ -662,16 +857,17 @@ export const MarginAnalysisTools: React.FC = () => {
           : 15; // Default to 15% if no specific margin found
         
         // Calculate confidence score based on number of shipments
-        const confidenceScore = Math.min(95, Math.max(60, 70 + (shipments.length * 2)));
+        const confidenceScore = Math.min(95, Math.max(60, 70 + (customerRates.length * 2)));
         
         // Calculate potential revenue impact
-        const potentialImpact = ((targetMargin - currentMargin) / 100) * avgRevenue * shipments.length;
+        const potentialImpact = ((targetMargin - currentMargin) / 100) * avgRevenue * customerRates.length;
         
         console.log(`📊 Analysis for ${customer}:`, {
-          shipmentCount: shipments.length,
+          shipmentCount: customerRates.length,
           avgRevenue: avgRevenue.toFixed(2),
           avgExpense: avgExpense.toFixed(2),
           avgProfit: avgProfit.toFixed(2),
+          avgCurrentRate: avgCurrentRate.toFixed(2),
           currentMargin: currentMargin.toFixed(2),
           targetMargin: targetMargin.toFixed(2),
           confidenceScore,
@@ -681,10 +877,11 @@ export const MarginAnalysisTools: React.FC = () => {
         // Store results for this customer
         customerResults.push({
           customer,
-          shipmentCount: shipments.length,
+          shipmentCount: customerRates.length,
           avgRevenue,
           avgExpense,
           avgProfit,
+          avgCurrentRate,
           currentMargin,
           targetMargin,
           confidenceScore,
@@ -702,7 +899,7 @@ export const MarginAnalysisTools: React.FC = () => {
               recommended_margin: targetMargin,
               confidence_score: confidenceScore,
               potential_revenue_impact: potentialImpact,
-              shipment_count: shipments.length,
+              shipment_count: customerRates.length,
               avg_shipment_value: avgRevenue,
               margin_variance: Math.abs(targetMargin - currentMargin)
             }]);
@@ -719,9 +916,15 @@ export const MarginAnalysisTools: React.FC = () => {
           completed_at: new Date().toISOString(),
           shipment_count: allShipments.length,
           first_phase_completed: true,
+          phase_one_api_calls: apiCalls,
+          phase_one_api_responses: apiResponses,
+          phase_one_valid_shipments: validShipments,
+          phase_one_rate_data: rateData,
           first_phase_data: {
-            customer_count: Object.keys(customerShipments).length,
+            customer_count: Object.keys(customerRateData).length,
             total_shipments: allShipments.length,
+            valid_shipments: validShipments.length,
+            api_calls: apiCalls.length,
             customer_results: customerResults,
             date_range: dateRange
           }
@@ -1067,6 +1270,11 @@ export const MarginAnalysisTools: React.FC = () => {
                         <div className={`w-2 h-2 rounded-full ${job.first_phase_completed ? 'bg-green-500' : 'bg-gray-300'}`}></div>
                         <span className="text-xs">Phase 1</span>
                         {job.first_phase_completed && <CheckCircle className="h-3 w-3 text-green-500 ml-1" />}
+                        {job.phase_one_valid_shipments && (
+                          <span className="text-xs text-gray-500 ml-1">
+                            ({Array.isArray(job.phase_one_valid_shipments) ? job.phase_one_valid_shipments.length : 0} valid)
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center space-x-1">
                         <div className={`w-2 h-2 rounded-full ${
@@ -1074,6 +1282,11 @@ export const MarginAnalysisTools: React.FC = () => {
                         }`}></div>
                         <span className="text-xs">Phase 2</span>
                         {job.second_phase_completed_at && <CheckCircle className="h-3 w-3 text-green-500 ml-1" />}
+                        {job.phase_two_api_calls && (
+                          <span className="text-xs text-gray-500 ml-1">
+                            ({Array.isArray(job.phase_two_api_calls) ? job.phase_two_api_calls.length : 0} calls)
+                          </span>
+                        )}
                       </div>
                     </div>
                   </td>
