@@ -69,6 +69,32 @@ interface CustomerResult {
   margin_category: string;
 }
 
+// Interface for API call results
+interface ApiCallResult {
+  shipment_id: number;
+  rfq_data: any;
+  timestamp: string;
+  success: boolean;
+  error?: string;
+}
+
+// Interface for API response data
+interface ApiResponseData {
+  shipment_id: number;
+  quotes: any[];
+  quote_count: number;
+}
+
+// Interface for live processing results
+interface LiveProcessingResult {
+  customer_name: string;
+  shipment_id: number;
+  carrier_quote: number;
+  revenue: number;
+  profit: number;
+  margin_percentage: number;
+  quotes: any[];
+}
 export const MarginAnalysisTools: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'preliminary' | 'queue' | 'completed' | 'recommendations'>('preliminary');
   const [loading, setLoading] = useState(false);
@@ -82,6 +108,9 @@ export const MarginAnalysisTools: React.FC = () => {
   const [isRunningPhaseOne, setIsRunningPhaseOne] = useState(false);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [liveResults, setLiveResults] = useState<CustomerResult[]>([]);
+  const [apiCallResults, setApiCallResults] = useState<ApiCallResult[]>([]);
+  const [apiResponseData, setApiResponseData] = useState<ApiResponseData[]>([]);
+  const [liveProcessingResults, setLiveProcessingResults] = useState<LiveProcessingResult[]>([]);
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
   const [progressPercentage, setProgressPercentage] = useState(0);
   const [totalProcessed, setTotalProcessed] = useState(0);
@@ -113,7 +142,7 @@ export const MarginAnalysisTools: React.FC = () => {
     if (!currentJobId || !isRunningPhaseOne) return;
     
     const pollInterval = setInterval(async () => {
-      await fetchLiveResults(currentJobId);
+      await fetchJobStatus(currentJobId);
     }, 1000); // Poll every second
     
     return () => clearInterval(pollInterval);
@@ -143,7 +172,7 @@ export const MarginAnalysisTools: React.FC = () => {
     }
   };
 
-  const fetchLiveResults = async (jobId: string) => {
+  const fetchJobStatus = async (jobId: string) => {
     try {
       // Get job status and progress
       const { data: statusData, error: statusError } = await supabase
@@ -164,41 +193,157 @@ export const MarginAnalysisTools: React.FC = () => {
         }
       }
       
-      // Get live results by customer
-      const { data: resultsData, error: resultsError } = await supabase
-        .rpc('get_live_job_results', { job_id: jobId });
+      // Get the raw API call results and responses
+      await fetchRawApiResults(jobId);
+    } catch (error) {
+      console.error('Failed to fetch job status:', error);
+    }
+  };
+
+  const fetchRawApiResults = async (jobId: string) => {
+    try {
+      // Get the raw API call results
+      const { data: jobData, error: jobError } = await supabase
+        .from('MarginAnalysisJobs')
+        .select('phase_one_api_calls, phase_one_api_responses')
+        .eq('id', jobId)
+        .single();
       
-      if (resultsError) throw resultsError;
+      if (jobError) throw jobError;
       
-      if (resultsData) {
-        setLiveResults(resultsData);
+      if (jobData) {
+        // Process API calls
+        const apiCalls = jobData.phase_one_api_calls || [];
+        setApiCallResults(apiCalls);
         
-        // Calculate totals
-        let costSum = 0;
-        let revenueSum = 0;
-        let profitSum = 0;
-        let marginSum = 0;
-        let marginCount = 0;
+        // Process API responses
+        const apiResponses = jobData.phase_one_api_responses || [];
+        setApiResponseData(apiResponses);
         
-        resultsData.forEach((result: CustomerResult) => {
-          costSum += result.avg_carrier_quote * result.shipment_count;
-          revenueSum += result.avg_revenue * result.shipment_count;
-          profitSum += result.total_profit;
-          
-          if (result.current_margin_percentage > 0) {
-            marginSum += result.current_margin_percentage;
-            marginCount++;
-          }
-        });
-        
-        setTotalCost(costSum);
-        setTotalRevenue(revenueSum);
-        setTotalProfit(profitSum);
-        setAvgMargin(marginCount > 0 ? marginSum / marginCount : 0);
+        // Process the data to create live results
+        processLiveResults(apiCalls, apiResponses);
       }
     } catch (error) {
-      console.error('Failed to fetch live results:', error);
+      console.error('Failed to fetch raw API results:', error);
     }
+  };
+
+  const processLiveResults = (apiCalls: ApiCallResult[], apiResponses: ApiResponseData[]) => {
+    try {
+      // Map of shipment ID to customer name
+      const shipmentCustomerMap = new Map<number, string>();
+      
+      // First, extract customer names from API calls
+      apiCalls.forEach(call => {
+        if (call.rfq_data && call.rfq_data.original_shipment && call.rfq_data.original_shipment.Customer) {
+          shipmentCustomerMap.set(call.shipment_id, call.rfq_data.original_shipment.Customer);
+        }
+      });
+      
+      // Process API responses to get quotes
+      const processedResults: LiveProcessingResult[] = [];
+      
+      apiResponses.forEach(response => {
+        const customerName = shipmentCustomerMap.get(response.shipment_id) || 'Unknown';
+        
+        if (response.quotes && response.quotes.length > 0) {
+          // Get the best quote (lowest price)
+          const quotes = response.quotes;
+          
+          // For each quote, calculate what the revenue would be with different margins
+          quotes.forEach(quote => {
+            const carrierQuote = quote.rateQuoteDetail?.total || 
+                               (quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts);
+            
+            // Calculate with 23% margin (standard)
+            const standardMargin = 0.23;
+            const revenue = carrierQuote / (1 - standardMargin);
+            const profit = revenue - carrierQuote;
+            const marginPercentage = (profit / carrierQuote) * 100;
+            
+            processedResults.push({
+              customer_name: customerName,
+              shipment_id: response.shipment_id,
+              carrier_quote: carrierQuote,
+              revenue: revenue,
+              profit: profit,
+              margin_percentage: marginPercentage,
+              quotes: [quote]
+            });
+          });
+        }
+      });
+      
+      // Set the live processing results
+      setLiveProcessingResults(processedResults);
+      
+      // Calculate totals for display
+      let costSum = 0;
+      let revenueSum = 0;
+      let profitSum = 0;
+      let marginSum = 0;
+      let marginCount = 0;
+      
+      processedResults.forEach(result => {
+        costSum += result.carrier_quote;
+        revenueSum += result.revenue;
+        profitSum += result.profit;
+        
+        if (result.margin_percentage > 0) {
+          marginSum += result.margin_percentage;
+          marginCount++;
+        }
+      });
+      
+      setTotalCost(costSum);
+      setTotalRevenue(revenueSum);
+      setTotalProfit(profitSum);
+      setAvgMargin(marginCount > 0 ? marginSum / marginCount : 0);
+      
+      // Group by customer for display
+      const customerResults = processedResults.reduce((acc, result) => {
+        const key = result.customer_name;
+        if (!acc[key]) {
+          acc[key] = {
+            customer_name: key,
+            shipment_count: 0,
+            total_carrier_quote: 0,
+            total_revenue: 0,
+            total_profit: 0,
+            quotes_count: 0
+          };
+        }
+        
+        acc[key].shipment_count += 1;
+        acc[key].total_carrier_quote += result.carrier_quote;
+        acc[key].total_revenue += result.revenue;
+        acc[key].total_profit += result.profit;
+        acc[key].quotes_count += result.quotes.length;
+        
+        return acc;
+      }, {} as Record<string, any>);
+      
+      // Convert to array and calculate averages
+      const customerResultsArray = Object.values(customerResults).map(cr => ({
+        customer_name: cr.customer_name,
+        shipment_count: cr.shipment_count,
+        avg_carrier_quote: cr.total_carrier_quote / cr.shipment_count,
+        avg_revenue: cr.total_revenue / cr.shipment_count,
+        total_profit: cr.total_profit,
+        current_margin_percentage: (cr.total_profit / cr.total_carrier_quote) * 100,
+        margin_category: getMarginCategory((cr.total_profit / cr.total_carrier_quote) * 100)
+      }));
+      
+      setLiveResults(customerResultsArray as CustomerResult[]);
+    } catch (error) {
+      console.error('Failed to process live results:', error);
+    }
+  };
+  
+  const getMarginCategory = (marginPercentage: number): string => {
+    if (marginPercentage < 15) return 'Low Margin';
+    if (marginPercentage < 25) return 'Target Margin';
+    return 'High Margin';
   };
 
   const loadJobs = async () => {
@@ -338,6 +483,9 @@ export const MarginAnalysisTools: React.FC = () => {
       const apiResponses = [];
       const rateData = [];
 
+      // Store the live processing results directly
+      const liveResults: LiveProcessingResult[] = [];
+
       for (const shipment of shipments) {
         try {
           // Convert shipment to RFQ format
@@ -365,7 +513,10 @@ export const MarginAnalysisTools: React.FC = () => {
 
           const apiCall = {
             shipment_id: shipment["Invoice #"],
-            rfq_data: rfq,
+            rfq_data: {
+              ...rfq,
+              original_shipment: shipment
+            },
             timestamp: new Date().toISOString(),
             success: quotes.length > 0
           };
@@ -379,11 +530,13 @@ export const MarginAnalysisTools: React.FC = () => {
               original_shipment: shipment
             });
 
-            apiResponses.push({
+            const apiResponse = {
               shipment_id: shipment["Invoice #"],
               quotes: quotes,
               quote_count: quotes.length
-            });
+            };
+
+            apiResponses.push(apiResponse);
 
             // Extract rate data
             const rates = quotes.map(quote => ({
@@ -398,7 +551,97 @@ export const MarginAnalysisTools: React.FC = () => {
               shipment_id: shipment["Invoice #"],
               rates: rates
             });
+            
+            // Process for live results display
+            quotes.forEach(quote => {
+              const carrierQuote = quote.rateQuoteDetail?.total || 
+                                 (quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts);
+              
+              // Calculate with 23% margin (standard)
+              const standardMargin = 0.23;
+              const revenue = carrierQuote / (1 - standardMargin);
+              const profit = revenue - carrierQuote;
+              const marginPercentage = (profit / carrierQuote) * 100;
+              
+              liveResults.push({
+                customer_name: shipment["Customer"] || 'Unknown',
+                shipment_id: shipment["Invoice #"],
+                carrier_quote: carrierQuote,
+                revenue: revenue,
+                profit: profit,
+                margin_percentage: marginPercentage,
+                quotes: [quote]
+              });
+            });
           }
+
+          // Update the live processing results state
+          setLiveProcessingResults(prev => [...prev, ...liveResults]);
+          
+          // Update totals for display
+          const newCost = liveResults.reduce((sum, r) => sum + r.carrier_quote, 0);
+          const newRevenue = liveResults.reduce((sum, r) => sum + r.revenue, 0);
+          const newProfit = liveResults.reduce((sum, r) => sum + r.profit, 0);
+          
+          setTotalCost(prev => prev + newCost);
+          setTotalRevenue(prev => prev + newRevenue);
+          setTotalProfit(prev => prev + newProfit);
+          
+          // Group by customer for display
+          const customerResults = liveResults.reduce((acc, result) => {
+            const key = result.customer_name;
+            if (!acc[key]) {
+              acc[key] = {
+                customer_name: key,
+                shipment_count: 0,
+                total_carrier_quote: 0,
+                total_revenue: 0,
+                total_profit: 0,
+                quotes_count: 0
+              };
+            }
+            
+            acc[key].shipment_count += 1;
+            acc[key].total_carrier_quote += result.carrier_quote;
+            acc[key].total_revenue += result.revenue;
+            acc[key].total_profit += result.profit;
+            acc[key].quotes_count += result.quotes.length;
+            
+            return acc;
+          }, {} as Record<string, any>);
+          
+          // Convert to array and calculate averages
+          const customerResultsArray = Object.values(customerResults).map(cr => ({
+            customer_name: cr.customer_name,
+            shipment_count: cr.shipment_count,
+            avg_carrier_quote: cr.total_carrier_quote / cr.shipment_count,
+            avg_revenue: cr.total_revenue / cr.shipment_count,
+            total_profit: cr.total_profit,
+            current_margin_percentage: (cr.total_profit / cr.total_carrier_quote) * 100,
+            margin_category: getMarginCategory((cr.total_profit / cr.total_carrier_quote) * 100)
+          }));
+          
+          setLiveResults(prev => {
+            // Merge with existing results
+            const merged = [...prev];
+            customerResultsArray.forEach(newResult => {
+              const existingIndex = merged.findIndex(r => r.customer_name === newResult.customer_name);
+              if (existingIndex >= 0) {
+                merged[existingIndex] = newResult;
+              } else {
+                merged.push(newResult as CustomerResult);
+              }
+            });
+            return merged;
+          });
+          
+          // Original API call object (keeping for backward compatibility)
+          const originalApiCall = {
+            shipment_id: shipment["Invoice #"],
+            rfq_data: rfq,
+            timestamp: new Date().toISOString(),
+            success: quotes.length > 0
+          };
 
           // Small delay between API calls
           await new Promise(resolve => setTimeout(resolve, 100));
@@ -583,7 +826,7 @@ export const MarginAnalysisTools: React.FC = () => {
   };
 
   const renderLiveResults = () => {
-    if (!isRunningPhaseOne) {
+    if (!isRunningPhaseOne && liveProcessingResults.length === 0) {
       return (
         <div className="bg-white rounded-lg shadow-md p-8 text-center">
           <Loader className="h-12 w-12 text-blue-500 animate-spin mx-auto mb-4" />
@@ -609,7 +852,7 @@ export const MarginAnalysisTools: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">Live Results by Customer</h3>
             <div className="flex items-center space-x-2">
-              <Loader className="h-4 w-4 text-blue-500 animate-spin" />
+              {isRunningPhaseOne && <Loader className="h-4 w-4 text-blue-500 animate-spin" />}
               <span className="text-sm text-blue-600">
                 {progressPercentage.toFixed(1)}% complete
               </span>
@@ -632,7 +875,7 @@ export const MarginAnalysisTools: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-900">Live Analysis Summary</h3>
               <p className="text-sm text-gray-600">
-                {totalProcessed} of {totalShipments} shipments processed
+                {liveProcessingResults.length} quotes processed from {apiCallResults.length} API calls
               </p>
             </div>
           </div>
@@ -643,6 +886,7 @@ export const MarginAnalysisTools: React.FC = () => {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Total Cost</p>
                   <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalCost)}</p>
+                  <p className="text-xs text-gray-500">From API quotes</p>
                 </div>
                 <CreditCard className="h-8 w-8 text-blue-500" />
               </div>
@@ -653,6 +897,7 @@ export const MarginAnalysisTools: React.FC = () => {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Total Revenue</p>
                   <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalRevenue)}</p>
+                  <p className="text-xs text-gray-500">With 23% margin</p>
                 </div>
                 <DollarSign className="h-8 w-8 text-green-500" />
               </div>
@@ -663,6 +908,7 @@ export const MarginAnalysisTools: React.FC = () => {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Total Profit</p>
                   <p className="text-2xl font-bold text-green-600">{formatCurrency(totalProfit)}</p>
+                  <p className="text-xs text-gray-500">Revenue - Cost</p>
                 </div>
                 <TrendingUp className="h-8 w-8 text-green-500" />
               </div>
@@ -677,10 +923,55 @@ export const MarginAnalysisTools: React.FC = () => {
                     avgMargin < 25 ? 'text-yellow-600' :
                     'text-green-600'
                   }`}>{avgMargin.toFixed(1)}%</p>
+                  <p className="text-xs text-gray-500">Profit / Cost</p>
                 </div>
                 <Percent className="h-8 w-8 text-blue-500" />
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Raw API Results */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Live API Results</h3>
+            <div className="text-sm text-gray-600">
+              {liveProcessingResults.length} quotes received
+            </div>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left">Shipment ID</th>
+                  <th className="px-4 py-2 text-left">Customer</th>
+                  <th className="px-4 py-2 text-left">Carrier</th>
+                  <th className="px-4 py-2 text-left">Quote</th>
+                  <th className="px-4 py-2 text-left">Revenue (23%)</th>
+                  <th className="px-4 py-2 text-left">Profit</th>
+                  <th className="px-4 py-2 text-left">Margin %</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {liveProcessingResults.slice(0, 10).map((result, index) => (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-4 py-2">{result.shipment_id}</td>
+                    <td className="px-4 py-2">{result.customer_name}</td>
+                    <td className="px-4 py-2">{result.quotes[0]?.carrier?.name || 'Unknown'}</td>
+                    <td className="px-4 py-2 font-medium">{formatCurrency(result.carrier_quote)}</td>
+                    <td className="px-4 py-2 text-green-600">{formatCurrency(result.revenue)}</td>
+                    <td className="px-4 py-2 text-green-600">{formatCurrency(result.profit)}</td>
+                    <td className="px-4 py-2 font-medium">{result.margin_percentage.toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {liveProcessingResults.length > 10 && (
+              <div className="text-center mt-2 text-sm text-gray-500">
+                Showing 10 of {liveProcessingResults.length} results
+              </div>
+            )}
           </div>
         </div>
 
@@ -813,9 +1104,19 @@ export const MarginAnalysisTools: React.FC = () => {
         
         {liveResults.length === 0 && (
           <div className="bg-white rounded-lg shadow-md p-8 text-center">
-            <Loader className="h-12 w-12 text-blue-500 animate-spin mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Processing Shipments</h3>
-            <p className="text-gray-600">Waiting for first results...</p>
+            {liveProcessingResults.length === 0 ? (
+              <>
+                <Loader className="h-12 w-12 text-blue-500 animate-spin mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Processing Shipments</h3>
+                <p className="text-gray-600">Waiting for first results...</p>
+              </>
+            ) : (
+              <>
+                <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Processing Individual Quotes</h3>
+                <p className="text-gray-600">See live API results in the table above</p>
+              </>
+            )}
           </div>
         )}
       </div>
