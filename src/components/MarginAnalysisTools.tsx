@@ -29,10 +29,15 @@ import {
   ChevronDown,
   ChevronUp,
   Info,
-  Loader
+  Loader,
+  CalendarDays,
+  Check,
+  X
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
+import { CarrierSelection } from './CarrierSelection';
+import { CarrierGroup } from '../utils/apiClient';
 
 interface MarginAnalysisJob {
   id: string;
@@ -50,6 +55,9 @@ interface MarginAnalysisJob {
   current_margin?: number;
   confidence_score?: number;
   error_message?: string;
+  date_range_start?: string;
+  date_range_end?: string;
+  selected_carriers?: string[];
 }
 
 interface MarginRecommendation {
@@ -65,6 +73,11 @@ interface MarginRecommendation {
   last_updated: string;
 }
 
+interface DateRange {
+  startDate: string;
+  endDate: string;
+}
+
 export const MarginAnalysisTools: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'queue' | 'recommendations' | 'settings'>('overview');
   const [analysisJobs, setAnalysisJobs] = useState<MarginAnalysisJob[]>([]);
@@ -74,13 +87,25 @@ export const MarginAnalysisTools: React.FC = () => {
   
   // Analysis settings
   const [analysisSettings, setAnalysisSettings] = useState({
-    lookbackDays: 365,
     minShipmentCount: 10,
     confidenceThreshold: 0.75,
     maxMarginChange: 5.0,
     autoRunEnabled: false,
     scheduleTime: '02:00'
   });
+  
+  // Date range configuration
+  const [dateRange, setDateRange] = useState<DateRange>({
+    startDate: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 1 year ago
+    endDate: new Date().toISOString().split('T')[0] // Today
+  });
+  
+  // Carrier selection
+  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
+  const [selectedCarriers, setSelectedCarriers] = useState<{ [carrierId: string]: boolean }>({});
+  const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
+  const [carriersLoaded, setCarriersLoaded] = useState(false);
+  const [showCarrierSelection, setShowCarrierSelection] = useState(false);
   
   // Filters
   const [customerFilter, setCustomerFilter] = useState('');
@@ -93,6 +118,70 @@ export const MarginAnalysisTools: React.FC = () => {
     loadAnalysisData();
   }, []);
 
+  const loadCarriers = async () => {
+    setIsLoadingCarriers(true);
+    try {
+      // Mock carrier data - replace with actual API call
+      const mockCarrierGroups: CarrierGroup[] = [
+        {
+          groupCode: 'LTL_CARRIERS',
+          groupName: 'LTL Carriers',
+          carriers: [
+            { id: 'FXFE', name: 'FedEx Freight', scac: 'FXFE' },
+            { id: 'ODFL', name: 'Old Dominion Freight Line', scac: 'ODFL' },
+            { id: 'SAIA', name: 'Saia LTL Freight', scac: 'SAIA' },
+            { id: 'RLCA', name: 'R+L Carriers', scac: 'RLCA' },
+            { id: 'ABFS', name: 'ABF Freight', scac: 'ABFS' },
+            { id: 'EXLA', name: 'Estes Express Lines', scac: 'EXLA' }
+          ]
+        }
+      ];
+      
+      setCarrierGroups(mockCarrierGroups);
+      setCarriersLoaded(true);
+      console.log('✅ Loaded carriers for margin analysis');
+    } catch (error) {
+      console.error('❌ Failed to load carriers:', error);
+      setError('Failed to load carriers');
+    } finally {
+      setIsLoadingCarriers(false);
+    }
+  };
+
+  const handleCarrierToggle = (carrierId: string, selected: boolean) => {
+    setSelectedCarriers(prev => ({ ...prev, [carrierId]: selected }));
+  };
+
+  const handleSelectAll = (selected: boolean) => {
+    const newSelection: { [carrierId: string]: boolean } = {};
+    carrierGroups.forEach(group => {
+      group.carriers.forEach(carrier => {
+        newSelection[carrier.id] = selected;
+      });
+    });
+    setSelectedCarriers(newSelection);
+  };
+
+  const handleSelectAllInGroup = (groupCode: string, selected: boolean) => {
+    const group = carrierGroups.find(g => g.groupCode === groupCode);
+    if (!group) return;
+    
+    const newSelection = { ...selectedCarriers };
+    group.carriers.forEach(carrier => {
+      newSelection[carrier.id] = selected;
+    });
+    setSelectedCarriers(newSelection);
+  };
+
+  const getSelectedCarrierCount = () => {
+    return Object.values(selectedCarriers).filter(Boolean).length;
+  };
+
+  const getDateRangeDays = () => {
+    const start = new Date(dateRange.startDate);
+    const end = new Date(dateRange.endDate);
+    return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  };
   const loadAnalysisData = async () => {
     setLoading(true);
     try {
@@ -112,7 +201,10 @@ export const MarginAnalysisTools: React.FC = () => {
           completed_at: '2025-01-15T02:45:00Z',
           shipment_count: 156,
           current_margin: 18.5,
-          confidence_score: 0.87
+          confidence_score: 0.87,
+          date_range_start: '2024-01-01',
+          date_range_end: '2024-12-31',
+          selected_carriers: ['FXFE', 'ODFL', 'SAIA']
         },
         {
           id: '2',
@@ -123,7 +215,10 @@ export const MarginAnalysisTools: React.FC = () => {
           created_at: '2025-01-16T02:00:00Z',
           started_at: '2025-01-16T02:00:00Z',
           shipment_count: 156,
-          current_margin: 18.5
+          current_margin: 18.5,
+          date_range_start: '2024-01-01',
+          date_range_end: '2024-12-31',
+          selected_carriers: ['FXFE', 'ODFL', 'SAIA']
         }
       ]);
       
@@ -150,9 +245,27 @@ export const MarginAnalysisTools: React.FC = () => {
   };
 
   const startBenchmarkAnalysis = async () => {
+    const selectedCarrierIds = Object.entries(selectedCarriers)
+      .filter(([_, selected]) => selected)
+      .map(([carrierId, _]) => carrierId);
+    
+    if (selectedCarrierIds.length === 0) {
+      setError('Please select at least one carrier for analysis');
+      return;
+    }
+    
+    if (!dateRange.startDate || !dateRange.endDate) {
+      setError('Please select a valid date range');
+      return;
+    }
+
     setLoading(true);
     try {
-      console.log('Starting benchmark analysis for all customer-carrier pairs...');
+      console.log('Starting benchmark analysis:', {
+        dateRange,
+        selectedCarriers: selectedCarrierIds,
+        days: getDateRangeDays()
+      });
       
       // This would trigger the benchmark analysis job
       // Query all unique customer-carrier pairs from shipment history
@@ -160,7 +273,7 @@ export const MarginAnalysisTools: React.FC = () => {
       
       await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate API call
       
-      console.log('Benchmark analysis jobs queued successfully');
+      console.log(`Benchmark analysis jobs queued for ${selectedCarrierIds.length} carriers over ${getDateRangeDays()} days`);
       await loadAnalysisData();
       
     } catch (err) {
@@ -171,9 +284,21 @@ export const MarginAnalysisTools: React.FC = () => {
   };
 
   const startComparisonAnalysis = async () => {
+    const selectedCarrierIds = Object.entries(selectedCarriers)
+      .filter(([_, selected]) => selected)
+      .map(([carrierId, _]) => carrierId);
+    
+    if (selectedCarrierIds.length === 0) {
+      setError('Please select at least one carrier for analysis');
+      return;
+    }
+
     setLoading(true);
     try {
-      console.log('Starting comparison analysis with new rates...');
+      console.log('Starting comparison analysis with new rates:', {
+        dateRange,
+        selectedCarriers: selectedCarrierIds
+      });
       
       // This would trigger the comparison analysis job
       // Use the same historical data but with current/new rates
@@ -181,7 +306,7 @@ export const MarginAnalysisTools: React.FC = () => {
       
       await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate API call
       
-      console.log('Comparison analysis jobs queued successfully');
+      console.log(`Comparison analysis jobs queued for ${selectedCarrierIds.length} carriers`);
       await loadAnalysisData();
       
     } catch (err) {
@@ -243,6 +368,172 @@ export const MarginAnalysisTools: React.FC = () => {
 
   const renderOverview = () => (
     <div className="space-y-6">
+      {/* Analysis Configuration */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Analysis Configuration</h3>
+            <p className="text-sm text-gray-600">Configure date range and carrier selection for margin analysis</p>
+          </div>
+          {!carriersLoaded && (
+            <button
+              onClick={loadCarriers}
+              disabled={isLoadingCarriers}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+            >
+              {isLoadingCarriers ? (
+                <Loader className="h-4 w-4 animate-spin" />
+              ) : (
+                <Truck className="h-4 w-4" />
+              )}
+              <span>{isLoadingCarriers ? 'Loading...' : 'Load Carriers'}</span>
+            </button>
+          )}
+        </div>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Date Range Selection */}
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2">
+              <CalendarDays className="h-5 w-5 text-blue-600" />
+              <h4 className="font-medium text-gray-900">Analysis Date Range</h4>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                <input
+                  type="date"
+                  value={dateRange.startDate}
+                  onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                <input
+                  type="date"
+                  value={dateRange.endDate}
+                  onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <div className="text-sm text-blue-800">
+                <strong>Analysis Period:</strong> {getDateRangeDays()} days
+                <br />
+                <strong>Range:</strong> {new Date(dateRange.startDate).toLocaleDateString()} - {new Date(dateRange.endDate).toLocaleDateString()}
+              </div>
+            </div>
+            
+            {/* Quick Date Range Buttons */}
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  const endDate = new Date().toISOString().split('T')[0];
+                  const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                  setDateRange({ startDate, endDate });
+                }}
+                className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+              >
+                Last 90 Days
+              </button>
+              <button
+                onClick={() => {
+                  const endDate = new Date().toISOString().split('T')[0];
+                  const startDate = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                  setDateRange({ startDate, endDate });
+                }}
+                className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+              >
+                Last 6 Months
+              </button>
+              <button
+                onClick={() => {
+                  const endDate = new Date().toISOString().split('T')[0];
+                  const startDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                  setDateRange({ startDate, endDate });
+                }}
+                className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+              >
+                Last Year
+              </button>
+            </div>
+          </div>
+          
+          {/* Carrier Selection Summary */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Truck className="h-5 w-5 text-green-600" />
+                <h4 className="font-medium text-gray-900">Carrier Selection</h4>
+              </div>
+              {carriersLoaded && (
+                <button
+                  onClick={() => setShowCarrierSelection(!showCarrierSelection)}
+                  className="flex items-center space-x-2 px-3 py-1 text-sm bg-green-100 text-green-700 rounded-md hover:bg-green-200"
+                >
+                  <Settings className="h-4 w-4" />
+                  <span>{showCarrierSelection ? 'Hide' : 'Configure'}</span>
+                </button>
+              )}
+            </div>
+            
+            {carriersLoaded ? (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="text-sm text-green-800">
+                  <strong>Selected Carriers:</strong> {getSelectedCarrierCount()} of {carrierGroups.reduce((sum, group) => sum + group.carriers.length, 0)}
+                </div>
+                {getSelectedCarrierCount() > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {Object.entries(selectedCarriers)
+                      .filter(([_, selected]) => selected)
+                      .slice(0, 5)
+                      .map(([carrierId, _]) => {
+                        const carrier = carrierGroups
+                          .flatMap(g => g.carriers)
+                          .find(c => c.id === carrierId);
+                        return (
+                          <span key={carrierId} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            {carrier?.name || carrierId}
+                          </span>
+                        );
+                      })}
+                    {getSelectedCarrierCount() > 5 && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        +{getSelectedCarrierCount() - 5} more
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="text-sm text-gray-600">
+                  Load carriers to configure selection for analysis
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* Carrier Selection Panel */}
+        {showCarrierSelection && carriersLoaded && (
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <CarrierSelection
+              carrierGroups={carrierGroups}
+              selectedCarriers={selectedCarriers}
+              onToggleCarrier={handleCarrierToggle}
+              onSelectAll={handleSelectAll}
+              onSelectAllInGroup={handleSelectAllInGroup}
+              isLoading={isLoadingCarriers}
+            />
+          </div>
+        )}
+      </div>
+
       {/* Analysis Workflow */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
         <div className="flex items-center space-x-3 mb-4">
@@ -269,23 +560,34 @@ export const MarginAnalysisTools: React.FC = () => {
               </div>
               <div className="flex items-center space-x-2">
                 <Database className="h-4 w-4 text-blue-500" />
-                <span>Analyze entire last year of shipments</span>
+                <span>Analyze {getDateRangeDays()} days of shipments</span>
               </div>
               <div className="flex items-center space-x-2">
                 <Archive className="h-4 w-4 text-blue-500" />
                 <span>Store benchmark data in queue</span>
               </div>
+              <div className="flex items-center space-x-2">
+                <Truck className="h-4 w-4 text-blue-500" />
+                <span>{getSelectedCarrierCount()} selected carriers</span>
+              </div>
             </div>
             <button
               onClick={startBenchmarkAnalysis}
-              disabled={loading}
-              className="w-full mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+              disabled={loading || getSelectedCarrierCount() === 0}
+              className="w-full mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors disabled:cursor-not-allowed"
             >
               <div className="flex items-center justify-center space-x-2">
-                <Play className="h-4 w-4" />
-                <span>Start Benchmark Analysis</span>
+                {loading ? (
+                  <Loader className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+                <span>{loading ? 'Starting...' : 'Start Benchmark Analysis'}</span>
               </div>
             </button>
+            {getSelectedCarrierCount() === 0 && (
+              <p className="text-xs text-red-600 mt-2">Please select at least one carrier</p>
+            )}
           </div>
           
           {/* Day 2: Comparison */}
@@ -307,17 +609,28 @@ export const MarginAnalysisTools: React.FC = () => {
                 <Target className="h-4 w-4 text-green-500" />
                 <span>Generate margin recommendations</span>
               </div>
+              <div className="flex items-center space-x-2">
+                <Truck className="h-4 w-4 text-green-500" />
+                <span>Same {getSelectedCarrierCount()} carriers</span>
+              </div>
             </div>
             <button
               onClick={startComparisonAnalysis}
-              disabled={loading}
-              className="w-full mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
+              disabled={loading || getSelectedCarrierCount() === 0}
+              className="w-full mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors disabled:cursor-not-allowed"
             >
               <div className="flex items-center justify-center space-x-2">
-                <Zap className="h-4 w-4" />
-                <span>Start Comparison Analysis</span>
+                {loading ? (
+                  <Loader className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Zap className="h-4 w-4" />
+                )}
+                <span>{loading ? 'Starting...' : 'Start Comparison Analysis'}</span>
               </div>
             </button>
+            {getSelectedCarrierCount() === 0 && (
+              <p className="text-xs text-red-600 mt-2">Please select at least one carrier</p>
+            )}
           </div>
         </div>
       </div>
@@ -533,6 +846,12 @@ export const MarginAnalysisTools: React.FC = () => {
                         <div className="text-sm font-medium text-gray-700">Analysis Details</div>
                         <div className="text-sm text-gray-600 space-y-1">
                           <div>Shipments: {job.shipment_count}</div>
+                          {job.date_range_start && job.date_range_end && (
+                            <div>Period: {new Date(job.date_range_start).toLocaleDateString()} - {new Date(job.date_range_end).toLocaleDateString()}</div>
+                          )}
+                          {job.selected_carriers && (
+                            <div>Carriers: {job.selected_carriers.length}</div>
+                          )}
                           {job.current_margin && (
                             <div>Current Margin: {job.current_margin}%</div>
                           )}
@@ -659,21 +978,6 @@ export const MarginAnalysisTools: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Lookback Period (Days)
-            </label>
-            <input
-              type="number"
-              value={analysisSettings.lookbackDays}
-              onChange={(e) => setAnalysisSettings({
-                ...analysisSettings,
-                lookbackDays: parseInt(e.target.value) || 365
-              })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
               Minimum Shipment Count
             </label>
             <input
@@ -719,6 +1023,34 @@ export const MarginAnalysisTools: React.FC = () => {
               })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             />
+          </div>
+        </div>
+        
+        {/* Date Range Configuration */}
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <h4 className="text-md font-semibold text-gray-900 mb-4">Default Date Range Settings</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Default Start Date</label>
+              <input
+                type="date"
+                value={dateRange.startDate}
+                onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Default End Date</label>
+              <input
+                type="date"
+                value={dateRange.endDate}
+                onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <div className="mt-2 text-sm text-gray-600">
+            Analysis period: {getDateRangeDays()} days
           </div>
         </div>
         
@@ -792,6 +1124,12 @@ export const MarginAnalysisTools: React.FC = () => {
           <div className="flex items-center space-x-2">
             <AlertTriangle className="h-5 w-5 text-red-600" />
             <span className="text-red-800">{error}</span>
+            <button
+              onClick={() => setError('')}
+              className="ml-auto text-red-600 hover:text-red-800"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         </div>
       )}
