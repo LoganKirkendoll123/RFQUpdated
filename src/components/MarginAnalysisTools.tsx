@@ -152,17 +152,27 @@ export const MarginAnalysisTools: React.FC = () => {
       
       const { data, error } = await supabase
         .from('Shipments')
-        .select('Carrier')
-        .not('Carrier', 'is', null)
-        .not('Carrier', 'eq', '');
+        .select('"Booked Carrier", "Quoted Carrier"')
+        .or('"Booked Carrier".not.is.null,"Quoted Carrier".not.is.null')
+        .or('not."Booked Carrier".eq.,not."Quoted Carrier".eq.');
       
       if (error) {
         console.error('❌ Error loading carriers:', error);
         return;
       }
       
-      // Get unique carriers
-      const uniqueCarriers = [...new Set(data.map(row => row.Carrier))].sort();
+      // Get unique carriers from both booked and quoted carriers
+      const allCarriers = [];
+      data.forEach(row => {
+        if (row['Booked Carrier'] && row['Booked Carrier'].trim()) {
+          allCarriers.push(row['Booked Carrier'].trim());
+        }
+        if (row['Quoted Carrier'] && row['Quoted Carrier'].trim()) {
+          allCarriers.push(row['Quoted Carrier'].trim());
+        }
+      });
+      
+      const uniqueCarriers = [...new Set(allCarriers)].sort();
       console.log(`✅ Loaded ${uniqueCarriers.length} unique carriers`);
       
       // Convert to carrier groups format for compatibility
