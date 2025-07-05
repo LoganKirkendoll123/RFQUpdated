@@ -11,6 +11,7 @@ import { SupabaseStatus } from './components/SupabaseStatus';
 import { SupabaseSetup } from './components/SupabaseSetup';
 import { DatabaseToolbox } from './components/DatabaseToolbox';
 import { SpotQuote } from './components/SpotQuote';
+import { MassRFQFromShipments } from './components/MassRFQFromShipments';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { calculatePricing } from './utils/pricingCalculator';
 import { Project44APIClient, FreshXAPIClient, CarrierGroup } from './utils/apiClient';
@@ -106,7 +107,7 @@ function App() {
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   
   // UI state
-  const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database' | 'spot-quote'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database' | 'spot-quote' | 'mass-rfq'>('upload');
   const [fileError, setFileError] = useState<string>('');
   
   // API clients - store as instance variables to maintain token state
@@ -696,7 +697,8 @@ function App() {
               { id: 'spot-quote', label: 'Spot Quote', icon: Zap, badge: null },
               { id: 'results', label: 'Smart Quotes', icon: Target, badge: results.length },
               { id: 'analytics', label: 'Business Intelligence', icon: BarChart3 },
-              { id: 'database', label: 'Database Toolbox', icon: Database }
+              { id: 'database', label: 'Database Toolbox', icon: Database },
+              { id: 'mass-rfq', label: 'Mass RFQ', icon: Users }
             ].map((tab) => {
               const Icon = tab.icon;
               return (
@@ -1082,6 +1084,16 @@ function App() {
 
         {activeTab === 'database' && (
           <DatabaseToolbox />
+        )}
+
+        {activeTab === 'mass-rfq' && (
+          <MassRFQFromShipments
+            project44Client={project44Client}
+            freshxClient={freshxClient}
+            selectedCarriers={selectedCarriers}
+            pricingSettings={pricingSettings}
+            selectedCustomer={selectedCustomer}
+          />
         )}
       </main>
     </div>
