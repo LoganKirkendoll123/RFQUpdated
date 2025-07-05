@@ -94,6 +94,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
   const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
   const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
   const [carriersLoaded, setCarriersLoaded] = useState(false);
+  const [carrierLoadError, setCarrierLoadError] = useState<string>('');
   const [localSelectedCarriers, setLocalSelectedCarriers] = useState<{ [carrierId: string]: boolean }>({});
   
   // Filter options
@@ -121,14 +122,53 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
 
     setIsLoadingCarriers(true);
     setCarriersLoaded(false);
+    setCarrierLoadError('');
     try {
-      console.log('🚛 Loading carriers for mass RFQ...');
-      const groups = await project44Client.getAvailableCarriersByGroup(false, false);
-      setCarrierGroups(groups);
+      console.log('🚛 Loading ALL carriers for mass RFQ (including all account groups)...');
+      // Load carriers for all modes to get comprehensive coverage
+      const [standardGroups, volumeGroups] = await Promise.all([
+        project44Client.getAvailableCarriersByGroup(false, false), // Standard LTL
+        project44Client.getAvailableCarriersByGroup(true, false)   // Volume LTL
+      ]);
+      
+      // Merge and deduplicate carrier groups
+      const allGroups = [...standardGroups];
+      
+      // Add volume groups that aren't already included
+      volumeGroups.forEach(volumeGroup => {
+        const existingGroup = allGroups.find(g => g.groupCode === volumeGroup.groupCode);
+        if (existingGroup) {
+          // Merge carriers from volume group into existing group
+          const existingCarrierIds = new Set(existingGroup.carriers.map(c => c.id));
+          volumeGroup.carriers.forEach(carrier => {
+            if (!existingCarrierIds.has(carrier.id)) {
+              existingGroup.carriers.push(carrier);
+            }
+          });
+          // Update group name to indicate it supports both modes
+          existingGroup.groupName = existingGroup.groupName.replace(' (Standard LTL)', ' (LTL + VLTL)');
+        } else {
+          // Add new group
+          allGroups.push({
+            ...volumeGroup,
+            groupName: volumeGroup.groupName.replace(' (Volume LTL (VLTL))', ' (VLTL Only)')
+          });
+        }
+      });
+      
+      // Sort carriers within each group
+      allGroups.forEach(group => {
+        group.carriers.sort((a, b) => a.name.localeCompare(b.name));
+      });
+      
+      setCarrierGroups(allGroups);
       setCarriersLoaded(true);
-      console.log(`✅ Loaded ${groups.length} carrier groups for mass RFQ`);
+      
+      const totalCarriers = allGroups.reduce((sum, group) => sum + group.carriers.length, 0);
+      console.log(`✅ Loaded ${allGroups.length} carrier groups with ${totalCarriers} total carriers for mass RFQ`);
     } catch (error) {
       console.error('❌ Failed to load carriers:', error);
+      setCarrierLoadError(error instanceof Error ? error.message : 'Failed to load carriers');
       setCarrierGroups([]);
       setCarriersLoaded(false);
     } finally {
@@ -953,21 +993,34 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
         <div className="px-6 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">Carrier Selection</h3>
+            <div className="flex items-center space-x-4">
+              {carrierLoadError && (
+                <div className="text-sm text-red-600 flex items-center space-x-1">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>{carrierLoadError}</span>
+                </div>
+              )}
             {!carriersLoaded && (
               <button
                 onClick={loadCarriers}
                 disabled={isLoadingCarriers}
-                className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400"
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
               >
                 {isLoadingCarriers ? (
                   <Loader className="h-4 w-4 animate-spin" />
                 ) : (
                   <Truck className="h-4 w-4" />
                 )}
-                <span>{isLoadingCarriers ? 'Loading...' : 'Load Carriers'}</span>
+                <span>{isLoadingCarriers ? 'Loading All Carriers...' : 'Load All Carriers'}</span>
               </button>
             )}
+            </div>
           </div>
+          {carriersLoaded && (
+            <div className="mt-2 text-sm text-gray-600">
+              Loaded {carrierGroups.length} account groups with {carrierGroups.reduce((sum, g) => sum + g.carriers.length, 0)} total carriers (LTL + VLTL)
+            </div>
+          )}
         </div>
         
         {carriersLoaded && (
@@ -979,6 +1032,21 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
             onSelectAllInGroup={handleSelectAllInGroup}
             isLoading={isLoadingCarriers}
           />
+        )}
+        
+        {carrierLoadError && !isLoadingCarriers && (
+          <div className="p-6 bg-red-50 border-t border-red-200">
+            <div className="flex items-center space-x-2 text-red-700">
+              <AlertCircle className="h-4 w-4" />
+              <span className="text-sm">Failed to load carriers: {carrierLoadError}</span>
+            </div>
+            <button
+              onClick={loadCarriers}
+              className="mt-2 text-sm text-red-600 hover:text-red-700 underline"
+            >
+              Try again
+            </button>
+          </div>
         )}
       </div>
 
