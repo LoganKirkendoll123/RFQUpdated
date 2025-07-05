@@ -30,8 +30,8 @@ import { CarrierSelection } from './CarrierSelection';
 import * as XLSX from 'xlsx';
 
 // Rate limiting constants
-const BATCH_SIZE = 50; // Process 50 RFQs in a burst 
-const BATCH_DELAY_MS = 500; // 500ms between batches
+const BATCH_SIZE = 5; // Process 5 RFQs per carrier at once
+const BATCH_DELAY_MS = 1000; // 1 second between batches (5 per second)
 
 interface MassRFQFromShipmentsProps {
   project44Client: Project44APIClient | null;
@@ -530,15 +530,16 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           // Process RFQs in batches
           const customerResults: ProcessingResult[] = [];
           let batchCount = 0;
+          const totalBatches = Math.ceil(rfqs.length / BATCH_SIZE);
           
-          // Process RFQs in batches of 50 with proper rate limiting
-          console.log(`🔢 Processing ${rfqs.length} RFQs with rate limit of 50 per 5 seconds`);
+          // Process RFQs in batches with proper rate limiting
+          console.log(`🔢 Processing ${rfqs.length} RFQs with rate limit of ${BATCH_SIZE} per second per carrier`);
           
-          // Process in batches of 50
+          // Process in batches
           for (let i = 0; i < rfqs.length; i += BATCH_SIZE) {
             const batchRfqs = rfqs.slice(i, i + BATCH_SIZE);
             batchCount++;
-            console.log(`🔄 Processing batch ${batchCount}/${Math.ceil(rfqs.length/BATCH_SIZE)} (${batchRfqs.length} RFQs)`);
+            console.log(`🔄 Processing batch ${batchCount}/${totalBatches} (${batchRfqs.length} RFQs)`);
             
             // Prepare all promises for this batch
             const batchPromises = batchRfqs.map(async (rfq, batchIndex): Promise<ProcessingResult> => {
@@ -633,14 +634,14 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
             // Wait between batches to respect rate limits
             if (i + BATCH_SIZE < rfqs.length) {
               console.log(`⏱️ Waiting ${BATCH_DELAY_MS}ms before next batch...`);
-              await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+              await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS)); 
             }
           }
           
           // Update job completion
           setMassRFQJobs(prev => prev.map(job => 
             job.id === jobId 
-              ? {
+              ? { 
                   ...job, 
                   status: 'completed', 
                   progress: 100, 
@@ -653,8 +654,8 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           // Add these results to the global results array
           allResults.push(...customerResults);
           
-          // Update the results state with a new array reference to trigger re-render
-          setResults([...allResults]);
+          // Update the results state with a new array reference to trigger re-render 
+          setResults(prevResults => [...prevResults, ...customerResults]);
           
           console.log(`✅ Completed customer ${customerName}: ${customerResults.length} results`);
           
@@ -677,7 +678,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       console.log('🏁 Mass RFQ processing completed');
       
       // Final update to results to ensure UI refreshes
-      setResults([...allResults]);
+      setResults(prevResults => [...prevResults]);
       
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Mass RFQ processing failed';
@@ -1129,7 +1130,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       {/* Results Display */}
       {(results.length > 0 || massRFQJobs.some(job => job.status === 'completed' && job.results)) && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="bg-white rounded-lg shadow-md p-6"> 
             <div className="flex items-center space-x-3">
               <CheckCircle className="h-6 w-6 text-green-500" />
               <div>
@@ -1149,14 +1150,14 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 <div className="bg-white rounded-lg shadow-md p-4">
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">
                     Results for {job.customerName}
-                  </h3>
+                  </h3> 
                   <div className="text-sm text-gray-600">
-                    {job.results!.filter(r => r.status === 'success').length} successful RFQs • 
-                    {job.results!.reduce((sum, r) => sum + r.quotes.length, 0)} total quotes received
+                    {job.results && job.results.filter(r => r.status === 'success').length} successful RFQs • 
+                    {job.results && job.results.reduce((sum, r) => sum + r.quotes.length, 0)} total quotes received
                   </div>
                 </div>
                 
-                {job.results!
+                {job.results && job.results
                   .filter(result => result.status === 'success' && result.quotes.length > 0)
                   .slice(0, 3) // Show first 3 results
                   .map((result, index) => (
@@ -1167,10 +1168,10 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                     />
                   ))}
                 
-                {job.results!.filter(r => r.status === 'success' && r.quotes.length > 0).length > 3 && (
+                {job.results && job.results.filter(r => r.status === 'success' && r.quotes.length > 0).length > 3 && (
                   <div className="bg-gray-50 rounded-lg p-4 text-center">
                     <p className="text-gray-600">
-                      Showing 3 of {job.results!.filter(r => r.status === 'success' && r.quotes.length > 0).length} successful results.
+                      Showing 3 of {job.results.filter(r => r.status === 'success' && r.quotes.length > 0).length} successful results.
                       Export all results to see complete data.
                     </p>
                   </div>
