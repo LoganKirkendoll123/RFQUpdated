@@ -447,7 +447,7 @@ export class Project44APIClient {
 
   async getQuotes(
     rfq: RFQRow, 
-    selectedCarrierIds: string[] = [], 
+    selectedCarrierIds: string[] = [],
     isVolumeMode: boolean = false,
     isFTLMode: boolean = false,
     isReeferMode: boolean = false
@@ -457,6 +457,30 @@ export class Project44APIClient {
     const modeDescription = isReeferMode ? 'Refrigerated LTL' : 
                            isVolumeMode ? 'Volume LTL (VLTL)' : 
                            isFTLMode ? 'Full Truckload' : 'Standard LTL';
+    
+    // Clean and validate address data
+    // Ensure ZIP codes are 5 digits
+    rfq.fromZip = rfq.fromZip.replace(/\D/g, '').substring(0, 5).padEnd(5, '0');
+    rfq.toZip = rfq.toZip.replace(/\D/g, '').substring(0, 5).padEnd(5, '0');
+    
+    // Validate state codes
+    const validStates = new Set([
+      'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
+      'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+      'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT',
+      'VA', 'WA', 'WV', 'WI', 'WY', 'AS', 'DC', 'FM', 'GU', 'MH', 'MP', 'PW', 'PR', 'VI'
+    ]);
+    
+    // Default to empty if invalid
+    if (rfq.originState && !validStates.has(rfq.originState.toUpperCase())) {
+      console.log(`⚠️ Invalid origin state: ${rfq.originState} - removing`);
+      rfq.originState = '';
+    }
+    
+    if (rfq.destinationState && !validStates.has(rfq.destinationState.toUpperCase())) {
+      console.log(`⚠️ Invalid destination state: ${rfq.destinationState} - removing`);
+      rfq.destinationState = '';
+    }
     
     // Find the group code from the first selected carrier
     const accountGroupCode = selectedCarrierIds.length > 0 
@@ -963,9 +987,19 @@ export class Project44APIClient {
   private buildAccessorialServices(rfq: RFQRow, isReeferMode: boolean = false): AccessorialService[] {
     const services: AccessorialService[] = [];
     
+    // Filter out problematic accessorial codes that cause API errors
+    const filterProblematicCodes = (codes: string[]): string[] => {
+      const problematicCodes = ['APPT', 'APPTDEL', 'LGDEL', 'LTDDEL', 'UNLOADDEL'];
+      return codes.filter(code => !problematicCodes.includes(code));
+    };
+    
     // Add user-specified accessorials
     if (rfq.accessorial && rfq.accessorial.length > 0) {
-      rfq.accessorial.forEach(code => {
+      // Filter out problematic codes before adding to services
+      const filteredAccessorials = filterProblematicCodes(rfq.accessorial);
+      console.log(`🔍 Filtered accessorials: ${rfq.accessorial.length} → ${filteredAccessorials.length}`);
+      
+      filteredAccessorials.forEach(code => {
         services.push({ code });
       });
     }
