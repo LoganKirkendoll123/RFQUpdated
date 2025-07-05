@@ -9,6 +9,7 @@ interface CarrierSelectionProps {
   onSelectAll: (selected: boolean) => void;
   onSelectAllInGroup: (groupCode: string, selected: boolean) => void;
   isLoading: boolean;
+  singleSelect?: boolean;
 }
 
 export const CarrierSelection: React.FC<CarrierSelectionProps> = ({
@@ -17,7 +18,8 @@ export const CarrierSelection: React.FC<CarrierSelectionProps> = ({
   onToggleCarrier,
   onSelectAll,
   onSelectAllInGroup,
-  isLoading
+  isLoading,
+  singleSelect = false
 }) => {
   const [activeTab, setActiveTab] = useState('Default');
   
@@ -114,27 +116,32 @@ export const CarrierSelection: React.FC<CarrierSelectionProps> = ({
             <div>
               <h3 className="text-lg font-semibold text-gray-900">Available LTL Carriers</h3>
               <p className="text-sm text-gray-600">
-                Select carriers to include in your RFQ ({selectedCount} of {totalCarriers} selected)
+                {singleSelect 
+                  ? `Select one carrier for analysis (${selectedCount} selected)`
+                  : `Select carriers to include in your RFQ (${selectedCount} of {totalCarriers} selected)`
+                }
               </p>
             </div>
           </div>
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => onSelectAll(true)}
-              className="px-3 py-1.5 text-sm rounded transition-colors bg-gray-100 text-gray-700 hover:bg-gray-200"
-            >
-              Select All
-            </button>
-            <button
-              onClick={() => onSelectAll(false)}
-              className={`px-3 py-1.5 text-sm rounded transition-colors ${
-                selectedCount === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-              disabled={selectedCount === 0}
-            >
-              Clear All
-            </button>
-          </div>
+          {!singleSelect && (
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => onSelectAll(true)}
+                className="px-3 py-1.5 text-sm rounded transition-colors bg-gray-100 text-gray-700 hover:bg-gray-200"
+              >
+                Select All
+              </button>
+              <button
+                onClick={() => onSelectAll(false)}
+                className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                  selectedCount === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                disabled={selectedCount === 0}
+              >
+                Clear All
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Group Tabs */}
@@ -170,28 +177,33 @@ export const CarrierSelection: React.FC<CarrierSelectionProps> = ({
           <div className="flex items-center space-x-3">
             <h4 className="text-md font-medium text-gray-900">{activeGroup.groupName}</h4>
             <span className="text-sm text-gray-500">
-              ({activeGroupSelectedCount} of {activeGroupUniqueCarriers.length} selected)
+              {singleSelect 
+                ? `(${activeGroupSelectedCount} selected)`
+                : `(${activeGroupSelectedCount} of ${activeGroupUniqueCarriers.length} selected)`
+              }
             </span>
           </div>
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={() => onSelectAllInGroup(activeGroup.groupCode, true)}
-              className="px-3 py-1.5 text-sm rounded transition-colors bg-blue-100 text-blue-700 hover:bg-blue-200"
-            >
-              Select Group
-            </button>
-            <button
-              onClick={() => onSelectAllInGroup(activeGroup.groupCode, false)}
-              className={`px-3 py-1.5 text-sm rounded transition-colors ${
-                activeGroupSelectedCount === 0 
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-              disabled={activeGroupSelectedCount === 0}
-            >
-              Clear Group
-            </button>
-          </div>
+          {!singleSelect && (
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => onSelectAllInGroup(activeGroup.groupCode, true)}
+                className="px-3 py-1.5 text-sm rounded transition-colors bg-blue-100 text-blue-700 hover:bg-blue-200"
+              >
+                Select Group
+              </button>
+              <button
+                onClick={() => onSelectAllInGroup(activeGroup.groupCode, false)}
+                className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                  activeGroupSelectedCount === 0 
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                disabled={activeGroupSelectedCount === 0}
+              >
+                Clear Group
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Carriers Grid - Only show unique carriers */}
@@ -207,7 +219,17 @@ export const CarrierSelection: React.FC<CarrierSelectionProps> = ({
                     ? 'border-green-500 bg-green-50 shadow-sm'
                     : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                 }`}
-                onClick={() => onToggleCarrier(carrier.id, !isSelected)}
+                onClick={() => {
+                  if (singleSelect && !isSelected) {
+                    // For single select, first clear any existing selection
+                    Object.keys(selectedCarriers).forEach(id => {
+                      if (selectedCarriers[id]) {
+                        onToggleCarrier(id, false);
+                      }
+                    });
+                  }
+                  onToggleCarrier(carrier.id, !isSelected);
+                }}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-start space-x-3 flex-1">
@@ -261,7 +283,10 @@ export const CarrierSelection: React.FC<CarrierSelectionProps> = ({
           <div className="flex items-center space-x-2 text-blue-800">
             <Check className="h-4 w-4" />
             <span className="text-sm font-medium">
-              {selectedCount} carrier{selectedCount !== 1 ? 's' : ''} selected for quoting across {carrierGroups.length} group{carrierGroups.length !== 1 ? 's' : ''}
+              {singleSelect 
+                ? `${selectedCount} carrier selected for analysis`
+                : `${selectedCount} carrier${selectedCount !== 1 ? 's' : ''} selected for quoting across ${carrierGroups.length} group${carrierGroups.length !== 1 ? 's' : ''}`
+              }
             </span>
           </div>
         </div>

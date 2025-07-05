@@ -103,7 +103,7 @@ export const MarginAnalysisTools: React.FC = () => {
   
   // Carrier selection
   const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
-  const [selectedCarriers, setSelectedCarriers] = useState<{ [carrierId: string]: boolean }>({});
+  const [selectedCarrier, setSelectedCarrier] = useState<string>('');
   const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
   const [carriersLoaded, setCarriersLoaded] = useState(false);
   const [showCarrierSelection, setShowCarrierSelection] = useState(false);
@@ -174,32 +174,26 @@ export const MarginAnalysisTools: React.FC = () => {
   };
 
   const handleCarrierToggle = (carrierId: string, selected: boolean) => {
-    setSelectedCarriers(prev => ({ ...prev, [carrierId]: selected }));
+    // For margin analysis, only allow one carrier at a time
+    if (selected) {
+      setSelectedCarrier(carrierId);
+    } else if (selectedCarrier === carrierId) {
+      setSelectedCarrier('');
+    }
   };
 
-  const handleSelectAll = (selected: boolean) => {
-    const newSelection: { [carrierId: string]: boolean } = {};
-    carrierGroups.forEach(group => {
-      group.carriers.forEach(carrier => {
-        newSelection[carrier.id] = selected;
-      });
-    });
-    setSelectedCarriers(newSelection);
+  const handleSelectAll = () => {
+    // Not applicable for single carrier selection
+    return;
   };
 
-  const handleSelectAllInGroup = (groupCode: string, selected: boolean) => {
-    const group = carrierGroups.find(g => g.groupCode === groupCode);
-    if (!group) return;
-    
-    const newSelection = { ...selectedCarriers };
-    group.carriers.forEach(carrier => {
-      newSelection[carrier.id] = selected;
-    });
-    setSelectedCarriers(newSelection);
+  const handleSelectAllInGroup = () => {
+    // Not applicable for single carrier selection
+    return;
   };
 
   const getSelectedCarrierCount = () => {
-    return Object.values(selectedCarriers).filter(Boolean).length;
+    return selectedCarrier ? 1 : 0;
   };
 
   const getDateRangeDays = () => {
@@ -248,12 +242,8 @@ export const MarginAnalysisTools: React.FC = () => {
   };
 
   const startBenchmarkAnalysis = async () => {
-    const selectedCarrierIds = Object.entries(selectedCarriers)
-      .filter(([_, selected]) => selected)
-      .map(([carrierId, _]) => carrierId);
-    
-    if (selectedCarrierIds.length === 0) {
-      setError('Please select at least one carrier for analysis');
+    if (!selectedCarrier) {
+      setError('Please select a carrier for analysis');
       return;
     }
     
@@ -266,7 +256,7 @@ export const MarginAnalysisTools: React.FC = () => {
     try {
       console.log('Starting benchmark analysis:', {
         dateRange,
-        selectedCarriers: selectedCarrierIds.length,
+        selectedCarrier,
         days: getDateRangeDays()
       });
       
@@ -298,12 +288,12 @@ export const MarginAnalysisTools: React.FC = () => {
         const carriers = [shipment["Booked Carrier"], shipment["Quoted Carrier"]].filter(Boolean);
         
         carriers.forEach(carrier => {
-          if (carrier && selectedCarrierIds.some(id => {
+          if (carrier && selectedCarrier) {
             // Find the carrier object to get the name
-            const carrierObj = carrierGroups.flatMap(g => g.carriers).find(c => c.id === id);
-            return carrierObj && (carrierObj.name === carrier || carrierObj.scac === carrier);
-          })) {
-            pairs.add(`${customer}|${carrier}`);
+            const carrierObj = carrierGroups.flatMap(g => g.carriers).find(c => c.id === selectedCarrier);
+            if (carrierObj && (carrierObj.name === carrier || carrierObj.scac === carrier)) {
+              pairs.add(`${customer}|${carrier}`);
+            }
           }
         });
       });
@@ -311,7 +301,7 @@ export const MarginAnalysisTools: React.FC = () => {
       console.log(`🔍 Found ${pairs.size} unique customer-carrier pairs for analysis`);
       
       if (pairs.size === 0) {
-        throw new Error('No matching customer-carrier pairs found for the selected carriers');
+        throw new Error('No matching customer-carrier pairs found for the selected carrier');
       }
       
       // Create benchmark analysis jobs for each pair
@@ -329,7 +319,7 @@ export const MarginAnalysisTools: React.FC = () => {
           ).length,
           date_range_start: dateRange.startDate,
           date_range_end: dateRange.endDate,
-          selected_carriers: selectedCarrierIds
+          selected_carriers: [selectedCarrier]
         };
       });
       
@@ -354,12 +344,8 @@ export const MarginAnalysisTools: React.FC = () => {
   };
 
   const startComparisonAnalysis = async () => {
-    const selectedCarrierIds = Object.entries(selectedCarriers)
-      .filter(([_, selected]) => selected)
-      .map(([carrierId, _]) => carrierId);
-    
-    if (selectedCarrierIds.length === 0) {
-      setError('Please select at least one carrier for analysis');
+    if (!selectedCarrier) {
+      setError('Please select a carrier for analysis');
       return;
     }
 
@@ -367,10 +353,10 @@ export const MarginAnalysisTools: React.FC = () => {
     try {
       console.log('Starting comparison analysis with new rates:', {
         dateRange,
-        selectedCarriers: selectedCarrierIds.length
+        selectedCarrier
       });
       
-      // Check if we have benchmark data for the selected carriers
+      // Check if we have benchmark data for the selected carrier
       const { data: benchmarkJobs, error: benchmarkError } = await supabase
         .from('MarginAnalysisJobs')
         .select('*')
@@ -617,26 +603,15 @@ export const MarginAnalysisTools: React.FC = () => {
             {carriersLoaded ? (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                 <div className="text-sm text-green-800">
-                  <strong>Selected Carriers:</strong> {getSelectedCarrierCount()} of {carrierGroups.reduce((sum, group) => sum + group.carriers.length, 0)}
+                  <strong>Selected Carrier:</strong> {getSelectedCarrierCount()} of {carrierGroups.reduce((sum, group) => sum + group.carriers.length, 0)}
                 </div>
                 {getSelectedCarrierCount() > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {Object.entries(selectedCarriers)
-                      .filter(([_, selected]) => selected)
-                      .slice(0, 5)
-                      .map(([carrierId, _]) => {
-                        const carrier = carrierGroups
-                          .flatMap(g => g.carriers)
-                          .find(c => c.id === carrierId);
-                        return (
-                          <span key={carrierId} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            {carrier?.name || carrierId}
-                          </span>
-                        );
-                      })}
-                    {getSelectedCarrierCount() > 5 && (
+                    {selectedCarrier && (
                       <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        +{getSelectedCarrierCount() - 5} more
+                        {carrierGroups
+                          .flatMap(g => g.carriers)
+                          .find(c => c.id === selectedCarrier)?.name || selectedCarrier}
                       </span>
                     )}
                   </div>
@@ -657,11 +632,12 @@ export const MarginAnalysisTools: React.FC = () => {
           <div className="mt-6 pt-6 border-t border-gray-200">
             <CarrierSelection
               carrierGroups={carrierGroups}
-              selectedCarriers={selectedCarriers}
+              selectedCarriers={{ [selectedCarrier]: true }}
               onToggleCarrier={handleCarrierToggle}
               onSelectAll={handleSelectAll}
               onSelectAllInGroup={handleSelectAllInGroup}
               isLoading={isLoadingCarriers}
+              singleSelect={true}
             />
           </div>
         )}
@@ -701,7 +677,7 @@ export const MarginAnalysisTools: React.FC = () => {
               </div>
               <div className="flex items-center space-x-2">
                 <Truck className="h-4 w-4 text-blue-500" />
-                <span>{getSelectedCarrierCount()} selected carriers</span>
+                <span>{getSelectedCarrierCount()} selected carrier</span>
               </div>
             </div>
             <button
@@ -719,7 +695,7 @@ export const MarginAnalysisTools: React.FC = () => {
               </div>
             </button>
             {getSelectedCarrierCount() === 0 && (
-              <p className="text-xs text-red-600 mt-2">Please select at least one carrier</p>
+              <p className="text-xs text-red-600 mt-2">Please select a carrier</p>
             )}
           </div>
           
@@ -744,7 +720,7 @@ export const MarginAnalysisTools: React.FC = () => {
               </div>
               <div className="flex items-center space-x-2">
                 <Truck className="h-4 w-4 text-green-500" />
-                <span>Same {getSelectedCarrierCount()} carriers</span>
+                <span>Same {getSelectedCarrierCount()} carrier</span>
               </div>
             </div>
             <button
@@ -762,7 +738,7 @@ export const MarginAnalysisTools: React.FC = () => {
               </div>
             </button>
             {getSelectedCarrierCount() === 0 && (
-              <p className="text-xs text-red-600 mt-2">Please select at least one carrier</p>
+              <p className="text-xs text-red-600 mt-2">Please select a carrier</p>
             )}
           </div>
         </div>
