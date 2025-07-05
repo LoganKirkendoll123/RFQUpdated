@@ -1,389 +1,765 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Calculator, 
-  Truck, 
-  BarChart3, 
-  DollarSign, 
   TrendingUp, 
-  TrendingDown, 
+  DollarSign, 
+  Truck, 
+  Users, 
+  Building2, 
   RefreshCw, 
   Loader, 
-  AlertCircle,
-  Download,
-  CheckCircle,
-  Users,
-  Building2,
-  Clock,
+  AlertCircle, 
+  CheckCircle, 
+  ChevronDown, 
+  ChevronUp,
+  Target,
+  ArrowRight,
+  BarChart3,
+  Zap,
+  Calendar,
   Package,
-  Search
+  Clock,
+  Info,
+  MapPin
 } from 'lucide-react';
-import { supabase } from '../utils/supabase';
+import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { formatCurrency } from '../utils/pricingCalculator';
-import { Project44APIClient } from '../utils/apiClient';
 import { loadProject44Config } from '../utils/credentialStorage';
+import { supabase } from '../utils/supabase';
+import { RFQRow } from '../types';
 
-export const MarginAnalysisTools: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'carrier-vs-group' | 'margin-simulator'>('carrier-vs-group');
-  const [loading, setLoading] = useState(false);
+interface MarginAnalysisToolsProps {}
+
+interface HistoricalShipment {
+  id: number;
+  date: string;
+  origin: string;
+  destination: string;
+  weight: number;
+  pallets: number;
+  oldPrice: number;
+  oldCost: number;
+}
+
+export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = () => {
+  const [activeTab, setActiveTab] = useState<'carrier-vs-group' | 'negotiated-rates'>('carrier-vs-group');
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
-  const [success, setSuccess] = useState<string>('');
   
-  // Carrier vs Group Analysis state
+  // Carrier data
+  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [selectedCarrier, setSelectedCarrier] = useState<string>('');
-  const [carrierList, setCarrierList] = useState<{name: string, scac: string}[]>([]);
+  const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
+  
+  // Customer data
+  const [customers, setCustomers] = useState<string[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<string>('');
+  const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
+  
+  // Date range
+  const [dateRange, setDateRange] = useState({
+    start: new Date(new Date().setFullYear(new Date().getFullYear() - 1)).toISOString().split('T')[0],
+    end: new Date().toISOString().split('T')[0]
+  });
+  
+  // Analysis results
   const [analysisResults, setAnalysisResults] = useState<any>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [negotiatedRatesResults, setNegotiatedRatesResults] = useState<any>(null);
   
-  // Project44 client for real-time rate lookups
+  // Historical shipments
+  const [historicalShipments, setHistoricalShipments] = useState<HistoricalShipment[]>([]);
+  const [isLoadingShipments, setIsLoadingShipments] = useState(false);
+  
+  // Project44 client
   const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
-  
+
+  // Initialize Project44 client
   useEffect(() => {
-    loadCarrierList();
-    initializeProject44Client();
-  }, []);
-  
-  const initializeProject44Client = () => {
     const savedConfig = loadProject44Config();
     if (savedConfig) {
       const client = new Project44APIClient(savedConfig);
       setProject44Client(client);
     }
-  };
-  
-  const loadCarrierList = async () => {
+  }, []);
+
+  // Load customers from database
+  const loadCustomers = async () => {
+    setIsLoadingCustomers(true);
+    setError('');
+    
     try {
-      setLoading(true);
-      
-      // Get unique carriers with SCAC codes from Shipments table
       const { data, error } = await supabase
         .from('Shipments')
-        .select('"Booked Carrier", "SCAC"')
-        .not('SCAC', 'is', null)
-        .order('Booked Carrier');
+        .select('"Customer"')
+        .not('"Customer"', 'is', null)
+        .order('"Customer"');
       
       if (error) throw error;
       
-      // Create a unique list of carriers with their SCAC codes
-      const uniqueCarriers = new Map<string, string>();
+      // Get unique customer names
+      const uniqueCustomers = [...new Set(data?.map(d => d.Customer) || [])];
+      setCustomers(uniqueCustomers.filter(Boolean));
       
-      data?.forEach(row => {
-        if (row["Booked Carrier"] && row["SCAC"]) {
-          uniqueCarriers.set(row["SCAC"], row["Booked Carrier"]);
-        }
-      });
-      
-      const carriers = Array.from(uniqueCarriers.entries()).map(([scac, name]) => ({
-        name,
-        scac
-      }));
-      
-      setCarrierList(carriers);
-      setLoading(false);
+      if (uniqueCustomers.length > 0) {
+        setSelectedCustomer(uniqueCustomers[0]);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load carrier list');
-      setLoading(false);
+      setError(err instanceof Error ? err.message : 'Failed to load customers');
+    } finally {
+      setIsLoadingCustomers(false);
     }
   };
-  
-  const runCarrierVsGroupAnalysis = async () => {
-    if (!selectedCarrier || !project44Client) {
-      setError('Please select a carrier and ensure Project44 is configured');
-      return;
-    }
+
+  // Load historical shipments for a customer and carrier
+  const loadHistoricalShipments = async (customer: string, carrier: string) => {
+    setIsLoadingShipments(true);
+    setError('');
     
     try {
-      setIsAnalyzing(true);
-      setError('');
-      setSuccess('');
+      // Query Shipments table for matching customer and carrier
+      const { data, error } = await supabase
+        .from('Shipments')
+        .select('*')
+        .eq('"Customer"', customer)
+        .or(`"Booked Carrier".eq.${carrier},"Quoted Carrier".eq.${carrier}`)
+        .gte('"Scheduled Pickup Date"', dateRange.start)
+        .lte('"Scheduled Pickup Date"', dateRange.end)
+        .order('"Scheduled Pickup Date"', { ascending: false });
       
-      // Find the selected carrier's SCAC
-      const carrier = carrierList.find(c => c.scac === selectedCarrier);
+      if (error) throw error;
+      
+      // Transform to HistoricalShipment format
+      const shipments: HistoricalShipment[] = data?.map((shipment, index) => {
+        // Parse numeric values from string fields
+        const parseNumeric = (value: string | null | undefined): number => {
+          if (!value) return 0;
+          const cleaned = value.toString().replace(/[^\d.-]/g, '');
+          return parseFloat(cleaned) || 0;
+        };
+        
+        return {
+          id: index + 1,
+          date: shipment["Scheduled Pickup Date"] || '',
+          origin: shipment["Zip"] || '',
+          destination: shipment["Zip_1"] || '',
+          weight: parseNumeric(shipment["Tot Weight"]),
+          pallets: shipment["Tot Packages"] || 0,
+          oldPrice: parseNumeric(shipment["Revenue"]),
+          oldCost: parseNumeric(shipment["Carrier Expense"])
+        };
+      }) || [];
+      
+      setHistoricalShipments(shipments);
+      return shipments;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load historical shipments');
+      return [];
+    } finally {
+      setIsLoadingShipments(false);
+    }
+  };
+
+  // Load carrier groups from Project44 API
+  const loadCarrierGroups = async () => {
+    if (!project44Client) {
+      setError('Project44 client not available. Please configure your API credentials first.');
+      return;
+    }
+
+    setIsLoadingCarriers(true);
+    setError('');
+    
+    try {
+      const groups = await project44Client.getAvailableCarriersByGroup(false, false);
+      setCarrierGroups(groups);
+      
+      if (groups.length > 0) {
+        setSelectedGroup(groups[0].groupCode);
+        
+        // Set first carrier as selected by default
+        if (groups[0].carriers.length > 0) {
+          setSelectedCarrier(groups[0].carriers[0].id);
+        }
+      }
+      
+      // Also load customers
+      await loadCustomers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load carrier groups');
+    } finally {
+      setIsLoadingCarriers(false);
+    }
+  };
+
+  // Run carrier margin analysis with real API calls
+  const runMarginAnalysis = async () => {
+    if (!project44Client) {
+      setError('Project44 client not available. Please configure your API credentials first.');
+      return;
+    }
+
+    if (!selectedGroup || !selectedCarrier || !selectedCustomer) {
+      setError('Please select a carrier group, specific carrier, and customer to analyze');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      // Get the selected group
+      const group = carrierGroups.find(g => g.groupCode === selectedGroup);
+      if (!group) {
+        throw new Error('Selected carrier group not found');
+      }
+      
+      // Get the selected carrier
+      const carrier = group.carriers.find(c => c.id === selectedCarrier);
       if (!carrier) {
         throw new Error('Selected carrier not found');
       }
       
-      // Step 1: Get historical shipments for this carrier by SCAC
-      const { data: shipments, error: shipmentsError } = await supabase
-        .from('Shipments')
-        .select('*')
-        .eq('SCAC', selectedCarrier)
-        .order('"Scheduled Pickup Date"', { ascending: false })
-        .limit(100);
+      // Load historical shipments for this customer and carrier
+      const shipments = await loadHistoricalShipments(selectedCustomer, carrier.name);
       
-      if (shipmentsError) throw shipmentsError;
-      
-      if (!shipments || shipments.length === 0) {
-        setError(`No historical shipments found for carrier ${carrier.name} (${selectedCarrier})`);
-        setIsAnalyzing(false);
-        return;
+      if (shipments.length === 0) {
+        throw new Error(`No historical shipments found for customer "${selectedCustomer}" and carrier "${carrier.name}"`);
       }
       
-      // Step 2: Group shipments by customer
-      const customerShipments = shipments.reduce((acc, shipment) => {
-        const customer = shipment["Customer"] || 'Unknown';
-        if (!acc[customer]) {
-          acc[customer] = [];
-        }
-        acc[customer].push(shipment);
-        return acc;
-      }, {} as Record<string, any[]>);
+      // For each historical shipment, get current rates from Project44 API
+      const processedShipments = [];
       
-      // Step 3: For each shipment, get current rates from Project44
-      const customerResults: Record<string, any> = {};
-      let totalHistoricalRevenue = 0;
-      let totalCurrentRevenue = 0;
-      let totalShipments = 0;
-      
-      for (const [customer, customerShipmentList] of Object.entries(customerShipments)) {
-        const customerResult = {
-          shipments: customerShipmentList.length,
-          historicalRevenue: 0,
-          currentRevenue: 0,
-          difference: 0,
-          percentChange: 0,
-          details: [] as any[]
+      for (const shipment of shipments) {
+        // Create RFQ from historical shipment
+        const rfq: RFQRow = {
+          fromDate: new Date().toISOString().split('T')[0], // Use current date for quotes
+          fromZip: shipment.origin,
+          toZip: shipment.destination,
+          pallets: shipment.pallets,
+          grossWeight: shipment.weight,
+          isStackable: false,
+          isReefer: false,
+          accessorial: []
         };
         
-        for (const shipment of customerShipmentList) {
-          // Parse historical revenue
-          const historicalRevenue = parseFloat(shipment["Revenue"]?.replace(/[^0-9.-]+/g, '') || '0');
+        try {
+          // Get quotes from Project44 API for this shipment
+          const quotes = await project44Client.getQuotes(rfq, [selectedCarrier], false, false, false);
           
-          // Create RFQ from historical shipment
-          const rfq = {
-            fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
-            fromZip: shipment["Zip"] || '',
-            toZip: shipment["Zip_1"] || '',
-            pallets: shipment["Tot Packages"] || 1,
-            grossWeight: parseInt(shipment["Tot Weight"]?.replace(/[^0-9.-]+/g, '') || '1000'),
-            isStackable: false,
-            isReefer: shipment["Is VLTL"] === 'TRUE',
-            accessorial: []
-          };
+          // Find the best (lowest) quote
+          const bestQuote = quotes.length > 0 ? 
+            quotes.reduce((best, current) => {
+              const bestTotal = best.rateQuoteDetail?.total || 
+                (best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts);
+              
+              const currentTotal = current.rateQuoteDetail?.total || 
+                (current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts);
+              
+              return currentTotal < bestTotal ? current : best;
+            }) : null;
           
-          // Skip invalid shipments
-          if (!rfq.fromZip || !rfq.toZip) {
-            continue;
-          }
+          // Calculate the new cost from the quote
+          const newCost = bestQuote ? 
+            (bestQuote.rateQuoteDetail?.total || 
+              (bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts)) : 
+            null;
           
-          try {
-            // Get current rates from Project44 for this exact shipment
-            const quotes = await project44Client.getQuotes(
-              rfq, 
-              [selectedCarrier], // Only get quotes from this specific carrier
-              shipment["Is VLTL"] === 'TRUE', // Use VLTL if the original shipment was VLTL
-              false,
-              false
-            );
+          // Add to processed shipments with calculations
+          if (newCost) {
+            const savings = shipment.oldCost - newCost;
+            const savingsPercentage = (savings / shipment.oldCost) * 100;
+            const margin = ((shipment.oldPrice - newCost) / shipment.oldPrice) * 100;
             
-            // Find the best quote
-            let bestQuote = null;
-            if (quotes.length > 0) {
-              bestQuote = quotes.reduce((best, current) => {
-                const bestTotal = best.rateQuoteDetail?.total || 
-                                 (best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts);
-                const currentTotal = current.rateQuoteDetail?.total || 
-                                    (current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts);
-                return currentTotal < bestTotal ? current : best;
-              });
-            }
-            
-            const currentRate = bestQuote ? 
-              (bestQuote.rateQuoteDetail?.total || 
-               (bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts)) : 0;
-            
-            // Add to customer totals
-            customerResult.historicalRevenue += historicalRevenue;
-            customerResult.currentRevenue += currentRate;
-            
-            // Add shipment detail
-            customerResult.details.push({
-              invoiceNumber: shipment["Invoice #"],
-              date: shipment["Scheduled Pickup Date"],
-              route: `${shipment["Zip"]} → ${shipment["Zip_1"]}`,
-              weight: shipment["Tot Weight"],
-              pallets: shipment["Tot Packages"],
-              historicalRevenue,
-              currentRate,
-              difference: currentRate - historicalRevenue,
-              percentChange: historicalRevenue > 0 ? 
-                ((currentRate - historicalRevenue) / historicalRevenue) * 100 : 0
+            processedShipments.push({
+              ...shipment,
+              newCost,
+              savings,
+              savingsPercentage,
+              margin,
+              quoteDetails: bestQuote
             });
-          } catch (err) {
-            console.error(`Error getting rates for shipment ${shipment["Invoice #"]}:`, err);
-            // Continue with next shipment
+          } else {
+            // No quote available, use old cost
+            processedShipments.push({
+              ...shipment,
+              newCost: shipment.oldCost,
+              savings: 0,
+              savingsPercentage: 0,
+              margin: ((shipment.oldPrice - shipment.oldCost) / shipment.oldPrice) * 100,
+              quoteDetails: null
+            });
           }
+        } catch (quoteError) {
+          console.error(`Failed to get quote for shipment ${shipment.id}:`, quoteError);
+          
+          // Add to processed shipments with error
+          processedShipments.push({
+            ...shipment,
+            newCost: shipment.oldCost,
+            savings: 0,
+            savingsPercentage: 0,
+            margin: ((shipment.oldPrice - shipment.oldCost) / shipment.oldPrice) * 100,
+            quoteDetails: null,
+            error: quoteError instanceof Error ? quoteError.message : 'Failed to get quote'
+          });
         }
-        
-        // Calculate customer totals
-        customerResult.difference = customerResult.currentRevenue - customerResult.historicalRevenue;
-        customerResult.percentChange = customerResult.historicalRevenue > 0 ? 
-          (customerResult.difference / customerResult.historicalRevenue) * 100 : 0;
-        
-        // Add to overall totals
-        totalHistoricalRevenue += customerResult.historicalRevenue;
-        totalCurrentRevenue += customerResult.currentRevenue;
-        totalShipments += customerResult.shipments;
-        
-        // Add to results
-        customerResults[customer] = customerResult;
       }
       
-      // Calculate overall results
-      const overallDifference = totalCurrentRevenue - totalHistoricalRevenue;
-      const overallPercentChange = totalHistoricalRevenue > 0 ? 
-        (overallDifference / totalHistoricalRevenue) * 100 : 0;
+      // Calculate summary statistics
+      const summary = {
+        totalOldPrice: processedShipments.reduce((sum, s) => sum + s.oldPrice, 0),
+        totalOldCost: processedShipments.reduce((sum, s) => sum + s.oldCost, 0),
+        totalNewCost: processedShipments.reduce((sum, s) => sum + s.newCost, 0),
+        totalSavings: processedShipments.reduce((sum, s) => sum + s.savings, 0),
+        avgSavingsPercentage: 0,
+        overallMargin: 0
+      };
+      
+      summary.avgSavingsPercentage = (summary.totalSavings / summary.totalOldCost) * 100;
+      
+      // Calculate overall margin - this is what the customer is asking for
+      // (old price - new cost) / old price = margin
+      summary.overallMargin = ((summary.totalOldPrice - summary.totalNewCost) / summary.totalOldPrice) * 100;
       
       setAnalysisResults({
-        carrier: carrier.name,
-        scac: selectedCarrier,
-        totalShipments,
-        totalHistoricalRevenue,
-        totalCurrentRevenue,
-        overallDifference,
-        overallPercentChange,
-        customerResults
+        carrier: {
+          id: carrier.id,
+          name: carrier.name,
+          scac: carrier.scac || 'N/A'
+        },
+        group: {
+          code: group.groupCode,
+          name: group.groupName,
+          carrierCount: group.carriers.length
+        },
+        customer: selectedCustomer,
+        dateRange,
+        shipments: processedShipments,
+        summary
       });
-      
-      setSuccess(`Analysis completed for ${carrier.name} (${selectedCarrier}). Compared ${totalShipments} historical shipments with current rates.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to run analysis');
     } finally {
-      setIsAnalyzing(false);
+      setIsLoading(false);
     }
   };
-  
-  const renderCarrierVsGroupTab = () => (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900">Carrier vs Group Analysis</h2>
-          <p className="text-sm text-gray-600">
-            Compare historical shipment rates with current Project44 rates for a specific carrier
-          </p>
-        </div>
-      </div>
+
+  // Run negotiated rates analysis with real API calls
+  const runNegotiatedRatesAnalysis = async () => {
+    if (!project44Client) {
+      setError('Project44 client not available. Please configure your API credentials first.');
+      return;
+    }
+
+    if (!selectedGroup || !selectedCarrier) {
+      setError('Please select both a carrier group and a specific carrier to analyze');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      // Get the selected group
+      const group = carrierGroups.find(g => g.groupCode === selectedGroup);
+      if (!group) {
+        throw new Error('Selected carrier group not found');
+      }
       
+      // Get the selected carrier
+      const carrier = group.carriers.find(c => c.id === selectedCarrier);
+      if (!carrier) {
+        throw new Error('Selected carrier not found');
+      }
+      
+      // Load all customers with shipments for this carrier
+      const { data: customerData, error: customerError } = await supabase
+        .from('Shipments')
+        .select('DISTINCT "Customer"')
+        .or(`"Booked Carrier".eq.${carrier.name},"Quoted Carrier".eq.${carrier.name}`)
+        .not('"Customer"', 'is', null)
+        .order('"Customer"');
+      
+      if (customerError) throw customerError;
+      
+      const customerNames = customerData?.map(d => d.Customer).filter(Boolean) || [];
+      
+      if (customerNames.length === 0) {
+        throw new Error(`No customers found with shipments for carrier "${carrier.name}"`);
+      }
+      
+      // Process each customer
+      const customerResults = [];
+      
+      for (const customerName of customerNames) {
+        // Load historical shipments for this customer and carrier
+        const shipments = await loadHistoricalShipments(customerName, carrier.name);
+        
+        if (shipments.length === 0) continue;
+        
+        // For each historical shipment, get current rates from Project44 API
+        const processedShipments = [];
+        
+        for (const shipment of shipments) {
+          // Create RFQ from historical shipment
+          const rfq: RFQRow = {
+            fromDate: new Date().toISOString().split('T')[0], // Use current date for quotes
+            fromZip: shipment.origin,
+            toZip: shipment.destination,
+            pallets: shipment.pallets,
+            grossWeight: shipment.weight,
+            isStackable: false,
+            isReefer: false,
+            accessorial: []
+          };
+          
+          try {
+            // Get quotes from Project44 API for this shipment
+            const quotes = await project44Client.getQuotes(rfq, [selectedCarrier], false, false, false);
+            
+            // Find the best (lowest) quote
+            const bestQuote = quotes.length > 0 ? 
+              quotes.reduce((best, current) => {
+                const bestTotal = best.rateQuoteDetail?.total || 
+                  (best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts);
+                
+                const currentTotal = current.rateQuoteDetail?.total || 
+                  (current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts);
+                
+                return currentTotal < bestTotal ? current : best;
+              }) : null;
+            
+            // Calculate the new cost from the quote
+            const newCost = bestQuote ? 
+              (bestQuote.rateQuoteDetail?.total || 
+                (bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts)) : 
+              null;
+            
+            // Add to processed shipments with calculations
+            if (newCost) {
+              const savings = shipment.oldCost - newCost;
+              const savingsPercentage = (savings / shipment.oldCost) * 100;
+              const margin = ((shipment.oldPrice - newCost) / shipment.oldPrice) * 100;
+              
+              processedShipments.push({
+                ...shipment,
+                newCost,
+                savings,
+                savingsPercentage,
+                margin,
+                quoteDetails: bestQuote
+              });
+            } else {
+              // No quote available, use old cost
+              processedShipments.push({
+                ...shipment,
+                newCost: shipment.oldCost,
+                savings: 0,
+                savingsPercentage: 0,
+                margin: ((shipment.oldPrice - shipment.oldCost) / shipment.oldPrice) * 100,
+                quoteDetails: null
+              });
+            }
+          } catch (quoteError) {
+            console.error(`Failed to get quote for shipment ${shipment.id}:`, quoteError);
+            
+            // Add to processed shipments with error
+            processedShipments.push({
+              ...shipment,
+              newCost: shipment.oldCost,
+              savings: 0,
+              savingsPercentage: 0,
+              margin: ((shipment.oldPrice - shipment.oldCost) / shipment.oldPrice) * 100,
+              quoteDetails: null,
+              error: quoteError instanceof Error ? quoteError.message : 'Failed to get quote'
+            });
+          }
+        }
+        
+        // Calculate customer summary
+        const customerSummary = {
+          shipmentCount: processedShipments.length,
+          totalOldPrice: processedShipments.reduce((sum, s) => sum + s.oldPrice, 0),
+          totalOldCost: processedShipments.reduce((sum, s) => sum + s.oldCost, 0),
+          totalNewCost: processedShipments.reduce((sum, s) => sum + s.newCost, 0),
+          optimalMargin: 0
+        };
+        
+        // Calculate optimal margin for this customer
+        customerSummary.optimalMargin = ((customerSummary.totalOldPrice - customerSummary.totalNewCost) / customerSummary.totalOldPrice) * 100;
+        
+        customerResults.push({
+          customer: { name: customerName },
+          shipments: processedShipments,
+          summary: customerSummary
+        });
+      }
+      
+      // Calculate overall summary
+      const overallSummary = {
+        totalShipments: customerResults.reduce((sum, c) => sum + c.summary.shipmentCount, 0),
+        totalOldPrice: customerResults.reduce((sum, c) => sum + c.summary.totalOldPrice, 0),
+        totalNewCost: customerResults.reduce((sum, c) => sum + c.summary.totalNewCost, 0),
+        weightedAvgMargin: 0
+      };
+      
+      overallSummary.weightedAvgMargin = ((overallSummary.totalOldPrice - overallSummary.totalNewCost) / overallSummary.totalOldPrice) * 100;
+      
+      setNegotiatedRatesResults({
+        carrier: {
+          id: carrier.id,
+          name: carrier.name,
+          scac: carrier.scac || 'N/A'
+        },
+        group: {
+          code: group.groupCode,
+          name: group.groupName
+        },
+        dateRange,
+        customerShipments: customerResults,
+        summary: overallSummary
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to run negotiated rates analysis');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const renderCarrierVsGroupAnalysis = () => (
+    <div className="space-y-6">
       {/* Carrier Selection */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Carrier to Analyze</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Carrier (with SCAC)
-            </label>
-            <select
-              value={selectedCarrier}
-              onChange={(e) => setSelectedCarrier(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">-- Select a carrier --</option>
-              {carrierList.map((carrier) => (
-                <option key={carrier.scac} value={carrier.scac}>
-                  {carrier.name} ({carrier.scac})
-                </option>
-              ))}
-            </select>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <div className="bg-blue-600 p-2 rounded-lg">
+              <Truck className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Carrier Selection</h3>
+              <p className="text-sm text-gray-600">
+                Select a carrier to analyze historical shipments and calculate optimal margin
+              </p>
+            </div>
           </div>
           
-          <div className="flex items-end">
-            <button
-              onClick={runCarrierVsGroupAnalysis}
-              disabled={isAnalyzing || !selectedCarrier || !project44Client}
-              className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              {isAnalyzing ? (
-                <>
-                  <Loader className="h-4 w-4 animate-spin" />
-                  <span>Analyzing...</span>
-                </>
-              ) : (
-                <>
-                  <BarChart3 className="h-4 w-4" />
-                  <span>Run Analysis</span>
-                </>
-              )}
-            </button>
-          </div>
+          <button
+            onClick={loadCarrierGroups}
+            disabled={isLoadingCarriers || !project44Client}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {isLoadingCarriers ? (
+              <Loader className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            <span>Load Carrier Groups</span>
+          </button>
         </div>
         
         {!project44Client && (
-          <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <div className="flex items-center space-x-2 text-yellow-800">
-              <AlertCircle className="h-4 w-4" />
-              <span className="text-sm">
-                Project44 API client not configured. Please set up your Project44 credentials in the API Setup tab.
-              </span>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+            <div className="flex items-start space-x-2">
+              <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-yellow-800">
+                <p className="font-medium">Project44 API not configured</p>
+                <p className="mt-1">
+                  Please configure your Project44 API credentials in the Setup tab before using this tool.
+                </p>
+              </div>
             </div>
           </div>
         )}
+        
+        {carrierGroups.length > 0 ? (
+          <div className="space-y-4">
+            {/* Group Dropdown */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Carrier Group
+              </label>
+              <select
+                value={selectedGroup}
+                onChange={(e) => {
+                  setSelectedGroup(e.target.value);
+                  // Reset selected carrier when group changes
+                  setSelectedCarrier('');
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              >
+                {carrierGroups.map(group => (
+                  <option key={group.groupCode} value={group.groupCode}>
+                    {group.groupName} ({group.carriers.length} carriers)
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Carrier Dropdown */}
+            {selectedGroup && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Carrier to Analyze
+                </label>
+                <select
+                  value={selectedCarrier}
+                  onChange={(e) => setSelectedCarrier(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">-- Select a carrier --</option>
+                  {carrierGroups
+                    .find(g => g.groupCode === selectedGroup)
+                    ?.carriers.map(carrier => (
+                      <option key={carrier.id} value={carrier.id}>
+                        {carrier.name} {carrier.scac ? `(${carrier.scac})` : ''}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+            
+            {/* Customer Dropdown */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Customer
+              </label>
+              <select
+                value={selectedCustomer}
+                onChange={(e) => setSelectedCustomer(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                disabled={isLoadingCustomers}
+              >
+                <option value="">-- Select a customer --</option>
+                {customers.map(customer => (
+                  <option key={customer} value={customer}>
+                    {customer}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Date Range */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={dateRange.start}
+                  onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  value={dateRange.end}
+                  onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            
+            {/* Run Analysis Button */}
+            <div className="flex justify-center mt-6">
+              <button
+                onClick={runMarginAnalysis}
+                disabled={isLoading || !selectedGroup || !selectedCarrier || !selectedCustomer}
+                className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {isLoading ? (
+                  <Loader className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Calculator className="h-5 w-5" />
+                )}
+                <span>Run Margin Analysis</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            <Truck className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+            <p>No carrier groups loaded</p>
+            <p className="text-sm mt-2">Click "Load Carrier Groups" to get started</p>
+          </div>
+        )}
       </div>
-      
+
       {/* Analysis Results */}
       {analysisResults && (
         <div className="space-y-6">
           {/* Summary Card */}
           <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="bg-green-600 p-2 rounded-lg">
+                <Target className="h-5 w-5 text-white" />
+              </div>
               <div>
-                <h3 className="text-lg font-medium text-gray-900">Analysis Summary</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Margin Analysis Summary</h3>
                 <p className="text-sm text-gray-600">
-                  {analysisResults.carrier} ({analysisResults.scac}) - {analysisResults.totalShipments} shipments analyzed
+                  {analysisResults.carrier.name} - {analysisResults.customer} - {analysisResults.shipments.length} historical shipments analyzed
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  // Export functionality would go here
-                }}
-                className="flex items-center space-x-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700"
-              >
-                <Download className="h-4 w-4" />
-                <span>Export</span>
-              </button>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Historical Revenue</div>
-                <div className="text-xl font-bold text-gray-900">
-                  {formatCurrency(analysisResults.totalHistoricalRevenue)}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                <div className="text-sm text-blue-700 mb-1">Total Historical Revenue</div>
+                <div className="text-2xl font-bold text-blue-800">
+                  {formatCurrency(analysisResults.summary.totalOldPrice)}
+                </div>
+                <div className="text-xs text-blue-600 mt-1">
+                  Customer price across all shipments
                 </div>
               </div>
               
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Current Revenue</div>
-                <div className="text-xl font-bold text-gray-900">
-                  {formatCurrency(analysisResults.totalCurrentRevenue)}
+              <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                <div className="text-sm text-green-700 mb-1">Total Current Cost</div>
+                <div className="text-2xl font-bold text-green-800">
+                  {formatCurrency(analysisResults.summary.totalNewCost)}
+                </div>
+                <div className="text-xs text-green-600 mt-1">
+                  Current market rates for same shipments
                 </div>
               </div>
               
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Difference</div>
-                <div className={`text-xl font-bold ${
-                  analysisResults.overallDifference > 0 ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {analysisResults.overallDifference > 0 ? '+' : ''}
-                  {formatCurrency(analysisResults.overallDifference)}
+              <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                <div className="text-sm text-purple-700 mb-1">Optimal Margin</div>
+                <div className="text-2xl font-bold text-purple-800">
+                  {analysisResults.summary.overallMargin.toFixed(1)}%
+                </div>
+                <div className="text-xs text-purple-600 mt-1">
+                  (Old Price - New Cost) / Old Price
                 </div>
               </div>
-              
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-600 mb-1">Percent Change</div>
-                <div className={`text-xl font-bold ${
-                  analysisResults.overallPercentChange > 0 ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {analysisResults.overallPercentChange > 0 ? '+' : ''}
-                  {analysisResults.overallPercentChange.toFixed(1)}%
+            </div>
+            
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center space-x-3">
+                <div className="bg-green-600 rounded-full p-2">
+                  <Zap className="h-5 w-5 text-white" />
+                </div>
+                <div className="text-green-800">
+                  <p className="font-medium">Recommended Action</p>
+                  <p className="mt-1">
+                    Keep your current customer prices and switch to current market rates to achieve a 
+                    <span className="font-bold text-green-700"> {analysisResults.summary.overallMargin.toFixed(1)}% </span> 
+                    margin across all shipments.
+                  </p>
                 </div>
               </div>
             </div>
           </div>
           
-          {/* Customer Breakdown */}
+          {/* Shipment Results Table */}
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Customer Breakdown</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Shipment-by-Shipment Analysis</h3>
             </div>
             
             <div className="overflow-x-auto">
@@ -391,55 +767,58 @@ export const MarginAnalysisTools: React.FC = () => {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Customer
+                      Date
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Shipments
+                      Route
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Historical Revenue
+                      Details
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Current Revenue
+                      Old Price
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Difference
+                      Old Cost
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      % Change
+                      New Cost
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Margin
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {Object.entries(analysisResults.customerResults).map(([customer, result]: [string, any]) => (
-                    <tr key={customer} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {customer}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {result.shipments}
+                  {analysisResults.shipments.map((shipment: any) => (
+                    <tr key={shipment.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {shipment.date}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatCurrency(result.historicalRevenue)}
+                        {shipment.origin} → {shipment.destination}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatCurrency(result.currentRevenue)}
+                        {shipment.weight.toLocaleString()} lbs, {shipment.pallets} pallets
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`${
-                          result.difference > 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {result.difference > 0 ? '+' : ''}
-                          {formatCurrency(result.difference)}
-                        </span>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {formatCurrency(shipment.oldPrice)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`${
-                          result.percentChange > 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {result.percentChange > 0 ? '+' : ''}
-                          {result.percentChange.toFixed(1)}%
-                        </span>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {formatCurrency(shipment.oldCost)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {formatCurrency(shipment.newCost)}
+                        {shipment.error && (
+                          <div className="text-xs text-red-600 mt-1">
+                            Error: Using old cost
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-green-600">
+                          {shipment.margin.toFixed(1)}%
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -448,13 +827,364 @@ export const MarginAnalysisTools: React.FC = () => {
             </div>
           </div>
           
-          {/* Shipment Details */}
-          {Object.entries(analysisResults.customerResults).map(([customer, result]: [string, any]) => (
-            <div key={`details-${customer}`} className="bg-white rounded-lg shadow-md overflow-hidden">
+          {/* Visualization */}
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="bg-blue-600 p-2 rounded-lg">
+                <BarChart3 className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Margin Visualization</h3>
+                <p className="text-sm text-gray-600">
+                  Visual representation of price vs cost and margin
+                </p>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <h4 className="text-sm font-medium text-gray-700 mb-3">Price vs Cost Comparison</h4>
+                <div className="h-64 flex items-end space-x-4 pt-6">
+                  <div className="flex-1 flex flex-col items-center">
+                    <div className="text-sm font-medium text-gray-700 mb-2">Historical</div>
+                    <div className="w-full flex flex-col items-center">
+                      <div 
+                        className="w-24 bg-blue-500 rounded-t-lg" 
+                        style={{ height: `${(analysisResults.summary.totalOldPrice / (analysisResults.summary.totalOldPrice * 1.2)) * 200}px` }}
+                      ></div>
+                      <div className="mt-2 text-sm font-medium text-gray-900">
+                        {formatCurrency(analysisResults.summary.totalOldPrice)}
+                      </div>
+                      <div className="text-xs text-gray-500">Price</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 flex flex-col items-center">
+                    <div className="text-sm font-medium text-gray-700 mb-2">Historical</div>
+                    <div className="w-full flex flex-col items-center">
+                      <div 
+                        className="w-24 bg-gray-500 rounded-t-lg" 
+                        style={{ height: `${(analysisResults.summary.totalOldCost / (analysisResults.summary.totalOldPrice * 1.2)) * 200}px` }}
+                      ></div>
+                      <div className="mt-2 text-sm font-medium text-gray-900">
+                        {formatCurrency(analysisResults.summary.totalOldCost)}
+                      </div>
+                      <div className="text-xs text-gray-500">Cost</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 flex flex-col items-center">
+                    <div className="text-sm font-medium text-gray-700 mb-2">Current</div>
+                    <div className="w-full flex flex-col items-center">
+                      <div 
+                        className="w-24 bg-blue-500 rounded-t-lg" 
+                        style={{ height: `${(analysisResults.summary.totalOldPrice / (analysisResults.summary.totalOldPrice * 1.2)) * 200}px` }}
+                      ></div>
+                      <div className="mt-2 text-sm font-medium text-gray-900">
+                        {formatCurrency(analysisResults.summary.totalOldPrice)}
+                      </div>
+                      <div className="text-xs text-gray-500">Price (Same)</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 flex flex-col items-center">
+                    <div className="text-sm font-medium text-gray-700 mb-2">Current</div>
+                    <div className="w-full flex flex-col items-center">
+                      <div 
+                        className="w-24 bg-green-500 rounded-t-lg" 
+                        style={{ height: `${(analysisResults.summary.totalNewCost / (analysisResults.summary.totalOldPrice * 1.2)) * 200}px` }}
+                      ></div>
+                      <div className="mt-2 text-sm font-medium text-gray-900">
+                        {formatCurrency(analysisResults.summary.totalNewCost)}
+                      </div>
+                      <div className="text-xs text-gray-500">Cost</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <h4 className="text-sm font-medium text-gray-700 mb-3">Margin Breakdown</h4>
+                <div className="h-64 flex flex-col justify-center items-center">
+                  <div className="w-full max-w-xs">
+                    <div className="mb-6 text-center">
+                      <div className="text-3xl font-bold text-green-600">
+                        {analysisResults.summary.overallMargin.toFixed(1)}%
+                      </div>
+                      <div className="text-sm text-gray-600">Optimal Margin</div>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-gray-600">Historical Margin</span>
+                          <span className="font-medium text-gray-900">
+                            {((analysisResults.summary.totalOldPrice - analysisResults.summary.totalOldCost) / analysisResults.summary.totalOldPrice * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-gray-500 h-2 rounded-full" 
+                            style={{ width: `${((analysisResults.summary.totalOldPrice - analysisResults.summary.totalOldCost) / analysisResults.summary.totalOldPrice * 100)}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-gray-600">Optimal Margin</span>
+                          <span className="font-medium text-green-600">
+                            {analysisResults.summary.overallMargin.toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-green-500 h-2 rounded-full" 
+                            style={{ width: `${analysisResults.summary.overallMargin}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-gray-600">Margin Increase</span>
+                          <span className="font-medium text-blue-600">
+                            +{(analysisResults.summary.overallMargin - ((analysisResults.summary.totalOldPrice - analysisResults.summary.totalOldCost) / analysisResults.summary.totalOldPrice * 100)).toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-blue-500 h-2 rounded-full" 
+                            style={{ width: `${(analysisResults.summary.overallMargin - ((analysisResults.summary.totalOldPrice - analysisResults.summary.totalOldCost) / analysisResults.summary.totalOldPrice * 100))}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderNegotiatedRatesAnalysis = () => {
+    return (
+      <div className="space-y-6">
+        {/* Carrier Selection */}
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className="bg-blue-600 p-2 rounded-lg">
+                <Truck className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Carrier vs Group Analysis</h3>
+                <p className="text-sm text-gray-600">
+                  Compare a carrier's rates against its group to determine optimal margin
+                </p>
+              </div>
+            </div>
+            
+            <button
+              onClick={loadCarrierGroups}
+              disabled={isLoadingCarriers || !project44Client}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {isLoadingCarriers ? (
+                <Loader className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              <span>Load Carrier Groups</span>
+            </button>
+          </div>
+          
+          {!project44Client && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <div className="flex items-start space-x-2">
+                <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-yellow-800">
+                  <p className="font-medium">Project44 API not configured</p>
+                  <p className="mt-1">
+                    Please configure your Project44 API credentials in the Setup tab before using this tool.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {carrierGroups.length > 0 ? (
+            <div className="space-y-4">
+              {/* Group Dropdown */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Carrier Group
+                </label>
+                <select
+                  value={selectedGroup}
+                  onChange={(e) => {
+                    setSelectedGroup(e.target.value);
+                    // Reset selected carrier when group changes
+                    setSelectedCarrier('');
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                >
+                  {carrierGroups.map(group => (
+                    <option key={group.groupCode} value={group.groupCode}>
+                      {group.groupName} ({group.carriers.length} carriers)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              {/* Carrier Dropdown */}
+              {selectedGroup && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Carrier to Analyze
+                  </label>
+                  <select
+                    value={selectedCarrier}
+                    onChange={(e) => setSelectedCarrier(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">-- Select a carrier --</option>
+                    {carrierGroups
+                      .find(g => g.groupCode === selectedGroup)
+                      ?.carriers.map(carrier => (
+                        <option key={carrier.id} value={carrier.id}>
+                          {carrier.name} {carrier.scac ? `(${carrier.scac})` : ''}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+              
+              {/* Date Range */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={dateRange.start}
+                    onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    value={dateRange.end}
+                    onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              
+              {/* Run Analysis Button */}
+              <div className="flex justify-center mt-6">
+                <button
+                  onClick={runNegotiatedRatesAnalysis}
+                  disabled={isLoading || !selectedGroup || !selectedCarrier}
+                  className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isLoading ? (
+                    <Loader className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Calculator className="h-5 w-5" />
+                  )}
+                  <span>Run Carrier vs Group Analysis</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <Truck className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <p>No carrier groups loaded</p>
+              <p className="text-sm mt-2">Click "Load Carrier Groups" to get started</p>
+            </div>
+          )}
+        </div>
+
+        {/* Analysis Results */}
+        {negotiatedRatesResults && (
+          <div className="space-y-6">
+            {/* Summary Card */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="bg-green-600 p-2 rounded-lg">
+                  <Target className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Carrier vs Group Analysis</h3>
+                  <p className="text-sm text-gray-600">
+                    {negotiatedRatesResults.carrier.name} vs {negotiatedRatesResults.group.name}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                  <div className="text-sm text-blue-700 mb-1">Total Revenue</div>
+                  <div className="text-2xl font-bold text-blue-800">
+                    {formatCurrency(negotiatedRatesResults.summary.totalOldPrice)}
+                  </div>
+                  <div className="text-xs text-blue-600 mt-1">
+                    Across {negotiatedRatesResults.summary.totalShipments} shipments
+                  </div>
+                </div>
+                
+                <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                  <div className="text-sm text-green-700 mb-1">Total New Cost</div>
+                  <div className="text-2xl font-bold text-green-800">
+                    {formatCurrency(negotiatedRatesResults.summary.totalNewCost)}
+                  </div>
+                  <div className="text-xs text-green-600 mt-1">
+                    Current market rates for same shipments
+                  </div>
+                </div>
+                
+                <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                  <div className="text-sm text-purple-700 mb-1">Weighted Avg Margin</div>
+                  <div className="text-2xl font-bold text-purple-800">
+                    {negotiatedRatesResults.summary.weightedAvgMargin.toFixed(1)}%
+                  </div>
+                  <div className="text-xs text-purple-600 mt-1">
+                    Optimal margin to maintain revenue
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center space-x-3">
+                  <div className="bg-green-600 rounded-full p-2">
+                    <Zap className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="text-green-800">
+                    <p className="font-medium">Recommended Action</p>
+                    <p className="mt-1">
+                      Set a <span className="font-bold text-green-700">{negotiatedRatesResults.summary.weightedAvgMargin.toFixed(1)}% margin</span> for {negotiatedRatesResults.carrier.name} to maintain current revenue levels with new market rates.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Customer Breakdown */}
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900">
-                  {customer} - Shipment Details
-                </h3>
+                <h3 className="text-lg font-semibold text-gray-900">Customer-Level Analysis</h3>
+                <p className="text-sm text-gray-600">
+                  Margin analysis broken down by customer
+                </p>
               </div>
               
               <div className="overflow-x-auto">
@@ -462,56 +1192,41 @@ export const MarginAnalysisTools: React.FC = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Invoice #
+                        Customer
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Date
+                        Shipments
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Route
+                        Total Revenue
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Weight
+                        Total New Cost
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Historical Rate
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Current Rate
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Difference
+                        Optimal Margin
                       </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {result.details.map((detail: any) => (
-                      <tr key={detail.invoiceNumber} className="hover:bg-gray-50">
+                    {negotiatedRatesResults.customerShipments.map((customerData: any) => (
+                      <tr key={customerData.customer.name} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {detail.invoiceNumber}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {detail.date}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {detail.route}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {detail.weight}
+                          {customerData.customer.name}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {formatCurrency(detail.historicalRevenue)}
+                          {customerData.summary.shipmentCount}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {formatCurrency(detail.currentRate)}
+                          {formatCurrency(customerData.summary.totalOldPrice)}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          <span className={`${
-                            detail.difference > 0 ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {detail.difference > 0 ? '+' : ''}
-                            {formatCurrency(detail.difference)}
-                          </span>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {formatCurrency(customerData.summary.totalNewCost)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-green-600">
+                            {customerData.summary.optimalMargin.toFixed(1)}%
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -519,97 +1234,163 @@ export const MarginAnalysisTools: React.FC = () => {
                 </table>
               </div>
             </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-  
-  const renderMarginSimulatorTab = () => (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">Margin Simulator</h3>
-      <p className="text-gray-600">
-        This feature will be available in a future update.
-      </p>
-    </div>
-  );
-  
+            
+            {/* Shipment Details (Expandable) */}
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900">Shipment Details</h3>
+                  <button
+                    onClick={() => {
+                      // Toggle expansion logic would go here
+                    }}
+                    className="text-blue-600 hover:text-blue-700"
+                  >
+                    <ChevronDown className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6">
+                <div className="text-sm text-gray-600 mb-4">
+                  This analysis reprocesses historical shipments through the Project44 API to get current market rates.
+                </div>
+                
+                <div className="space-y-4">
+                  {negotiatedRatesResults.customerShipments.slice(0, 1).map((customerData: any) => (
+                    <div key={customerData.customer.name} className="space-y-3">
+                      <div className="font-medium text-gray-900">{customerData.customer.name}</div>
+                      
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Route</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Old Price</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">New Cost</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Margin</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {customerData.shipments.slice(0, 3).map((shipment: any) => (
+                              <tr key={shipment.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-2 whitespace-nowrap">{shipment.date}</td>
+                                <td className="px-4 py-2 whitespace-nowrap">
+                                  <div className="flex items-center space-x-1">
+                                    <MapPin className="h-3 w-3 text-gray-400" />
+                                    <span>{shipment.origin} → {shipment.destination}</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-2 whitespace-nowrap">{formatCurrency(shipment.oldPrice)}</td>
+                                <td className="px-4 py-2 whitespace-nowrap">{formatCurrency(shipment.newCost)}</td>
+                                <td className="px-4 py-2 whitespace-nowrap text-green-600 font-medium">
+                                  {shipment.margin.toFixed(1)}%
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      
+                      {customerData.shipments.length > 3 && (
+                        <div className="text-center text-sm text-gray-500">
+                          + {customerData.shipments.length - 3} more shipments
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                
+                {negotiatedRatesResults.customerShipments.length > 1 && (
+                  <div className="mt-4 text-center text-sm text-gray-500">
+                    + {negotiatedRatesResults.customerShipments.length - 1} more customers
+                  </div>
+                )}
+                
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-start space-x-2">
+                    <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-blue-800">
+                      <p className="font-medium">How This Works</p>
+                      <p className="mt-1">
+                        This tool reprocesses historical shipments through the Project44 API to get current market rates. 
+                        It then calculates the exact margin needed to maintain your current revenue levels.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center space-x-3">
-          <div className="bg-blue-600 p-2 rounded-lg">
+          <div className="bg-purple-600 p-2 rounded-lg">
             <Calculator className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Margin Analysis Tools</h1>
+            <h1 className="text-xl font-semibold text-gray-900">Carrier Margin Analysis</h1>
             <p className="text-sm text-gray-600">
-              Analyze carrier performance and optimize pricing strategies
+              Analyze historical shipments and calculate optimal margins
             </p>
           </div>
         </div>
       </div>
-      
+
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="flex space-x-8">
-          {[
-            { id: 'carrier-vs-group', label: 'Carrier vs Group Analysis', icon: Truck },
-            { id: 'margin-simulator', label: 'Margin Simulator', icon: DollarSign }
-          ].map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="border-b border-gray-200">
+          <nav className="flex space-x-8 px-6">
+            <button
+              onClick={() => setActiveTab('carrier-vs-group')}
+              className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'carrier-vs-group'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Truck className="h-4 w-4" />
+              <span>Carrier vs Group</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('negotiated-rates')}
+              className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'negotiated-rates'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <TrendingUp className="h-4 w-4" />
+              <span>Negotiated Rates Analysis</span>
+            </button>
+          </nav>
+        </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="p-6">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="h-5 w-5 text-red-600" />
+                <span className="text-red-800">{error}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab Content */}
+        <div className="p-6">
+          {activeTab === 'carrier-vs-group' ? renderCarrierVsGroupAnalysis() : renderNegotiatedRatesAnalysis()}
+        </div>
       </div>
-      
-      {/* Error/Success Messages */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <AlertCircle className="h-5 w-5 text-red-600" />
-            <span className="text-red-800">{error}</span>
-          </div>
-        </div>
-      )}
-      
-      {success && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <CheckCircle className="h-5 w-5 text-green-600" />
-            <span className="text-green-800">{success}</span>
-          </div>
-        </div>
-      )}
-      
-      {/* Loading State */}
-      {loading && (
-        <div className="flex items-center justify-center py-8">
-          <Loader className="h-8 w-8 animate-spin text-blue-500" />
-        </div>
-      )}
-      
-      {/* Tab Content */}
-      {!loading && (
-        <>
-          {activeTab === 'carrier-vs-group' && renderCarrierVsGroupTab()}
-          {activeTab === 'margin-simulator' && renderMarginSimulatorTab()}
-        </>
-      )}
     </div>
   );
 };
