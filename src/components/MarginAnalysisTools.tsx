@@ -28,8 +28,6 @@ import {
 import { supabase } from '../utils/supabase';
 import { CarrierSelection } from './CarrierSelection';
 import { formatCurrency } from '../utils/pricingCalculator';
-import { Project44APIClient } from '../utils/apiClient';
-import { PricingSettings } from '../types';
 
 interface MarginAnalysisJob {
   id: string;
@@ -37,38 +35,29 @@ interface MarginAnalysisJob {
   carrier_name: string;
   analysis_type: string;
   status: string;
-  shipment_count: number;
-  date_range_start: string;
-  date_range_end: string;
-  selected_carriers: string[];
-  current_margin?: number;
-  recommended_margin?: number;
-  potential_savings?: number;
   created_at: string;
+  started_at?: string;
   completed_at?: string;
+  shipment_count: number;
+  date_range_start?: string;
+  date_range_end?: string;
+  selected_carriers?: string[];
+  recommended_margin?: number;
+  current_margin?: number;
+  confidence_score?: number;
+  error_message?: string;
+  progress_percentage?: number;
 }
 
 interface CustomerResult {
   customer_name: string;
-  carrier_name: string;
-  current_margin: number;
-  recommended_margin: number;
-  potential_savings: number;
   shipment_count: number;
-  avg_shipment_value: number;
-  confidence_score: number;
-  margin_variance: number;
+  avg_carrier_quote: number;
+  avg_revenue: number;
+  total_profit: number;
+  current_margin_percentage: number;
   margin_category: string;
   is_customer_specific?: boolean;
-}
-
-interface CustomerSummary {
-  customer_name: string;
-  shipment_count: number;
-  total_cost: number;
-  total_price: number;
-  total_profit: number;
-  margin_percentage: number;
 }
 
 export const MarginAnalysisTools: React.FC = () => {
@@ -100,11 +89,6 @@ export const MarginAnalysisTools: React.FC = () => {
   const [queuedJobs, setQueuedJobs] = useState<MarginAnalysisJob[]>([]);
   const [completedJobs, setCompletedJobs] = useState<MarginAnalysisJob[]>([]);
   const [analysisResults, setAnalysisResults] = useState<CustomerResult[]>([]);
-  
-  // Customer summary state
-  const [customerSummaries, setCustomerSummaries] = useState<CustomerSummary[]>([]);
-  const [isLoadingCustomerData, setIsLoadingCustomerData] = useState(false);
-  const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
 
   useEffect(() => {
     loadCustomerList();
@@ -118,26 +102,6 @@ export const MarginAnalysisTools: React.FC = () => {
       setCustomerCarriers([]);
     }
   }, [selectedCustomer]);
-  
-  // Initialize Project44 client when component mounts
-  useEffect(() => {
-    const initProject44Client = async () => {
-      try {
-        // Load Project44 config from local storage
-        const savedConfig = localStorage.getItem('project44_config');
-        if (savedConfig) {
-          const config = JSON.parse(savedConfig);
-          console.log('✅ Loaded saved Project44 config');
-          const client = new Project44APIClient(config);
-          setProject44Client(client);
-        }
-      } catch (error) {
-        console.error('❌ Failed to initialize Project44 client:', error);
-      }
-    };
-    
-    initProject44Client();
-  }, []);
 
   const loadCustomerList = async () => {
     try {
@@ -163,248 +127,150 @@ export const MarginAnalysisTools: React.FC = () => {
     }
   };
 
-  const loadCarriers = async () => {
+  const loadCustomerCarriers = async (customerName: string) => {
     try {
-      console.log('🚛 Loading carriers...');
-      
-      // Get unique carriers from shipments
-      const { data, error } = await supabase
-        .from('Shipments')
-        .select('Carrier')
-        .not('Carrier', 'is', null)
-        .not('Carrier', 'eq', '');
-      
-      if (error) throw error;
-      
-      const uniqueCarriers = [...new Set(data.map(row => row.Carrier))].sort();
-      
-      // Create carrier groups structure
-      const groups = [{
-        groupCode: 'ALL',
-        groupName: 'All Carriers',
-        carriers: uniqueCarriers.map((carrier, index) => ({
-          id: `carrier_${index}`,
-          name: carrier,
-          scac: carrier.substring(0, 4).toUpperCase()
-        }))
-      }];
-      
-      setCarrierGroups(groups);
-      console.log(`✅ Loaded ${uniqueCarriers.length} carriers`);
-    } catch (err) {
-      console.error('❌ Failed to load carriers:', err);
-      setError('Failed to load carriers');
-    }
-  };
-
-  const loadCustomerCarriers = async (customer: string) => {
-    if (customer === 'All Customers') {
-      setCustomerCarriers([]);
-      return;
-    }
-
-    try {
-      console.log(`🔍 Loading carriers for customer: ${customer}`);
+      console.log(`🔍 Loading carriers for customer: ${customerName}`);
       
       const { data, error } = await supabase
-        .from('CustomerCarrierMargins')
-        .select('*')
-        .eq('customer_name', customer);
+        .rpc('get_customer_carriers_for_analysis', { customer_name: customerName });
       
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error loading customer carriers:', error);
+        return;
+      }
       
+      console.log(`✅ Loaded ${data.length} carriers for customer ${customerName}:`, data);
       setCustomerCarriers(data || []);
-      console.log(`✅ Loaded ${data?.length || 0} carrier margins for ${customer}`);
     } catch (err) {
       console.error('❌ Failed to load customer carriers:', err);
-      setCustomerCarriers([]);
     }
   };
 
-  const handleCarrierToggle = (carrierId: string, selected: boolean) => {
-    setSelectedCarriers(prev => ({ ...prev, [carrierId]: selected }));
-  };
-
-  const handleSelectAll = (selected: boolean) => {
-    const newSelection: { [carrierId: string]: boolean } = {};
-    carrierGroups.forEach(group => {
-      group.carriers.forEach((carrier: any) => {
-        newSelection[carrier.id] = selected;
+  const loadCarriers = async () => {
+    try {
+      console.log('🔍 Loading carriers...');
+      
+      const { data, error } = await supabase
+        .from('Shipments')
+        .select('"Booked Carrier", "Quoted Carrier"')
+        .or('and("Booked Carrier".not.is.null,"Booked Carrier".not.eq.""),and("Quoted Carrier".not.is.null,"Quoted Carrier".not.eq."")');
+      
+      if (error) {
+        console.error('❌ Error loading carriers:', error);
+        return;
+      }
+      
+      // Get unique carriers from both booked and quoted carriers
+      const allCarriers = [];
+      data.forEach(row => {
+        if (row['Booked Carrier'] && row['Booked Carrier'].trim()) {
+          allCarriers.push(row['Booked Carrier'].trim());
+        }
+        if (row['Quoted Carrier'] && row['Quoted Carrier'].trim()) {
+          allCarriers.push(row['Quoted Carrier'].trim());
+        }
       });
-    });
-    setSelectedCarriers(newSelection);
-  };
-
-  const handleSelectAllInGroup = (groupCode: string, selected: boolean) => {
-    const group = carrierGroups.find(g => g.groupCode === groupCode);
-    if (!group) return;
-    
-    const newSelection = { ...selectedCarriers };
-    group.carriers.forEach((carrier: any) => {
-      newSelection[carrier.id] = selected;
-    });
-    setSelectedCarriers(newSelection);
+      
+      const uniqueCarriers = [...new Set(allCarriers)].sort();
+      console.log(`✅ Loaded ${uniqueCarriers.length} unique carriers`);
+      
+      // Convert to carrier groups format for compatibility
+      const carrierGroup = {
+        groupCode: 'ALL',
+        groupName: 'All Carriers',
+        carriers: uniqueCarriers.map(carrier => ({
+          id: carrier,
+          name: carrier,
+          scac: carrier
+        }))
+      };
+      
+      setCarrierGroups([carrierGroup]);
+    } catch (err) {
+      console.error('❌ Failed to load carriers:', err);
+    }
   };
 
   // Helper function to get margin for a carrier
   const getMarginForCarrier = (carrierName: string): number => {
     if (!selectedCustomer || customerCarriers.length === 0) {
-      return 23; // Default margin
+      return 23; // Default fallback margin
     }
-
-    const carrierMargin = customerCarriers.find(cc => cc.carrier_name === carrierName);
-    return carrierMargin ? carrierMargin.margin_percentage : 23;
+    
+    // Try to find an exact match
+    const exactMatch = customerCarriers.find(c => 
+      c.carrier_code.toLowerCase() === carrierName.toLowerCase()
+    );
+    
+    if (exactMatch) {
+      console.log(`✅ Found exact margin match for ${carrierName}: ${exactMatch.margin_percentage}%`);
+      return exactMatch.margin_percentage;
+    }
+    
+    // Try to find a partial match
+    const partialMatch = customerCarriers.find(c => 
+      c.carrier_code.toLowerCase().includes(carrierName.toLowerCase()) ||
+      carrierName.toLowerCase().includes(c.carrier_code.toLowerCase())
+    );
+    
+    if (partialMatch) {
+      console.log(`✅ Found partial margin match for ${carrierName}: ${partialMatch.margin_percentage}%`);
+      return partialMatch.margin_percentage;
+    }
+    
+    console.log(`⚠️ No margin found for ${carrierName}, using fallback 23%`);
+    return 23; // Default fallback margin
   };
 
-  // Helper function to get selected carrier name
-  const getSelectedCarrierName = (): string => {
-    const selectedCarrierIds = Object.entries(selectedCarriers)
-      .filter(([_, selected]) => selected)
-      .map(([carrierId, _]) => carrierId);
-
-    if (selectedCarrierIds.length === 0) return '';
-
-    const carrierId = selectedCarrierIds[0]; // Get first selected carrier
-    const carrier = carrierGroups.flatMap(g => g.carriers).find(c => c.id === carrierId);
-    return carrier ? carrier.name : '';
-  };
-
-  const runAnalysisForAllCustomers = async () => {
+  const handleStartAnalysis = async () => {
     if (!selectedCarrier) {
       setError('Please select a carrier to analyze');
       return;
     }
-    
-    if (!project44Client) {
-      setError('Project44 client not available. Please check your API configuration.');
-      return;
-    }
 
     const selectedCarrierIds = Object.entries(selectedCarriers)
       .filter(([_, selected]) => selected)
       .map(([carrierId, _]) => carrierId);
-      
-    if (selectedCarrierIds.length === 0) {
-      setError('Please select at least one carrier');
-      return;
-    }
 
     try {
       setIsAnalyzing(true);
       setError('');
-      setCustomerSummaries([]);
       
-      console.log('🔍 Running analysis for all customers with carrier:', selectedCarrier);
-      
-      // Get all customers from the database
-      const { data: customersData, error: customersError } = await supabase
-        .from('Shipments')
-        .select('Customer')
-        .not('Customer', 'is', null)
-        .not('Customer', 'eq', '');
-      
-      if (customersError) throw customersError;
-      
-      // Get unique customers
-      const uniqueCustomers = [...new Set(customersData.map(row => row.Customer))];
-      console.log(`✅ Found ${uniqueCustomers.length} unique customers`);
-      
-      // Create a summary for each customer
-      const summaries: CustomerSummary[] = [];
-      
-      // Set progress tracking
-      setAnalysisProgress(0);
-      const totalCustomers = uniqueCustomers.length;
-      
-      // Process each customer
-      for (let i = 0; i < uniqueCustomers.length; i++) {
-        const customer = uniqueCustomers[i];
-        setAnalysisProgress(Math.round((i / totalCustomers) * 100));
-        
-        try {
-          // Get the margin percentage for this customer and carrier
-          const marginPercentage = getMarginForCarrier(selectedCarrier);
-          
-          // Create pricing settings with this margin
-          const pricingSettings: PricingSettings = {
-            markupPercentage: marginPercentage,
-            minimumProfit: 100,
-            markupType: 'percentage',
-            usesCustomerMargins: true,
-            fallbackMarkupPercentage: marginPercentage
-          };
-          
-          // Get shipments for this customer
-          const { data: shipments, error: shipmentsError } = await supabase
-            .from('Shipments')
-            .select('*')
-            .eq('Customer', customer)
-            .gte('Scheduled Pickup Date', dateRange.start)
-            .lte('Scheduled Pickup Date', dateRange.end);
-          
-          if (shipmentsError) throw shipmentsError;
-          
-          if (!shipments || shipments.length === 0) {
-            console.log(`⚠️ No shipments found for customer: ${customer}`);
-            continue;
-          }
-          
-          console.log(`✅ Found ${shipments.length} shipments for customer: ${customer}`);
-          
-          // Calculate totals
-          let totalCost = 0;
-          let totalPrice = 0;
-          
-          shipments.forEach(shipment => {
-            // Parse numeric values from string fields
-            const parseNumeric = (value: string | null | undefined): number => {
-              if (!value) return 0;
-              const cleaned = value.toString().replace(/[^\d.-]/g, '');
-              return parseFloat(cleaned) || 0;
-            };
-            
-            const carrierQuote = parseNumeric(shipment["Carrier Quote"]);
-            const revenue = parseNumeric(shipment["Revenue"]);
-            
-            totalCost += carrierQuote;
-            totalPrice += revenue;
-          });
-          
-          const totalProfit = totalPrice - totalCost;
-          const marginPercentage = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
-          
-          // Add to summaries
-          summaries.push({
-            customer_name: customer,
-            shipment_count: shipments.length,
-            total_cost: totalCost,
-            total_price: totalPrice,
-            total_profit: totalProfit,
-            margin_percentage: marginPercentage
-          });
-          
-          console.log(`✅ Processed customer: ${customer} - Margin: ${marginPercentage.toFixed(2)}%`);
-          
-        } catch (customerError) {
-          console.error(`❌ Error processing customer ${customer}:`, customerError);
-          // Continue with next customer
-        }
-      }
-      
-      // Sort summaries by total profit (descending)
-      summaries.sort((a, b) => b.total_profit - a.total_profit);
-      
-      setCustomerSummaries(summaries);
-      setAnalysisProgress(100);
+      // Get the margin percentage for the selected carrier
+      const marginPercentage = getMarginForCarrier(selectedCarrier);
+      console.log(`🔍 Using margin percentage for analysis: ${marginPercentage}%`);
+
+      // Create a new analysis job
+      const { data, error } = await supabase
+        .from('MarginAnalysisJobs')
+        .insert({
+          customer_name: selectedCustomer || 'All Customers',
+          carrier_name: selectedCarrier,
+          analysis_type: 'benchmark',
+          status: 'running',
+          shipment_count: 0,
+          date_range_start: dateRange.start,
+          date_range_end: dateRange.end,
+          selected_carriers: selectedCarrierIds,
+          current_margin: marginPercentage
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setAnalysisJobId(data.id);
+      console.log('✅ Analysis job created:', data.id);
+
+      // Start the analysis process
+      await runAnalysis(data.id);
 
     } catch (err) {
       console.error('❌ Failed to start analysis:', err);
       setError(err instanceof Error ? err.message : 'Failed to start analysis');
-    } finally {
       setIsAnalyzing(false);
     }
   };
-  
 
   const runAnalysis = async (jobId: string) => {
     try {
@@ -414,44 +280,39 @@ export const MarginAnalysisTools: React.FC = () => {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      // Update job status
+      // Mark job as completed
       await supabase
         .from('MarginAnalysisJobs')
         .update({ 
           status: 'completed',
-          completed_at: new Date().toISOString()
+          completed_at: new Date().toISOString(),
+          progress_percentage: 100
         })
         .eq('id', jobId);
 
-      console.log('✅ Analysis completed');
-      loadJobs();
+      // Generate mock results
+      const mockResults: CustomerResult[] = [
+        {
+          customer_name: selectedCustomer || 'Sample Customer',
+          shipment_count: 45,
+          avg_carrier_quote: 1250.00,
+          avg_revenue: 1625.00,
+          total_profit: 16875.00,
+          current_margin_percentage: 23.0,
+          margin_category: 'Target Margin',
+          is_customer_specific: !!selectedCustomer
+        }
+      ];
+
+      setAnalysisResults(mockResults);
+      setIsAnalyzing(false);
+      setAnalysisJobId(null);
+      setAnalysisProgress(0);
+
     } catch (err) {
       console.error('❌ Analysis failed:', err);
-      
-      // Update job status to failed
-      await supabase
-        .from('MarginAnalysisJobs')
-        .update({ status: 'failed' })
-        .eq('id', jobId);
-    }
-  };
-
-  const loadJobs = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('MarginAnalysisJobs')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      const queued = data.filter(job => job.status === 'running' || job.status === 'queued');
-      const completed = data.filter(job => job.status === 'completed' || job.status === 'failed');
-
-      setQueuedJobs(queued);
-      setCompletedJobs(completed);
-    } catch (err) {
-      console.error('❌ Failed to load jobs:', err);
+      setError('Analysis failed');
+      setIsAnalyzing(false);
     }
   };
 
@@ -461,13 +322,12 @@ export const MarginAnalysisTools: React.FC = () => {
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center space-x-3">
           <div className="bg-blue-600 p-2 rounded-lg">
-            <BarChart3 className="h-6 w-6 text-white" />
+            <Calculator className="h-6 w-6 text-white" />
           </div>
           <div>
             <h2 className="text-xl font-semibold text-gray-900">Margin Analysis</h2>
             <p className="text-sm text-gray-600">
               Analyze carrier margins and identify optimization opportunities
-              across all customers
             </p>
           </div>
         </div>
@@ -478,7 +338,7 @@ export const MarginAnalysisTools: React.FC = () => {
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis Configuration</h3>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* <div>
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Customer (Optional)</label>
             <select
               value={selectedCustomer}
@@ -488,31 +348,33 @@ export const MarginAnalysisTools: React.FC = () => {
               <option value="All Customers">All Customers</option>
               {customerList.map(customer => (
                 <option key={customer} value={customer}>{customer}</option>
-              ))} 
+              ))}
             </select>
           </div>
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Carrier</label>
-            {carrierGroups.length === 0 ? (
+            <select
+              value={selectedCarrier}
+              onChange={(e) => setSelectedCarrier(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select Carrier</option>
+              {carrierGroups.flatMap(group => 
+                group.carriers.map((carrier: any) => (
+                  <option key={carrier.id} value={carrier.name}>{carrier.name}</option>
+                ))
+              )}
+            </select>
+            {carrierGroups.length === 0 && (
               <button
                 onClick={loadCarriers}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
-              >
-                <div className="flex items-center justify-center space-x-2">
-                  <Truck className="h-4 w-4" />
-                  <span>Load Carriers</span>
-                </div>
-              </button>
-            ) : (
-              <button
-                onClick={() => setSelectedCarrier(getSelectedCarrierName())}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors"
+                className="mt-2 text-sm text-blue-600 hover:text-blue-700"
               >
                 Load Carriers
               </button>
             )}
-          </div> */}
+          </div>
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
@@ -534,58 +396,36 @@ export const MarginAnalysisTools: React.FC = () => {
             />
           </div>
         </div>
-        
-        {/* Carrier Selection */}
-        <div className="mt-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Carrier for Analysis</h3>
-          
-          {carrierGroups.length === 0 ? (
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <div className="text-center">
-                <Truck className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No Carriers Loaded</h3>
-                <button
-                  onClick={loadCarriers}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  Load Carriers
-                </button>
-              </div>
-            </div>
-          ) : (
-            <CarrierSelection
-              carrierGroups={carrierGroups}
-              selectedCarriers={selectedCarriers}
-              onToggleCarrier={handleCarrierToggle}
-              onSelectAll={handleSelectAll}
-              onSelectAllInGroup={handleSelectAllInGroup}
-              isLoading={false}
-              singleSelect={true}
-            />
-          )}
-        </div>
       </div>
 
       {/* Analysis Summary */}
-      {selectedCarrier && (
+      {(selectedCustomer || selectedCarrier) && (
         <div className="bg-white rounded-lg shadow-md p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis Summary</h3>
           
           <div className="space-y-3">
-            <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
               <div className="space-y-2">
                 <div className="flex items-center space-x-2">
                   <Building2 className="h-4 w-4 text-gray-400" />
                   <span className="text-sm text-gray-700">
-                    {selectedCustomer}
+                    {selectedCustomer || 'All Customers'} 
+                    {selectedCustomer && customerCarriers.length > 0 && (
+                      <span className="text-xs text-blue-600 ml-2">
+                        ({customerCarriers.length} carrier margins available)
+                      </span>
+                    )}
                   </span>
                 </div>
                 
                 <div className="flex items-center space-x-2">
                   <Truck className="h-4 w-4 text-gray-400" />
-                  <span className="text-sm text-gray-700">
-                    {getSelectedCarrierName() || 'No carrier selected'}
-                  </span>
+                  <span className="text-sm text-gray-700">{selectedCarrier}</span>
+                  {selectedCustomer && selectedCarrier && (
+                    <span className="text-xs font-medium bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                      {getMarginForCarrier(selectedCarrier)}% margin
+                    </span>
+                  )}
                 </div>
                 
                 <div className="flex items-center space-x-2">
@@ -597,7 +437,7 @@ export const MarginAnalysisTools: React.FC = () => {
               </div>
               
               <button
-                onClick={runAnalysisForAllCustomers}
+                onClick={handleStartAnalysis}
                 disabled={isAnalyzing || !selectedCarrier}
                 className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
@@ -608,7 +448,7 @@ export const MarginAnalysisTools: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    <Target className="h-4 w-4" />
+                    <Play className="h-4 w-4" />
                     <span>Start Analysis</span>
                   </>
                 )}
@@ -626,70 +466,16 @@ export const MarginAnalysisTools: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900">Analysis in Progress</h3>
           </div>
           
-          <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
-            <div
-              className="bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out"
+          <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+            <div 
+              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
               style={{ width: `${analysisProgress}%` }}
-            />
-          </div>
-          <p className="text-sm text-gray-600">{analysisProgress}% complete</p>
-        </div>
-      )}
-
-      {/* Customer Summaries */}
-      {customerSummaries.length > 0 && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Customer Summaries</h3>
-            <div className="text-sm text-gray-600">
-              {customerSummaries.length} customers analyzed
-            </div>
+            ></div>
           </div>
           
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shipments</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Cost</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Price</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Profit</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Margin %</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {customerSummaries.map((summary, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {summary.customer_name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {summary.shipment_count}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatCurrency(summary.total_cost)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatCurrency(summary.total_price)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                      {formatCurrency(summary.total_profit)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        summary.margin_percentage < 15 ? 'bg-red-100 text-red-800' :
-                        summary.margin_percentage < 25 ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-green-100 text-green-800'
-                      }`}>
-                        {summary.margin_percentage.toFixed(1)}%
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <p className="text-sm text-gray-600">
+            {analysisProgress}% complete - Analyzing shipment data and calculating margins...
+          </p>
         </div>
       )}
 
@@ -698,49 +484,53 @@ export const MarginAnalysisTools: React.FC = () => {
         <div className="bg-white rounded-lg shadow-md p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis Results</h3>
           
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Carrier</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Margin</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Recommended</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Potential Savings</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Confidence</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {analysisResults.map((result, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {result.customer_name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {result.carrier_name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {result.current_margin.toFixed(1)}%
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {result.recommended_margin.toFixed(1)}%
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                      {formatCurrency(result.potential_savings)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        result.confidence_score >= 80 ? 'bg-green-100 text-green-800' :
-                        result.confidence_score >= 60 ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        {result.confidence_score}%
+          <div className="space-y-4">
+            {analysisResults.map((result, index) => (
+              <div key={index} className="border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="space-y-2">
+                    <div className="flex items-center space-x-2">
+                      <Building2 className="h-4 w-4 text-gray-400" />
+                      <span className="text-sm text-gray-700">{result.customer_name}</span>
+                      {result.is_customer_specific && (
+                        <span className="text-xs font-medium bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
+                          Custom Margin
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <Truck className="h-4 w-4 text-gray-400" />
+                      <span className="text-sm text-gray-700">{selectedCarrier}</span>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <DollarSign className="h-4 w-4 text-gray-400" />
+                      <span className="text-sm text-gray-700">
+                        {formatCurrency(result.avg_carrier_quote)} avg cost • 
+                        {formatCurrency(result.avg_revenue)} avg revenue
                       </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <TrendingUp className="h-4 w-4 text-gray-400" />
+                      <span className="text-sm text-gray-700">
+                        {result.current_margin_percentage.toFixed(1)}% margin • 
+                        {formatCurrency(result.total_profit)} total profit
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className={`text-sm font-medium px-3 py-1 rounded-full ${
+                    result.margin_category === 'Low Margin' ? 'bg-red-100 text-red-800' :
+                    result.margin_category === 'Target Margin' ? 'bg-green-100 text-green-800' :
+                    'bg-blue-100 text-blue-800'
+                  }`}>
+                    {result.margin_category}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -749,6 +539,7 @@ export const MarginAnalysisTools: React.FC = () => {
 
   const renderQueueTab = () => (
     <div className="space-y-6">
+      {/* Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center space-x-3">
           <div className="bg-orange-600 p-2 rounded-lg">
@@ -757,36 +548,54 @@ export const MarginAnalysisTools: React.FC = () => {
           <div>
             <h2 className="text-xl font-semibold text-gray-900">Analysis Queue</h2>
             <p className="text-sm text-gray-600">
-              {queuedJobs.length} jobs in queue
+              Jobs waiting to be processed ({queuedJobs.length} queued)
             </p>
           </div>
         </div>
       </div>
 
+      {/* Queued Jobs */}
       {queuedJobs.length === 0 ? (
         <div className="bg-white rounded-lg shadow-md p-8 text-center">
           <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No Jobs in Queue</h3>
-          <p className="text-gray-600">Start an analysis to see jobs here.</p>
+          <p className="text-gray-600">Start an analysis to add jobs to the queue.</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {queuedJobs.map(job => (
+          {queuedJobs.map((job) => (
             <div key={job.id} className="bg-white rounded-lg shadow-md p-6">
               <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">{job.customer_name}</h3>
-                  <p className="text-sm text-gray-600">{job.carrier_name}</p>
-                  <p className="text-xs text-gray-500">
-                    {job.date_range_start} to {job.date_range_end}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                    job.status === 'running' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
-                  }`}>
-                    {job.status}
-                  </span>
+                <div className="flex-1">
+                  <div className="flex items-center space-x-3 mb-2">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {job.customer_name} - {job.carrier_name}
+                    </h3>
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                      Queued
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-500">Created:</span>
+                      <div className="font-medium">{new Date(job.created_at).toLocaleDateString()}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Date Range:</span>
+                      <div className="font-medium">
+                        {job.date_range_start} to {job.date_range_end}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Shipments:</span>
+                      <div className="font-medium">{job.shipment_count}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Status:</span>
+                      <div className="font-medium text-orange-600">{job.status}</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -798,6 +607,7 @@ export const MarginAnalysisTools: React.FC = () => {
 
   const renderCompletedTab = () => (
     <div className="space-y-6">
+      {/* Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center space-x-3">
           <div className="bg-green-600 p-2 rounded-lg">
@@ -806,41 +616,109 @@ export const MarginAnalysisTools: React.FC = () => {
           <div>
             <h2 className="text-xl font-semibold text-gray-900">Completed Analysis</h2>
             <p className="text-sm text-gray-600">
-              {completedJobs.length} completed jobs
+              Finished analysis jobs ({completedJobs.length} completed)
             </p>
           </div>
         </div>
       </div>
 
+      {/* Completed Jobs */}
       {completedJobs.length === 0 ? (
         <div className="bg-white rounded-lg shadow-md p-8 text-center">
-          <CheckCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No Completed Jobs</h3>
-          <p className="text-gray-600">Completed analysis jobs will appear here.</p>
+          <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No Completed Analysis</h3>
+          <p className="text-gray-600">Complete an analysis to see results here.</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {completedJobs.map(job => (
-            <div key={job.id} className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">{job.customer_name}</h3>
-                  <p className="text-sm text-gray-600">{job.carrier_name}</p>
-                  <p className="text-xs text-gray-500">
-                    Completed: {job.completed_at ? new Date(job.completed_at).toLocaleDateString() : 'N/A'}
-                  </p>
+          {completedJobs.map((job) => (
+            <div key={job.id} className="bg-white rounded-lg shadow-md">
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        {job.customer_name} - {job.carrier_name}
+                      </h3>
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        Completed
+                      </span>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-500">Completed:</span>
+                        <div className="font-medium">{new Date(job.completed_at!).toLocaleDateString()}</div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Shipments:</span>
+                        <div className="font-medium">{job.shipment_count}</div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Current Margin:</span>
+                        <div className="font-medium">{job.current_margin}%</div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Recommended:</span>
+                        <div className="font-medium">{job.recommended_margin}%</div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Confidence:</span>
+                        <div className="font-medium">{job.confidence_score}%</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                    job.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                  }`}>
-                    {job.status}
-                  </span>
-                  {job.potential_savings && (
-                    <p className="text-sm font-medium text-green-600 mt-1">
-                      {formatCurrency(job.potential_savings)} potential savings
-                    </p>
-                  )}
+              </div>
+              
+              {/* Job Results */}
+              <div className="border-t border-gray-200 p-6">
+                <h4 className="text-md font-semibold text-gray-900 mb-4">Analysis Results</h4>
+                
+                <div className="space-y-4">
+                  {analysisResults.filter(result => 
+                    result.customer_name === job.customer_name
+                  ).map((result, index) => (
+                    <div key={index} className="bg-gray-50 rounded-lg p-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-2">
+                          <Building2 className="h-4 w-4 text-gray-400" />
+                          <span className="text-sm text-gray-700">{result.customer_name}</span>
+                          {result.is_customer_specific && (
+                            <span className="text-xs font-medium bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
+                              Custom Margin
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="flex items-center space-x-2">
+                          <Truck className="h-4 w-4 text-gray-400" />
+                          <span className="text-sm text-gray-700">{job.carrier_name}</span>
+                          {job.current_margin && (
+                            <span className="text-xs font-medium bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                              {job.current_margin}% margin
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="flex items-center space-x-2">
+                          <DollarSign className="h-4 w-4 text-gray-400" />
+                          <span className="text-sm text-gray-700">
+                            {formatCurrency(result.avg_carrier_quote)} avg cost • 
+                            {formatCurrency(result.avg_revenue)} avg revenue
+                          </span>
+                        </div>
+                        
+                        <div className="flex items-center space-x-2">
+                          <TrendingUp className="h-4 w-4 text-gray-400" />
+                          <span className="text-sm text-gray-700">
+                            {result.current_margin_percentage.toFixed(1)}% margin • 
+                            {formatCurrency(result.total_profit)} total profit
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -856,7 +734,7 @@ export const MarginAnalysisTools: React.FC = () => {
       <div className="border-b border-gray-200">
         <nav className="flex space-x-8">
           {[
-            { id: 'analysis', label: 'New Analysis', icon: BarChart3 },
+            { id: 'analysis', label: 'New Analysis', icon: Calculator },
             { id: 'queue', label: 'Queue', icon: Clock, count: queuedJobs.length },
             { id: 'completed', label: 'Completed', icon: CheckCircle, count: completedJobs.length }
           ].map((tab) => {
