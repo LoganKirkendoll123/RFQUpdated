@@ -590,8 +590,10 @@ export const getSalesRepList = async (): Promise<string[]> => {
     const uniqueSalesReps = [...new Set(allSalesReps.map(d => d["Sales Rep"]).filter(Boolean))].sort();
     console.log(`✅ Loaded ${uniqueSalesReps.length} unique sales reps from ${allSalesReps.length} total records`);
     return uniqueSalesReps;
-      .select('"Sales Rep"')
-      .not('"Sales Rep"', 'is', null)
+  } catch (error) {
+    console.error('Failed to fetch sales rep list:', error);
+    throw error;
+  }
       .order('"Sales Rep"');
     
     if (error) {

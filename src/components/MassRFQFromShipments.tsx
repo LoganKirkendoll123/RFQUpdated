@@ -523,22 +523,17 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           // Process RFQs in batches
           const customerResults: ProcessingResult[] = [];
           
-          // Calculate number of batches
-          const numBatches = Math.ceil(rfqs.length / BATCH_SIZE);
-          console.log(`🔢 Processing ${rfqs.length} RFQs in ${numBatches} batches of ${BATCH_SIZE}`);
+          // Process RFQs in batches of 50 with proper rate limiting
+          console.log(`🔢 Processing ${rfqs.length} RFQs with rate limit of 50 per 5 seconds`);
           
-          for (let batchIndex = 0; batchIndex < numBatches; batchIndex++) {
-            // Get current batch
-            const startIdx = batchIndex * BATCH_SIZE;
-            const endIdx = Math.min(startIdx + BATCH_SIZE, rfqs.length);
-            const batchRfqs = rfqs.slice(startIdx, endIdx);
+          // Process in batches of 50
+          for (let i = 0; i < rfqs.length; i += BATCH_SIZE) {
+            const batchRfqs = rfqs.slice(i, i + BATCH_SIZE);
+            console.log(`🔄 Processing batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(rfqs.length/BATCH_SIZE)} (${batchRfqs.length} RFQs)`);
             
-            console.log(`🔄 Processing batch ${batchIndex + 1}/${numBatches} (${batchRfqs.length} RFQs)`);
-            
-            // Process each RFQ in the batch
-            for (let rfqIndex = 0; rfqIndex < batchRfqs.length; rfqIndex++) {
-              const rfq = batchRfqs[rfqIndex];
-              const overallIndex = startIdx + rfqIndex; 
+            // Prepare all promises for this batch
+            const batchPromises = batchRfqs.map(async (rfq, batchIndex) => {
+              const overallIndex = i + batchIndex;
               
               // Update progress
               const progress = ((overallIndex + 1) / rfqs.length) * 100;
@@ -612,17 +607,17 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 
                 customerResults.push(result);
               }
-              
-              // Add delay between individual requests to avoid hitting rate limits
-              if (rfqIndex < batchRfqs.length - 1 && REQUEST_DELAY_MS > 0) {
-                await new Promise(resolve => setTimeout(resolve, REQUEST_DELAY_MS));
-              }
-            }
+            });
             
-            // Add delay between batches
-            if (batchIndex < numBatches - 1) {
-              console.log(`⏱️ Waiting ${BATCH_DELAY_MS/1000} seconds before next batch of 50 requests to respect rate limit of 50 per 5 seconds...`);
-              await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+            // Execute all promises in the batch simultaneously
+            console.log(`🚀 Executing batch of ${batchPromises.length} requests simultaneously`);
+            const batchResults = await Promise.all(batchPromises);
+            customerResults.push(...batchResults);
+            
+            // Wait between batches to respect rate limits
+            if (i + BATCH_SIZE < rfqs.length) {
+              console.log(`⏱️ Waiting ${BATCH_DELAY_MS/1000} seconds before next batch to respect rate limit of 50 per 5 seconds...`);
+              await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS)); 
             }
           }
           
