@@ -18,7 +18,12 @@ import {
   Target,
   TrendingUp,
   Building2,
-  MapPin
+  MapPin,
+  Save,
+  History,
+  Trash2,
+  Copy,
+  FolderOpen
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { Project44APIClient, FreshXAPIClient } from '../utils/apiClient';
@@ -27,6 +32,15 @@ import { calculatePricingWithCustomerMargins } from '../utils/pricingCalculator'
 import { formatCurrency } from '../utils/pricingCalculator';
 import { RFQCard } from './RFQCard';
 import { CarrierSelection } from './CarrierSelection';
+import { 
+  saveMassRFQBatch, 
+  updateMassRFQBatch, 
+  getMassRFQBatches, 
+  getMassRFQBatch,
+  deleteMassRFQBatch,
+  calculateBatchSummary,
+  MassRFQBatch 
+} from '../utils/massRfqDatabase';
 import * as XLSX from 'xlsx';
 
 // Rate limiting constants
@@ -101,8 +115,18 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
   const [branches, setBranches] = useState<string[]>([]);
   const [salesReps, setSalesReps] = useState<string[]>([]);
 
+  // Save/Load state
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [batchName, setBatchName] = useState('');
+  const [savedBatches, setSavedBatches] = useState<MassRFQBatch[]>([]);
+  const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingBatches, setIsLoadingBatches] = useState(false);
+
   useEffect(() => {
     loadFilterOptions();
+    loadSavedBatches();
     // Initialize local selected carriers from props
     setLocalSelectedCarriers(selectedCarriers);
     
@@ -227,6 +251,150 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     } catch (err) {
       console.error('Failed to load filter options:', err);
     }
+  };
+
+  const loadSavedBatches = async () => {
+    setIsLoadingBatches(true);
+    try {
+      const batches = await getMassRFQBatches();
+      setSavedBatches(batches);
+    } catch (error) {
+      console.error('Failed to load saved batches:', error);
+    } finally {
+      setIsLoadingBatches(false);
+    }
+  };
+
+  const handleSaveBatch = async () => {
+    if (!batchName.trim()) {
+      alert('Please enter a batch name');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const batchData: Omit<MassRFQBatch, 'id' | 'created_at' | 'updated_at'> = {
+        batch_name: batchName.trim(),
+        customer_name: selectedCustomer || undefined,
+        branch_filter: selectedBranch || undefined,
+        sales_rep_filter: selectedSalesRep || undefined,
+        carrier_filter: selectedCarrier || undefined,
+        date_range_start: dateRange.start || undefined,
+        date_range_end: dateRange.end || undefined,
+        pricing_settings: pricingSettings,
+        selected_carriers: selectedCarriers,
+        rfq_data: filteredShipments,
+        results_data: results.length > 0 ? results : undefined,
+        ...calculateBatchSummary(results)
+      };
+
+      if (currentBatchId) {
+        // Update existing batch
+        await updateMassRFQBatch(currentBatchId, batchData);
+      } else {
+        // Create new batch
+        const savedBatch = await saveMassRFQBatch(batchData);
+        setCurrentBatchId(savedBatch.id!);
+      }
+
+      setShowSaveDialog(false);
+      setBatchName('');
+      await loadSavedBatches();
+      
+      alert(currentBatchId ? 'Batch updated successfully!' : 'Batch saved successfully!');
+    } catch (error) {
+      console.error('Failed to save batch:', error);
+      alert('Failed to save batch. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleLoadBatch = async (batch: MassRFQBatch) => {
+    try {
+      // Load the full batch data
+      const fullBatch = await getMassRFQBatch(batch.id!);
+      if (!fullBatch) {
+        alert('Batch not found');
+        return;
+      }
+
+      // Restore all settings
+      setSelectedCustomer(fullBatch.customer_name || '');
+      setSelectedBranch(fullBatch.branch_filter || '');
+      setSelectedSalesRep(fullBatch.sales_rep_filter || '');
+      setSelectedCarrier(fullBatch.carrier_filter || '');
+      setDateRange({
+        start: fullBatch.date_range_start || '',
+        end: fullBatch.date_range_end || ''
+      });
+      setPricingSettings(fullBatch.pricing_settings);
+      setSelectedCarriers(fullBatch.selected_carriers);
+      
+      // Set the current batch ID
+      setCurrentBatchId(fullBatch.id!);
+      setBatchName(fullBatch.batch_name);
+      
+      // Load results if available
+      if (fullBatch.results_data) {
+        setResults(fullBatch.results_data);
+      } else {
+        setResults([]);
+      }
+      
+      setShowLoadDialog(false);
+      alert(`Loaded batch: ${fullBatch.batch_name}`);
+      
+      // Reload shipment data with the restored filters
+      await loadShipmentData();
+    } catch (error) {
+      console.error('Failed to load batch:', error);
+      alert('Failed to load batch. Please try again.');
+    }
+  };
+
+  const handleDeleteBatch = async (batchId: string, batchName: string) => {
+    if (!confirm(`Are you sure you want to delete "${batchName}"?`)) {
+      return;
+    }
+
+    try {
+      await deleteMassRFQBatch(batchId);
+      await loadSavedBatches();
+      
+      if (currentBatchId === batchId) {
+        setCurrentBatchId(null);
+        setBatchName('');
+      }
+      
+      alert('Batch deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete batch:', error);
+      alert('Failed to delete batch. Please try again.');
+    }
+  };
+
+  const handleRerunBatch = async () => {
+    if (!currentBatchId) {
+      alert('No batch loaded to rerun');
+      return;
+    }
+
+    // Clear existing results and rerun the processing
+    setResults([]);
+    await processSelectedShipments();
+  };
+
+  const handleNewBatch = () => {
+    setCurrentBatchId(null);
+    setBatchName('');
+    setResults([]);
+    setSelectedCustomer('');
+    setSelectedBranch('');
+    setSelectedSalesRep('');
+    setSelectedCarrier('');
+    setDateRange({ start: '', end: '' });
+    loadShipmentData();
   };
 
   const loadCustomerShipments = async () => {
@@ -875,17 +1043,85 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center space-x-3">
-          <div className="bg-purple-600 p-2 rounded-lg">
-            <BarChart3 className="h-6 w-6 text-white" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="bg-purple-600 p-2 rounded-lg">
+              <BarChart3 className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold text-gray-900">Mass RFQ from Shipments</h1>
+              <p className="text-sm text-gray-600">
+                Analyze historical shipments and generate bulk RFQs by customer for competitive pricing analysis
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">Mass RFQ from Shipments</h1>
-            <p className="text-sm text-gray-600">
-              Analyze historical shipments and generate bulk RFQs by customer for competitive pricing analysis
-            </p>
+          <div className="flex items-center space-x-4">
+            {/* Batch Management */}
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setShowLoadDialog(true)}
+                className="flex items-center space-x-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                <FolderOpen className="h-4 w-4" />
+                <span>Load</span>
+              </button>
+              
+              <button
+                onClick={() => setShowSaveDialog(true)}
+                disabled={filteredShipments.length === 0}
+                className="flex items-center space-x-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              >
+                <Save className="h-4 w-4" />
+                <span>Save</span>
+              </button>
+              
+              {currentBatchId && (
+                <>
+                  <button
+                    onClick={handleRerunBatch}
+                    disabled={isProcessing}
+                    className="flex items-center space-x-2 px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    <span>Rerun</span>
+                  </button>
+                  
+                  <button
+                    onClick={handleNewBatch}
+                    className="flex items-center space-x-2 px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>New</span>
+                  </button>
+                </>
+              )}
+            </div>
+            
+            <button
+              onClick={exportAllResults}
+              disabled={massRFQJobs.filter(job => job.status === 'completed').length === 0}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export Results</span>
+            </button>
           </div>
         </div>
+        
+        {/* Current Batch Info */}
+        {currentBatchId && (
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center space-x-2 text-blue-800">
+              <History className="h-4 w-4" />
+              <span className="font-medium">Current Batch: {batchName}</span>
+              <span className="text-blue-600">•</span>
+              <span className="text-sm">
+                {filteredShipments.length} shipments • 
+                {results.length > 0 ? ` ${results.reduce((sum, r) => sum + r.quotes.length, 0)} quotes` : ' Ready to process'}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Date Range and Filters */}
@@ -1365,6 +1601,165 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Save Dialog */}
+      {showSaveDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">
+              {currentBatchId ? 'Update Batch' : 'Save Mass RFQ Batch'}
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Batch Name
+                </label>
+                <input
+                  type="text"
+                  value={batchName}
+                  onChange={(e) => setBatchName(e.target.value)}
+                  placeholder="Enter a name for this batch..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
+                  autoFocus
+                />
+              </div>
+              
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="text-sm text-gray-700">
+                  <div><strong>Shipments:</strong> {filteredShipments.length}</div>
+                  <div><strong>Customer:</strong> {selectedCustomer || 'All'}</div>
+                  <div><strong>Date Range:</strong> {dateRange.start || 'All'} to {dateRange.end || 'All'}</div>
+                  <div><strong>Results:</strong> {results.length > 0 ? `${results.length} processed` : 'Not processed yet'}</div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowSaveDialog(false);
+                  setBatchName('');
+                }}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveBatch}
+                disabled={!batchName.trim() || isSaving}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400"
+              >
+                {isSaving && <Loader className="h-4 w-4 animate-spin" />}
+                <Save className="h-4 w-4" />
+                <span>{currentBatchId ? 'Update' : 'Save'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Load Dialog */}
+      {showLoadDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Load Saved Mass RFQ Batch</h3>
+              <button
+                onClick={() => setShowLoadDialog(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {isLoadingBatches ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader className="h-8 w-8 animate-spin text-blue-500" />
+              </div>
+            ) : savedBatches.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <History className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                <p>No saved batches found</p>
+              </div>
+            ) : (
+              <div className="overflow-y-auto max-h-96">
+                <div className="space-y-3">
+                  {savedBatches.map((batch) => (
+                    <div
+                      key={batch.id}
+                      className={`border rounded-lg p-4 hover:bg-gray-50 transition-colors ${
+                        currentBatchId === batch.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3 mb-2">
+                            <h4 className="font-medium text-gray-900">{batch.batch_name}</h4>
+                            {currentBatchId === batch.id && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                Current
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600">
+                            <div>
+                              <span className="font-medium">Shipments:</span> {batch.shipment_count}
+                            </div>
+                            <div>
+                              <span className="font-medium">Customer:</span> {batch.customer_name || 'All'}
+                            </div>
+                            <div>
+                              <span className="font-medium">Total Value:</span> {formatCurrency(batch.best_total_price)}
+                            </div>
+                            <div>
+                              <span className="font-medium">Created:</span> {new Date(batch.created_at!).toLocaleDateString()}
+                            </div>
+                          </div>
+                          
+                          {batch.results_data && (
+                            <div className="mt-2 text-sm text-green-600">
+                              ✅ Has results ({batch.total_quotes_received} quotes)
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="flex items-center space-x-2 ml-4">
+                          <button
+                            onClick={() => handleLoadBatch(batch)}
+                            className="flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+                          >
+                            <FolderOpen className="h-3 w-3" />
+                            <span>Load</span>
+                          </button>
+                          
+                          <button
+                            onClick={() => handleDeleteBatch(batch.id!, batch.batch_name)}
+                            className="flex items-center space-x-1 px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => setShowLoadDialog(false)}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
