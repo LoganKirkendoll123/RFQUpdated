@@ -253,7 +253,11 @@ export const calculatePricing = (
     }
   }
 
-    appliedMarginPercentage = customerPrice > 0 ? (settings.minimumProfit / customerPrice) * 100 : 0;
+  // Calculate final profit after all adjustments
+  const profit = customerPrice - carrierTotalRate;
+  
+  // Recalculate applied margin percentage based on final profit
+  appliedMarginPercentage = customerPrice > 0 ? (profit / customerPrice) * 100 : 0;
 
   return {
     ...quote,
