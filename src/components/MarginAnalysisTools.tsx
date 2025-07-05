@@ -23,7 +23,7 @@ import {
   ChevronUp,
   ChevronDown,
   Percent,
-  CreditCard
+  CreditCard,
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { CarrierSelection } from './CarrierSelection';
