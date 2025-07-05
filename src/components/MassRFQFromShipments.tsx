@@ -27,6 +27,7 @@ import { calculatePricingWithCustomerMargins } from '../utils/pricingCalculator'
 import { formatCurrency } from '../utils/pricingCalculator';
 import { RFQCard } from './RFQCard';
 import * as XLSX from 'xlsx';
+import { CarrierSelection } from './CarrierSelection';
 
 interface MassRFQFromShipmentsProps {
   project44Client: Project44APIClient | null;
@@ -74,6 +75,10 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
   const [customerSummaries, setCustomerSummaries] = useState<CustomerShipmentSummary[]>([]);
   const [selectedCustomers, setSelectedCustomers] = useState<{ [customer: string]: boolean }>({});
   const [isLoadingShipments, setIsLoadingShipments] = useState(false);
+  const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
+  const [carriersLoaded, setCarriersLoaded] = useState(false);
+  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
+  const [localSelectedCarriers, setLocalSelectedCarriers] = useState<{ [carrierId: string]: boolean }>(selectedCarriers);
   const [massRFQJobs, setMassRFQJobs] = useState<MassRFQJob[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string>('');
@@ -87,6 +92,11 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
   // Filter options
   const [branches, setBranches] = useState<string[]>([]);
   const [salesReps, setSalesReps] = useState<string[]>([]);
+
+  // Initialize local state from props
+  useEffect(() => {
+    setLocalSelectedCarriers(selectedCarriers);
+  }, [selectedCarriers]);
 
   useEffect(() => {
     loadFilterOptions();
@@ -261,6 +271,51 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     }
   };
 
+  const loadCarriers = async () => {
+    if (!project44Client) return;
+
+    setIsLoadingCarriers(true);
+    setCarriersLoaded(false);
+    try {
+      console.log('🚛 Loading carriers for mass RFQ...');
+      const groups = await project44Client.getAvailableCarriersByGroup(false, false);
+      setCarrierGroups(groups);
+      setCarriersLoaded(true);
+      console.log(`✅ Loaded ${groups.length} carrier groups for mass RFQ`);
+    } catch (error) {
+      console.error('❌ Failed to load carriers:', error);
+      setCarrierGroups([]);
+      setCarriersLoaded(false);
+    } finally {
+      setIsLoadingCarriers(false);
+    }
+  };
+
+  const handleCarrierToggle = (carrierId: string, selected: boolean) => {
+    setLocalSelectedCarriers(prev => ({ ...prev, [carrierId]: selected }));
+  };
+
+  const handleSelectAll = (selected: boolean) => {
+    const newSelection: { [carrierId: string]: boolean } = {};
+    carrierGroups.forEach(group => {
+      group.carriers.forEach(carrier => {
+        newSelection[carrier.id] = selected;
+      });
+    });
+    setLocalSelectedCarriers(newSelection);
+  };
+
+  const handleSelectAllInGroup = (groupCode: string, selected: boolean) => {
+    const group = carrierGroups.find(g => g.groupCode === groupCode);
+    if (!group) return;
+    
+    const newSelection = { ...localSelectedCarriers };
+    group.carriers.forEach(carrier => {
+      newSelection[carrier.id] = selected;
+    });
+    setLocalSelectedCarriers(newSelection);
+  };
+
   const handleCustomerToggle = (customerName: string, selected: boolean) => {
     setSelectedCustomers(prev => ({
       ...prev,
@@ -268,7 +323,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     }));
   };
 
-  const handleSelectAll = (selected: boolean) => {
+  const handleSelectAllCustomers = (selected: boolean) => {
     const newSelection: { [customer: string]: boolean } = {};
     customerSummaries.forEach(summary => {
       newSelection[summary.customerName] = selected;
@@ -322,7 +377,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       return;
     }
     
-    const selectedCarrierIds = Object.entries(selectedCarriers)
+    const selectedCarrierIds = Object.entries(localSelectedCarriers)
       .filter(([_, selected]) => selected)
       .map(([carrierId, _]) => carrierId);
     
@@ -705,6 +760,42 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
         </div>
       </div>
 
+      {/* Carrier Selection */}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">Carrier Selection</h3>
+            {!carriersLoaded && (
+              <button
+                onClick={loadCarriers}
+                disabled={isLoadingCarriers}
+                className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400"
+              >
+                {isLoadingCarriers ? (
+                  <Loader className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Truck className="h-4 w-4" />
+                )}
+                <span>{isLoadingCarriers ? 'Loading...' : 'Load Carriers'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+        
+        {carriersLoaded && (
+          <div className="p-6">
+            <CarrierSelection
+              carrierGroups={carrierGroups}
+              selectedCarriers={localSelectedCarriers}
+              onToggleCarrier={handleCarrierToggle}
+              onSelectAll={handleSelectAll}
+              onSelectAllInGroup={handleSelectAllInGroup}
+              isLoading={isLoadingCarriers}
+            />
+          </div>
+        )}
+      </div>
+
       {/* Customer Selection */}
       {customerSummaries.length > 0 && (
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
@@ -713,13 +804,13 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
               <h3 className="text-lg font-semibold text-gray-900">Customer Selection</h3>
               <div className="flex items-center space-x-4">
                 <button
-                  onClick={() => handleSelectAll(true)}
+                  onClick={() => handleSelectAllCustomers(true)}
                   className="px-3 py-1.5 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
                 >
                   Select All
                 </button>
                 <button
-                  onClick={() => handleSelectAll(false)}
+                  onClick={() => handleSelectAllCustomers(false)}
                   className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
                 >
                   Clear All
@@ -807,23 +898,34 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                   <span className="font-medium">{selectedCount} customers selected</span>
                   <span className="ml-2 text-sm">({totalShipments} total shipments)</span>
                 </div>
-                <button
-                  onClick={processMassRFQ}
-                  disabled={isProcessing || !project44Client}
-                  className="flex items-center space-x-2 px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors"
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader className="h-5 w-5 animate-spin" />
-                      <span>Processing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play className="h-5 w-5" />
-                      <span>Start Mass RFQ</span>
-                    </>
+                <div className="flex items-center space-x-3">
+                  {!carriersLoaded && (
+                    <button
+                      onClick={loadCarriers}
+                      className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                      <Truck className="h-4 w-4" />
+                      <span>Load Carriers</span>
+                    </button>
                   )}
-                </button>
+                  <button
+                    onClick={processMassRFQ}
+                    disabled={isProcessing || !project44Client || !carriersLoaded || Object.values(localSelectedCarriers).filter(Boolean).length === 0}
+                    className="flex items-center space-x-2 px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader className="h-5 w-5 animate-spin" />
+                        <span>Processing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-5 w-5" />
+                        <span>Start Mass RFQ</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           )}
