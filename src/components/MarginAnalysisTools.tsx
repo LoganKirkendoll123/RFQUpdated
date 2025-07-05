@@ -24,7 +24,6 @@ import {
   ChevronDown,
   Percent,
   CreditCard
-  Building2
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { CarrierSelection } from './CarrierSelection';
