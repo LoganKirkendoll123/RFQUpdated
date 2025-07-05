@@ -35,6 +35,12 @@ interface MarginAnalysisJob {
   error_message?: string;
   date_range_start?: string;
   date_range_end?: string;
+  first_phase_completed?: boolean;
+  second_phase_started_at?: string;
+  second_phase_completed_at?: string;
+  first_phase_data?: any;
+  second_phase_data?: any;
+  discount_analysis_data?: any;
 }
 
 interface MarginRecommendation {
@@ -69,6 +75,10 @@ export const MarginAnalysisTools: React.FC = () => {
   const [selectedCarriers, setSelectedCarriers] = useState<{ [carrierId: string]: boolean }>({});
   const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
   const [carriersLoaded, setCarriersLoaded] = useState(false);
+  
+  // Two-phase analysis state
+  const [isSecondPhase, setIsSecondPhase] = useState(false);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   
   // Data state
   const [customers, setCustomers] = useState<string[]>([]);
@@ -306,6 +316,235 @@ export const MarginAnalysisTools: React.FC = () => {
     }
   };
 
+  const runSecondPhaseAnalysis = async (jobId: string) => {
+    setIsRunningAnalysis(true);
+    setError('');
+    setSelectedJobId(jobId);
+    setIsSecondPhase(true);
+
+    try {
+      // Get the job details
+      const { data: job, error: jobError } = await supabase
+        .from('MarginAnalysisJobs')
+        .select('*')
+        .eq('id', jobId)
+        .single();
+
+      if (jobError) throw jobError;
+      
+      console.log(`🔄 Starting second phase analysis for job: ${jobId}`);
+      
+      // Update job status to running for second phase
+      const { error: updateError } = await supabase
+        .from('MarginAnalysisJobs')
+        .update({
+          status: 'running',
+          second_phase_started_at: new Date().toISOString()
+        })
+        .eq('id', jobId);
+
+      if (updateError) throw updateError;
+      
+      // Get first phase data
+      const firstPhaseData = job.benchmark_data;
+      if (!firstPhaseData) {
+        throw new Error('No first phase data available');
+      }
+      
+      console.log('📊 First phase data:', firstPhaseData);
+      
+      // Query shipments again to see if any discounts have been applied
+      console.log(`🔍 Querying shipments again for date range: ${job.date_range_start} to ${job.date_range_end}`);
+      
+      let shipmentQuery = supabase
+        .from('Shipments')
+        .select('*')
+        .gte('"Scheduled Pickup Date"', job.date_range_start)
+        .lte('"Scheduled Pickup Date"', job.date_range_end);
+
+      const { data: currentShipments, error: shipmentError } = await shipmentQuery;
+
+      if (shipmentError) throw shipmentError;
+
+      console.log(`📦 Found ${currentShipments?.length || 0} total shipments in date range for second phase`);
+
+      if (!currentShipments || currentShipments.length === 0) {
+        throw new Error(`No shipments found in the selected date range for second phase`);
+      }
+
+      // Group shipments by customer
+      const customerShipments = currentShipments.reduce((groups, shipment) => {
+        const customer = shipment["Customer"] || 'Unknown';
+        if (!groups[customer]) {
+          groups[customer] = [];
+        }
+        groups[customer].push(shipment);
+        return groups;
+      }, {} as Record<string, any[]>);
+      
+      console.log(`👥 Found ${Object.keys(customerShipments).length} customers with shipments in second phase`);
+      
+      // Process each customer separately and compare with first phase
+      const customerResults = [];
+      const discountAnalysis = [];
+      
+      for (const [customer, shipments] of Object.entries(customerShipments)) {
+        console.log(`🔍 Second phase analysis for customer: ${customer} with ${shipments.length} shipments`);
+        
+        // Find this customer in first phase results
+        const firstPhaseCustomerData = firstPhaseData.customer_results.find(
+          (cr: any) => cr.customer === customer
+        );
+        
+        if (!firstPhaseCustomerData) {
+          console.log(`⚠️ Customer ${customer} not found in first phase data, skipping`);
+          continue;
+        }
+        
+        // Calculate current margin from new shipment data
+        const revenues = shipments
+          .map(s => parseFloat(s["Revenue"] || '0'))
+          .filter(r => r > 0);
+        
+        const carrierExpenses = shipments
+          .map(s => parseFloat(s["Carrier Expense"] || '0'))
+          .filter(e => e > 0);
+        
+        const profits = shipments
+          .map(s => parseFloat(s["Profit"] || '0'))
+          .filter(p => !isNaN(p));
+        
+        const avgRevenue = revenues.length > 0 ? revenues.reduce((sum, r) => sum + r, 0) / revenues.length : 0;
+        const avgExpense = carrierExpenses.length > 0 ? carrierExpenses.reduce((sum, e) => sum + e, 0) / carrierExpenses.length : 0;
+        const avgProfit = profits.length > 0 ? profits.reduce((sum, p) => sum + p, 0) / profits.length : 0;
+        
+        // Calculate current margin as a percentage
+        const currentMargin = avgRevenue > 0 ? (avgProfit / avgRevenue) * 100 : 0;
+        
+        // Compare with first phase
+        const firstPhaseMargin = firstPhaseCustomerData.currentMargin;
+        const marginDifference = currentMargin - firstPhaseMargin;
+        
+        // Calculate discount percentage if margin decreased
+        const discountDetected = marginDifference < -1; // More than 1% decrease in margin
+        const discountPercentage = discountDetected ? Math.abs(marginDifference) : 0;
+        
+        // Calculate confidence score for discount detection
+        const discountConfidence = discountDetected 
+          ? Math.min(90, Math.max(60, 70 + (shipments.length * 2)))
+          : 0;
+        
+        console.log(`📊 Second phase analysis for ${customer}:`, {
+          shipmentCount: shipments.length,
+          avgRevenue: avgRevenue.toFixed(2),
+          avgExpense: avgExpense.toFixed(2),
+          avgProfit: avgProfit.toFixed(2),
+          currentMargin: currentMargin.toFixed(2),
+          firstPhaseMargin: firstPhaseMargin.toFixed(2),
+          marginDifference: marginDifference.toFixed(2),
+          discountDetected,
+          discountPercentage: discountPercentage.toFixed(2)
+        });
+        
+        // Store results for this customer
+        customerResults.push({
+          customer,
+          shipmentCount: shipments.length,
+          avgRevenue,
+          avgExpense,
+          avgProfit,
+          currentMargin,
+          firstPhaseMargin,
+          marginDifference,
+          discountDetected,
+          discountPercentage
+        });
+        
+        // Add to discount analysis if discount detected
+        if (discountDetected) {
+          discountAnalysis.push({
+            customer,
+            carrier: job.carrier_name,
+            firstPhaseMargin,
+            secondPhaseMargin: currentMargin,
+            discountPercentage,
+            confidence: discountConfidence,
+            shipmentCount: shipments.length
+          });
+          
+          // Update recommendation with discount data
+          const { error: recError } = await supabase
+            .from('MarginRecommendations')
+            .update({
+              discount_pattern_detected: true,
+              avg_discount_percentage: discountPercentage,
+              discount_confidence_score: discountConfidence,
+              discount_data: {
+                first_phase_margin: firstPhaseMargin,
+                second_phase_margin: currentMargin,
+                margin_difference: marginDifference,
+                first_phase_shipments: firstPhaseCustomerData.shipmentCount,
+                second_phase_shipments: shipments.length
+              }
+            })
+            .eq('customer_name', customer)
+            .eq('carrier_name', job.carrier_name);
+
+          if (recError) console.error(`Failed to update recommendation with discount data for ${customer}:`, recError);
+        }
+      }
+
+      // Update job with second phase results
+      const { error: updateError2 } = await supabase
+        .from('MarginAnalysisJobs')
+        .update({
+          status: 'completed',
+          second_phase_completed_at: new Date().toISOString(),
+          second_phase_data: {
+            customer_count: Object.keys(customerShipments).length,
+            total_shipments: currentShipments.length,
+            customer_results: customerResults,
+            date_range: {
+              start: job.date_range_start,
+              end: job.date_range_end
+            }
+          },
+          discount_analysis_data: {
+            discount_count: discountAnalysis.length,
+            discount_details: discountAnalysis
+          }
+        })
+        .eq('id', jobId);
+
+      if (updateError2) throw updateError2;
+
+      console.log('✅ Second phase margin analysis completed successfully');
+      console.log(`📊 Found ${discountAnalysis.length} customers with discount patterns`);
+      
+      // Reload data
+      await Promise.all([loadJobs(), loadRecommendations()]);
+
+    } catch (err) {
+      console.error('❌ Second phase margin analysis failed:', err);
+      setError(err instanceof Error ? err.message : 'Second phase analysis failed');
+      
+      // Update job status to failed
+      if (jobId) {
+        await supabase
+          .from('MarginAnalysisJobs')
+          .update({
+            status: 'failed',
+            error_message: err instanceof Error ? err.message : 'Second phase analysis failed'
+          })
+          .eq('id', jobId);
+      }
+    } finally {
+      setIsRunningAnalysis(false);
+      setIsSecondPhase(false);
+      setSelectedJobId(null);
+    }
+  };
+
   const runMarginAnalysis = async () => {
     const selectedCarrierIds = Object.keys(selectedCarriers).filter(id => selectedCarriers[id]);
     if (selectedCarrierIds.length !== 1) {
@@ -479,7 +718,8 @@ export const MarginAnalysisTools: React.FC = () => {
           status: 'completed',
           completed_at: new Date().toISOString(),
           shipment_count: allShipments.length,
-          benchmark_data: {
+          first_phase_completed: true,
+          first_phase_data: {
             customer_count: Object.keys(customerShipments).length,
             total_shipments: allShipments.length,
             customer_results: customerResults,
@@ -489,7 +729,6 @@ export const MarginAnalysisTools: React.FC = () => {
         .eq('id', job.id);
 
       if (updateError) throw updateError;
-
 
       console.log('✅ Margin analysis completed successfully');
       
@@ -501,7 +740,7 @@ export const MarginAnalysisTools: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Analysis failed');
       
       // Update job status to failed if we have a job ID
-      // (This would require storing the job ID, but for now we'll just log the error)
+      // TODO: Update job status to failed
     } finally {
       setIsRunningAnalysis(false);
     }
@@ -509,6 +748,7 @@ export const MarginAnalysisTools: React.FC = () => {
 
   const renderAnalysisTab = () => (
     <div className="space-y-6">
+      {/* First Phase Analysis Configuration */}
       {/* Analysis Configuration */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis Configuration</h3>
@@ -517,7 +757,7 @@ export const MarginAnalysisTools: React.FC = () => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Analysis Type</label>
             <select
-              value={analysisType}
+              value={isSecondPhase ? 'comparison' : analysisType}
               onChange={(e) => setAnalysisType(e.target.value as 'benchmark' | 'comparison')}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
             >
@@ -530,7 +770,7 @@ export const MarginAnalysisTools: React.FC = () => {
             <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
             <input
               type="date"
-              value={dateRange.start}
+              value={isSecondPhase && selectedJobId ? jobs.find(j => j.id === selectedJobId)?.date_range_start || dateRange.start : dateRange.start}
               onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
             />
@@ -540,10 +780,57 @@ export const MarginAnalysisTools: React.FC = () => {
             <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
             <input
               type="date"
-              value={dateRange.end}
+              value={isSecondPhase && selectedJobId ? jobs.find(j => j.id === selectedJobId)?.date_range_end || dateRange.end : dateRange.end}
               onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
             />
+          </div>
+        </div>
+      </div>
+
+      {/* Second Phase Analysis */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Two-Phase Analysis</h3>
+        
+        <div className="space-y-4">
+          <p className="text-sm text-gray-700">
+            Run a second phase analysis on a completed job to detect discount patterns between phases.
+          </p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Select Completed First Phase Job</label>
+              <select
+                value={selectedJobId || ''}
+                onChange={(e) => setSelectedJobId(e.target.value || null)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">-- Select a job --</option>
+                {jobs
+                  .filter(job => job.status === 'completed' && job.first_phase_completed && !job.second_phase_completed_at)
+                  .map(job => (
+                    <option key={job.id} value={job.id}>
+                      {job.carrier_name} - {new Date(job.created_at).toLocaleDateString()} ({job.shipment_count} shipments)
+                    </option>
+                  ))
+                }
+              </select>
+            </div>
+            
+            <div className="flex items-end">
+              <button
+                onClick={() => selectedJobId && runSecondPhaseAnalysis(selectedJobId)}
+                disabled={isRunningAnalysis || !selectedJobId}
+                className="flex items-center space-x-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed w-full"
+              >
+                {isRunningAnalysis && isSecondPhase ? (
+                  <Loader className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Play className="h-5 w-5" />
+                )}
+                <span>{isRunningAnalysis && isSecondPhase ? 'Running Second Phase...' : 'Run Second Phase Analysis'}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -592,7 +879,7 @@ export const MarginAnalysisTools: React.FC = () => {
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Run Analysis</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Run First Phase Analysis</h3>
             <p className="text-sm text-gray-600 mt-1">
               Analyze margin performance for ALL customers with the selected carrier
             </p>
@@ -600,7 +887,7 @@ export const MarginAnalysisTools: React.FC = () => {
           <button
             onClick={runMarginAnalysis}
             disabled={isRunningAnalysis || Object.keys(selectedCarriers).filter(id => selectedCarriers[id]).length !== 1}
-            className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed w-full md:w-auto"
           >
             {isRunningAnalysis ? (
               <Loader className="h-5 w-5 animate-spin" />
@@ -608,7 +895,7 @@ export const MarginAnalysisTools: React.FC = () => {
               <Play className="h-5 w-5" />
             )}
             <span>{isRunningAnalysis ? 'Running Analysis...' : 'Start Analysis'}</span>
-          </button>
+          </button>  
         </div>
         
         {error && (
@@ -628,10 +915,29 @@ export const MarginAnalysisTools: React.FC = () => {
               <ol className="list-decimal list-inside space-y-1">
                 <li>Select a carrier to analyze and date range</li>
                 <li>System processes <strong>ALL shipments</strong> in the date range regardless of carrier</li>
-                <li>For EACH customer, system calculates current margin performance on all shipments</li>
+                <li>For EACH customer, system calculates current margin performance on ALL shipments</li>
+                <li>Run second phase analysis the next day to detect discount patterns</li>
                 <li>System looks up target margin from CustomerCarriers table for the selected carrier</li>
                 <li>Recommendations are generated for each customer based on the selected carrier's target margin</li>
                 <li>Results show potential revenue impact of applying the selected carrier's margin to all shipments</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+        
+        <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+          <div className="flex items-start space-x-2">
+            <TrendingUp className="h-5 w-5 text-purple-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-purple-800">
+              <p className="font-medium mb-1">Two-Phase Analysis Process:</p>
+              <ol className="list-decimal list-inside space-y-1">
+                <li><strong>First Phase (Today):</strong> Calculate current margins for all customers</li>
+                <li><strong>Second Phase (Tomorrow):</strong> Re-analyze the same shipments to detect discount patterns</li>
+                <li><strong>Discount Detection:</strong> System identifies customers who received discounts after initial quotes</li>
+                <li><strong>Margin Impact:</strong> Calculates how discounts affect your overall margin performance</li>
+                <li><strong>Recommendations:</strong> Updates recommendations with discount pattern information</li>
+                <li><strong>Revenue Protection:</strong> Helps identify customers who consistently negotiate down prices</li>
+                <li><strong>Pricing Strategy:</strong> Informs your initial pricing strategy based on discount patterns</li>
               </ol>
             </div>
           </div>
@@ -660,6 +966,7 @@ export const MarginAnalysisTools: React.FC = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Impact</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Confidence</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Discount</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
               </tr>
             </thead>
@@ -672,6 +979,18 @@ export const MarginAnalysisTools: React.FC = () => {
                   <td className="px-6 py-4 text-sm font-medium text-green-600">{rec.recommended_margin.toFixed(1)}%</td>
                   <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(rec.potential_revenue_impact)}</td>
                   <td className="px-6 py-4 text-sm text-gray-900">{rec.confidence_score.toFixed(0)}%</td>
+                  <td className="px-6 py-4 text-sm">
+                    {rec.discount_pattern_detected ? (
+                      <div className="flex flex-col">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                          {rec.avg_discount_percentage?.toFixed(1)}% discount
+                        </span>
+                        <span className="text-xs text-gray-500 mt-1">{rec.discount_confidence_score?.toFixed(0)}% confidence</span>
+                      </div>
+                    ) : (
+                      <span className="text-gray-500">—</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-sm">
                     {rec.applied ? (
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
@@ -719,6 +1038,7 @@ export const MarginAnalysisTools: React.FC = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shipments</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Result</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phases</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
               </tr>
             </thead>
@@ -740,6 +1060,22 @@ export const MarginAnalysisTools: React.FC = () => {
                     ) : (
                       '—'
                     )}
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    <div className="flex flex-col space-y-1">
+                      <div className="flex items-center space-x-1">
+                        <div className={`w-2 h-2 rounded-full ${job.first_phase_completed ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                        <span className="text-xs">Phase 1</span>
+                        {job.first_phase_completed && <CheckCircle className="h-3 w-3 text-green-500 ml-1" />}
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <div className={`w-2 h-2 rounded-full ${
+                          job.second_phase_completed_at ? 'bg-green-500' : job.second_phase_started_at ? 'bg-blue-500' : 'bg-gray-300'
+                        }`}></div>
+                        <span className="text-xs">Phase 2</span>
+                        {job.second_phase_completed_at && <CheckCircle className="h-3 w-3 text-green-500 ml-1" />}
+                      </div>
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-sm">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
