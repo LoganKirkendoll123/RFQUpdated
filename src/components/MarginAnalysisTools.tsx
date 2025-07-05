@@ -1,6 +1,3 @@
-Here's the fixed version with all missing closing brackets added:
-
-```javascript
       // Update job with second phase results
       const { error: updateError2 } = await supabase
         .from('MarginAnalysisJobs')
