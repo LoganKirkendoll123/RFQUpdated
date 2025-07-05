@@ -65,11 +65,11 @@ export const getCustomerCarriers = async (customerName?: string): Promise<Custom
   try {
     let query = supabase.from('CustomerCarrier').select('*');
     
-    if (customerName) {
+    if (customerName) { 
       query = query.eq('customer_name', customerName);
     }
     
-    const { data, error } = await query.order('customer_name', { ascending: true });
+    const { data, error } = await query.order('InternalName', { ascending: true }).limit(10000);
     
     if (error) {
       console.error('Error fetching customer carriers:', error);
@@ -160,7 +160,7 @@ export const getShipments = async (filters?: {
   try {
     let query = supabase.from('Shipments').select('*');
     
-    if (filters?.customerName) {
+    if (filters?.customerName) { 
       query = query.eq('"Customer"', filters.customerName);
     }
     
@@ -184,7 +184,7 @@ export const getShipments = async (filters?: {
       query = query.eq('"Sales Rep"', filters.salesRep);
     }
     
-    const { data, error } = await query.order('"Scheduled Pickup Date"', { ascending: false });
+    const { data, error } = await query.order('"Scheduled Pickup Date"', { ascending: false }).limit(10000);
     
     if (error) {
       console.error('Error fetching shipments:', error);

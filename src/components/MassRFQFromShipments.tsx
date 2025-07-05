@@ -22,10 +22,11 @@ import {
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { Project44APIClient, FreshXAPIClient } from '../utils/apiClient';
-import { PricingSettings, RFQRow, ProcessingResult, QuoteWithPricing } from '../types';
+import { PricingSettings, RFQRow, ProcessingResult, QuoteWithPricing, CarrierGroup } from '../types';
 import { calculatePricingWithCustomerMargins } from '../utils/pricingCalculator';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { RFQCard } from './RFQCard';
+import { CarrierSelection } from './CarrierSelection';
 import * as XLSX from 'xlsx';
 
 interface MassRFQFromShipmentsProps {
@@ -89,12 +90,21 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedSalesRep, setSelectedSalesRep] = useState('');
   
+  // Carrier selection state
+  const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
+  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
+  const [carriersLoaded, setCarriersLoaded] = useState(false);
+  const [localSelectedCarriers, setLocalSelectedCarriers] = useState<{ [carrierId: string]: boolean }>({});
+  
   // Filter options
   const [branches, setBranches] = useState<string[]>([]);
   const [salesReps, setSalesReps] = useState<string[]>([]);
 
   useEffect(() => {
     loadFilterOptions();
+    if (project44Client) {
+      loadCarriers();
+    }
   }, []);
 
   useEffect(() => {
@@ -102,6 +112,51 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       loadCustomerShipments();
     }
   }, [dateRange, minShipments, minRevenue, selectedBranch, selectedSalesRep]);
+
+  const loadCarriers = async () => {
+    if (!project44Client) return;
+
+    setIsLoadingCarriers(true);
+    setCarriersLoaded(false);
+    try {
+      console.log('🚛 Loading carriers for mass RFQ...');
+      const groups = await project44Client.getAvailableCarriersByGroup(false, false);
+      setCarrierGroups(groups);
+      setCarriersLoaded(true);
+      console.log(`✅ Loaded ${groups.length} carrier groups for mass RFQ`);
+    } catch (error) {
+      console.error('❌ Failed to load carriers:', error);
+      setCarrierGroups([]);
+      setCarriersLoaded(false);
+    } finally {
+      setIsLoadingCarriers(false);
+    }
+  };
+
+  const handleCarrierToggle = (carrierId: string, selected: boolean) => {
+    setLocalSelectedCarriers(prev => ({ ...prev, [carrierId]: selected }));
+  };
+
+  const handleSelectAllCarriers = (selected: boolean) => {
+    const newSelection: { [carrierId: string]: boolean } = {};
+    carrierGroups.forEach(group => {
+      group.carriers.forEach(carrier => {
+        newSelection[carrier.id] = selected;
+      });
+    });
+    setLocalSelectedCarriers(newSelection);
+  };
+
+  const handleSelectAllInGroup = (groupCode: string, selected: boolean) => {
+    const group = carrierGroups.find(g => g.groupCode === groupCode);
+    if (!group) return;
+    
+    const newSelection = { ...localSelectedCarriers };
+    group.carriers.forEach(carrier => {
+      newSelection[carrier.id] = selected;
+    });
+    setLocalSelectedCarriers(newSelection);
+  };
 
   const loadFilterOptions = async () => {
     try {
@@ -361,7 +416,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       return;
     }
     
-    const selectedCarrierIds = Object.entries(selectedCarriers)
+    const selectedCarrierIds = Object.entries(localSelectedCarriers)
       .filter(([_, selected]) => selected)
       .map(([carrierId, _]) => carrierId);
     
@@ -746,6 +801,40 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
         </div>
       </div>
 
+      {/* Carrier Selection */}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">Carrier Selection</h3>
+            {!carriersLoaded && (
+              <button
+                onClick={loadCarriers}
+                disabled={isLoadingCarriers}
+                className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400"
+              >
+                {isLoadingCarriers ? (
+                  <Loader className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Truck className="h-4 w-4" />
+                )}
+                <span>{isLoadingCarriers ? 'Loading...' : 'Load Carriers'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+        
+        {carriersLoaded && (
+          <CarrierSelection
+            carrierGroups={carrierGroups}
+            selectedCarriers={localSelectedCarriers}
+            onToggleCarrier={handleCarrierToggle}
+            onSelectAll={handleSelectAllCarriers}
+            onSelectAllInGroup={handleSelectAllInGroup}
+            isLoading={isLoadingCarriers}
+          />
+        )}
+      </div>
+
       {/* Customer Selection */}
       {customerSummaries.length > 0 && (
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
@@ -850,7 +939,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 </div>
                 <button
                   onClick={processMassRFQ}
-                  disabled={isProcessing || !project44Client}
+                  disabled={isProcessing || !project44Client || !carriersLoaded}
                   className="flex items-center space-x-2 px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors"
                 >
                   {isProcessing ? (
