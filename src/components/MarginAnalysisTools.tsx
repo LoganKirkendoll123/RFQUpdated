@@ -307,11 +307,6 @@ export const MarginAnalysisTools: React.FC = () => {
   };
 
   const runMarginAnalysis = async () => {
-    if (!selectedCustomer) {
-      setError('Please select a customer');
-      return;
-    }
-
     const selectedCarrierIds = Object.keys(selectedCarriers).filter(id => selectedCarriers[id]);
     if (selectedCarrierIds.length !== 1) {
       setError('Please select exactly one carrier for analysis');
@@ -332,13 +327,13 @@ export const MarginAnalysisTools: React.FC = () => {
     setError('');
 
     try {
-      console.log(`🔄 Starting margin analysis for customer: ${selectedCustomer}, carrier: ${selectedCarrier.name}`);
+      console.log(`🔄 Starting margin analysis for ALL customers with carrier: ${selectedCarrier.name}`);
 
       // Create analysis job
       const { data: job, error: jobError } = await supabase
         .from('MarginAnalysisJobs')
         .insert([{
-          customer_name: selectedCustomer,
+          customer_name: 'ALL',
           carrier_name: selectedCarrier.name,
           analysis_type: analysisType,
           status: 'running',
@@ -354,13 +349,12 @@ export const MarginAnalysisTools: React.FC = () => {
 
       console.log('✅ Analysis job created:', job.id);
 
-      // Query shipments for the selected customer and date range
-      console.log(`🔍 Querying shipments for customer: ${selectedCustomer}, date range: ${dateRange.start} to ${dateRange.end}`);
+      // Query ALL shipments in the date range
+      console.log(`🔍 Querying ALL shipments in date range: ${dateRange.start} to ${dateRange.end}`);
       
       let shipmentQuery = supabase
         .from('Shipments')
         .select('*')
-        .eq('"Customer"', selectedCustomer)
         .gte('"Scheduled Pickup Date"', dateRange.start)
         .lte('"Scheduled Pickup Date"', dateRange.end);
 
@@ -368,10 +362,10 @@ export const MarginAnalysisTools: React.FC = () => {
 
       if (shipmentError) throw shipmentError;
 
-      console.log(`📦 Found ${allShipments?.length || 0} total shipments for customer in date range`);
+      console.log(`📦 Found ${allShipments?.length || 0} total shipments in date range`);
 
       if (!allShipments || allShipments.length === 0) {
-        throw new Error(`No shipments found for customer ${selectedCustomer} in the selected date range`);
+        throw new Error(`No shipments found in the selected date range`);
       }
 
       // Filter shipments for the selected carrier
@@ -399,31 +393,109 @@ export const MarginAnalysisTools: React.FC = () => {
         throw new Error(`No shipments found for carrier ${selectedCarrier.name} in the selected date range`);
       }
 
-      // Perform analysis calculations
-      const revenues = carrierShipments
-        .map(s => parseFloat(s["Revenue"] || '0'))
-        .filter(r => r > 0);
+      // Group shipments by customer
+      const customerShipments = carrierShipments.reduce((groups, shipment) => {
+        const customer = shipment["Customer"] || 'Unknown';
+        if (!groups[customer]) {
+          groups[customer] = [];
+        }
+        groups[customer].push(shipment);
+        return groups;
+      }, {} as Record<string, typeof carrierShipments>);
       
-      const profits = carrierShipments
-        .map(s => parseFloat(s["Profit"] || '0'))
-        .filter(p => !isNaN(p));
+      console.log(`👥 Found ${Object.keys(customerShipments).length} customers with shipments for carrier ${selectedCarrier.name}`);
+      
+      // Process each customer separately
+      const customerResults = [];
+      
+      for (const [customer, shipments] of Object.entries(customerShipments)) {
+        console.log(`🔍 Analyzing customer: ${customer} with ${shipments.length} shipments`);
+        
+        // Get customer-specific margin from CustomerCarriers table
+        const { data: customerCarriers, error: ccError } = await supabase
+          .from('CustomerCarriers')
+          .select('Percentage')
+          .eq('InternalName', customer)
+          .ilike('P44CarrierCode', `%${selectedCarrier.name}%`);
+        
+        if (ccError) {
+          console.error(`Error fetching margin for ${customer}:`, ccError);
+        }
+        
+        // Calculate current margin from shipment data
+        const revenues = shipments
+          .map(s => parseFloat(s["Revenue"] || '0'))
+          .filter(r => r > 0);
+        
+        const carrierExpenses = shipments
+          .map(s => parseFloat(s["Carrier Expense"] || '0'))
+          .filter(e => e > 0);
+        
+        const profits = shipments
+          .map(s => parseFloat(s["Profit"] || '0'))
+          .filter(p => !isNaN(p));
+        
+        const avgRevenue = revenues.length > 0 ? revenues.reduce((sum, r) => sum + r, 0) / revenues.length : 0;
+        const avgExpense = carrierExpenses.length > 0 ? carrierExpenses.reduce((sum, e) => sum + e, 0) / carrierExpenses.length : 0;
+        const avgProfit = profits.length > 0 ? profits.reduce((sum, p) => sum + p, 0) / profits.length : 0;
+        
+        // Calculate current margin as a percentage
+        const currentMargin = avgRevenue > 0 ? (avgProfit / avgRevenue) * 100 : 0;
+        
+        // Get target margin from database or use default
+        const targetMargin = customerCarriers && customerCarriers.length > 0 
+          ? parseFloat(customerCarriers[0].Percentage || '15')
+          : 15; // Default to 15% if no specific margin found
+        
+        // Calculate confidence score based on number of shipments
+        const confidenceScore = Math.min(95, Math.max(60, 70 + (shipments.length * 2)));
+        
+        // Calculate potential revenue impact
+        const potentialImpact = ((targetMargin - currentMargin) / 100) * avgRevenue * shipments.length;
+        
+        console.log(`📊 Analysis for ${customer}:`, {
+          shipmentCount: shipments.length,
+          avgRevenue: avgRevenue.toFixed(2),
+          avgExpense: avgExpense.toFixed(2),
+          avgProfit: avgProfit.toFixed(2),
+          currentMargin: currentMargin.toFixed(2),
+          targetMargin: targetMargin.toFixed(2),
+          confidenceScore,
+          potentialImpact: potentialImpact.toFixed(2)
+        });
+        
+        // Store results for this customer
+        customerResults.push({
+          customer,
+          shipmentCount: shipments.length,
+          avgRevenue,
+          avgExpense,
+          avgProfit,
+          currentMargin,
+          targetMargin,
+          confidenceScore,
+          potentialImpact
+        });
+        
+        // Create recommendation if margin improvement is possible
+        if (Math.abs(targetMargin - currentMargin) > 1) {
+          const { error: recError } = await supabase
+            .from('MarginRecommendations')
+            .insert([{
+              customer_name: customer,
+              carrier_name: selectedCarrier.name,
+              current_margin: currentMargin,
+              recommended_margin: targetMargin,
+              confidence_score: confidenceScore,
+              potential_revenue_impact: potentialImpact,
+              shipment_count: shipments.length,
+              avg_shipment_value: avgRevenue,
+              margin_variance: Math.abs(targetMargin - currentMargin)
+            }]);
 
-      const avgRevenue = revenues.length > 0 ? revenues.reduce((sum, r) => sum + r, 0) / revenues.length : 0;
-      const avgProfit = profits.length > 0 ? profits.reduce((sum, p) => sum + p, 0) / profits.length : 0;
-      const currentMargin = avgRevenue > 0 ? (avgProfit / avgRevenue) * 100 : 0;
-
-      // Simple benchmark: recommend 15% margin for LTL
-      const recommendedMargin = 15;
-      const confidenceScore = Math.min(95, Math.max(60, 70 + (carrierShipments.length * 2))); // Higher confidence with more data
-
-      console.log(`📊 Analysis results:`, {
-        shipmentCount: carrierShipments.length,
-        avgRevenue: avgRevenue.toFixed(2),
-        avgProfit: avgProfit.toFixed(2),
-        currentMargin: currentMargin.toFixed(2),
-        recommendedMargin,
-        confidenceScore
-      });
+          if (recError) console.error(`Failed to create recommendation for ${customer}:`, recError);
+        }
+      }
 
       // Update job with results
       const { error: updateError } = await supabase
@@ -432,9 +504,12 @@ export const MarginAnalysisTools: React.FC = () => {
           status: 'completed',
           completed_at: new Date().toISOString(),
           shipment_count: carrierShipments.length,
-          current_margin: currentMargin,
-          recommended_margin: recommendedMargin,
-          confidence_score: confidenceScore,
+          benchmark_data: {
+            customer_count: Object.keys(customerShipments).length,
+            total_shipments: carrierShipments.length,
+            customer_results: customerResults,
+            date_range: dateRange
+          }
           benchmark_data: {
             avg_revenue: avgRevenue,
             avg_profit: avgProfit,
@@ -446,26 +521,6 @@ export const MarginAnalysisTools: React.FC = () => {
 
       if (updateError) throw updateError;
 
-      // Create recommendation if margin improvement is possible
-      if (Math.abs(recommendedMargin - currentMargin) > 1) {
-        const potentialImpact = (recommendedMargin - currentMargin) / 100 * avgRevenue * carrierShipments.length;
-        
-        const { error: recError } = await supabase
-          .from('MarginRecommendations')
-          .insert([{
-            customer_name: selectedCustomer,
-            carrier_name: selectedCarrier.name,
-            current_margin: currentMargin,
-            recommended_margin: recommendedMargin,
-            confidence_score: confidenceScore,
-            potential_revenue_impact: potentialImpact,
-            shipment_count: carrierShipments.length,
-            avg_shipment_value: avgRevenue,
-            margin_variance: Math.abs(recommendedMargin - currentMargin)
-          }]);
-
-        if (recError) console.error('Failed to create recommendation:', recError);
-      }
 
       console.log('✅ Margin analysis completed successfully');
       
@@ -490,20 +545,6 @@ export const MarginAnalysisTools: React.FC = () => {
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis Configuration</h3>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Customer</label>
-            <select
-              value={selectedCustomer}
-              onChange={(e) => setSelectedCustomer(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Select a customer...</option>
-              {customers.map(customer => (
-                <option key={customer} value={customer}>{customer}</option>
-              ))}
-            </select>
-          </div>
-          
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Analysis Type</label>
             <select
@@ -584,12 +625,12 @@ export const MarginAnalysisTools: React.FC = () => {
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Run Analysis</h3>
             <p className="text-sm text-gray-600 mt-1">
-              Analyze margin performance for the selected customer and carrier
+              Analyze margin performance for ALL customers with the selected carrier
             </p>
           </div>
           <button
             onClick={runMarginAnalysis}
-            disabled={isRunningAnalysis || !selectedCustomer || Object.keys(selectedCarriers).filter(id => selectedCarriers[id]).length !== 1}
+            disabled={isRunningAnalysis || Object.keys(selectedCarriers).filter(id => selectedCarriers[id]).length !== 1}
             className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             {isRunningAnalysis ? (
@@ -609,6 +650,23 @@ export const MarginAnalysisTools: React.FC = () => {
             </div>
           </div>
         )}
+        
+        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-start space-x-2">
+            <Building2 className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-800">
+              <p className="font-medium mb-1">How Margin Analysis Works:</p>
+              <ol className="list-decimal list-inside space-y-1">
+                <li>Select a carrier and date range</li>
+                <li>System finds ALL shipments for that carrier in the date range</li>
+                <li>For EACH customer, system calculates current margin performance</li>
+                <li>System looks up target margin from CustomerCarriers table</li>
+                <li>Recommendations are generated for each customer-carrier pair</li>
+                <li>Results show potential revenue impact of optimizing each customer's margin</li>
+              </ol>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
