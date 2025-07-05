@@ -122,7 +122,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
   // Save/Load state
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showLoadDialog, setShowLoadDialog] = useState(false);
-  const [batchName, setBatchName] = useState('');
+  const [saveBatchName, setSaveBatchName] = useState('');
   const [savedBatches, setSavedBatches] = useState<MassRFQBatch[]>([]);
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -273,7 +273,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
   };
 
   const handleSaveBatch = async () => {
-    if (!batchName.trim()) {
+    if (!saveBatchName.trim()) {
       alert('Please enter a batch name');
       return;
     }
@@ -281,7 +281,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     setIsSaving(true);
     try {
       const batchData: Omit<MassRFQBatch, 'id' | 'created_at' | 'updated_at'> = {
-        batch_name: batchName.trim(),
+        batch_name: saveBatchName.trim(),
         customer_name: selectedCustomer || undefined,
         branch_filter: selectedBranch || undefined,
         sales_rep_filter: selectedSalesRep || undefined,
@@ -305,7 +305,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       }
 
       setShowSaveDialog(false);
-      setBatchName('');
+      setSaveBatchName('');
       await loadSavedBatches();
       
       alert(currentBatchId ? 'Batch updated successfully!' : 'Batch saved successfully!');
@@ -340,7 +340,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       
       // Set the current batch ID
       setCurrentBatchId(fullBatch.id!);
-      setBatchName(fullBatch.batch_name);
+      setSaveBatchName(fullBatch.batch_name);
       
       // Load results if available
       if (fullBatch.results_data) {
@@ -376,7 +376,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
       
       if (currentBatchId === batchId) {
         setCurrentBatchId(null);
-        setBatchName('');
+        setSaveBatchName('');
       }
       
       alert('Batch deleted successfully');
@@ -399,7 +399,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
 
   const handleNewBatch = () => {
     setCurrentBatchId(null);
-    setBatchName('');
+    setSaveBatchName('');
     setResults([]);
     setSelectedCustomer('');
     setSelectedBranch('');
@@ -1125,7 +1125,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
           <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <div className="flex items-center space-x-2 text-blue-800">
               <History className="h-4 w-4" />
-              <span className="font-medium">Current Batch: {batchName}</span>
+              <span className="font-medium">Current Batch: {saveBatchName}</span>
               <span className="text-blue-600">•</span>
               <span className="text-sm">
                 {filteredShipments.length} shipments • 
@@ -1631,8 +1631,8 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
                 </label>
                 <input
                   type="text"
-                  value={batchName}
-                  onChange={(e) => setBatchName(e.target.value)}
+                  value={saveBatchName}
+                  onChange={(e) => setSaveBatchName(e.target.value)}
                   placeholder="Enter a name for this batch..."
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
                   autoFocus
@@ -1653,7 +1653,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
               <button
                 onClick={() => {
                   setShowSaveDialog(false);
-                  setBatchName('');
+                  setSaveBatchName('');
                 }}
                 className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
               >
@@ -1661,7 +1661,7 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
               </button>
               <button
                 onClick={handleSaveBatch}
-                disabled={!batchName.trim() || isSaving}
+                disabled={!saveBatchName.trim() || isSaving}
                 className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400"
               >
                 {isSaving && <Loader className="h-4 w-4 animate-spin" />}
