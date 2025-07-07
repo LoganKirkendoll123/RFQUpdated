@@ -6,7 +6,6 @@ import { ResultsTable } from './components/ResultsTable';
 import { ApiKeyInput } from './components/ApiKeyInput';
 import { FileUpload } from './components/FileUpload';
 import { TemplateDownload } from './components/TemplateDownload';
-import { DatabaseToolbox } from './components/DatabaseToolbox';
 import { UnifiedRFQTool } from './components/UnifiedRFQTool';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { Project44APIClient, FreshXAPIClient } from './utils/apiClient';
@@ -55,8 +54,7 @@ import {
   Sparkles,
   Building2,
   Globe,
-  Layers,
-  Database
+  Layers
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -87,7 +85,7 @@ function App() {
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   
   // UI state
-  const [activeTab, setActiveTab] = useState<'unified' | 'database'>('unified');
+  const [activeTab, setActiveTab] = useState<'unified'>('unified');
   const [fileError, setFileError] = useState<string>('');
   
   // API clients - store as instance variables to maintain token state
@@ -270,53 +268,13 @@ function App() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Professional Tab Navigation */}
-        <div className="mb-8">
-          <nav className="flex space-x-1 bg-slate-100 rounded-xl p-1">
-            {[
-              { id: 'unified', label: 'Smart Quoting Engine', icon: Zap, badge: undefined },
-              { id: 'database', label: 'Database Toolbox', icon: Database },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center space-x-3 py-3 px-6 rounded-lg font-medium text-sm transition-all duration-200 ${
-                    activeTab === tab.id
-                      ? 'bg-white text-slate-900 shadow-lg shadow-slate-200/50'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-                  }`}
-                >
-                  <Icon className="h-5 w-5" />
-                  <span>{tab.label}</span>
-                  {tab.badge !== undefined && tab.badge > 0 && (
-                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                      activeTab === tab.id 
-                        ? 'bg-blue-100 text-blue-800' 
-                        : 'bg-slate-200 text-slate-600'
-                    }`}>
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Tab Content */}
-        {activeTab === 'unified' && (
-          <UnifiedRFQTool
-            project44Client={project44Client}
-            freshxClient={freshxClient}
-            initialPricingSettings={pricingSettings}
-            initialSelectedCustomer={selectedCustomer}
-          />
-        )}
-        {activeTab === 'database' && (
-          <DatabaseToolbox />
-        )}
+        {/* Unified RFQ Tool - Main Interface */}
+        <UnifiedRFQTool
+          project44Client={project44Client}
+          freshxClient={freshxClient}
+          initialPricingSettings={pricingSettings}
+          initialSelectedCustomer={selectedCustomer}
+        />
 
       </main>
     </div>
