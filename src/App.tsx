@@ -6,7 +6,7 @@ import { ResultsTable } from './components/ResultsTable';
 import { ApiKeyInput } from './components/ApiKeyInput';
 import { FileUpload } from './components/FileUpload';
 import { TemplateDownload } from './components/TemplateDownload';
-import UnifiedRFQTool from './components/UnifiedRFQTool';
+import { UnifiedRFQTool } from './components/UnifiedRFQTool';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { Project44APIClient, FreshXAPIClient } from './utils/apiClient';
 import { 
