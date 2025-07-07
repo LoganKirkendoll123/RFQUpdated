@@ -85,6 +85,10 @@ function App() {
   const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database' | 'spot-quote' | 'mass-rfq' | 'unified'>('upload');
   const [fileError, setFileError] = useState<string>('');
   
+  // API clients - store as instance variables to maintain token state
+  const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
+  const [freshxClient, setFreshxClient] = useState<FreshXAPIClient | null>(null);
+
   // Use consolidated hooks
   const carrierManagement = useCarrierManagement({ project44Client });
   const rfqProcessor = useRFQProcessor({ 
@@ -92,10 +96,6 @@ function App() {
     freshxClient 
   });
   
-  // API clients - store as instance variables to maintain token state
-  const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
-  const [freshxClient, setFreshxClient] = useState<FreshXAPIClient | null>(null);
-
   // Load saved data on component mount
   useEffect(() => {
     console.log('🔄 Loading saved configuration from local storage...');
