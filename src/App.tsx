@@ -595,7 +595,6 @@ function App() {
                       <h3 className="text-lg font-semibold text-slate-900">Carrier Network Management</h3>
                       <p className="text-sm text-slate-600">Configure your preferred carrier network for optimal quoting</p>
                     </div>
-                    {carriersLoaded && <CheckCircle className="h-6 w-6 text-emerald-500" />}
                     {carrierManagement.carriersLoaded && <CheckCircle className="h-6 w-6 text-emerald-500" />}
                   </div>
                 </div>
