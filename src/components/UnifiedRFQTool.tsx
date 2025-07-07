@@ -18,7 +18,8 @@ import {
   DollarSign,
   Upload,
   Database,
-  History,
+  Sparkles,
+  Save
   FileText,
   BarChart3,
   ArrowRight,
@@ -42,6 +43,7 @@ import { parseCSV, parseXLSX } from '../utils/fileParser';
 import { useRFQProcessor } from '../hooks/useRFQProcessor';
 import { useCarrierManagement } from '../hooks/useCarrierManagement';
 import { usePricingSettings } from '../hooks/usePricingSettings';
+import { saveRFQBatch, calculateBatchSummary } from '../utils/rfqBatchManager';
 import { supabase } from '../utils/supabase';
 import * as XLSX from 'xlsx';
 
@@ -135,6 +137,8 @@ export const UnifiedRFQTool: React.FC<UnifiedRFQToolProps> = ({
   
   // Error state
   const [fileError, setFileError] = useState<string>('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [formError, setFormError] = useState<string>('');
   
   // Use consolidated hooks
@@ -466,6 +470,43 @@ export const UnifiedRFQTool: React.FC<UnifiedRFQToolProps> = ({
         selectedCustomer 
       }
     );
+  };
+  const handleSaveResults = async () => {
+    if (rfqProcessor.results.length === 0) {
+      alert('No results to save. Please process some RFQs first.');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      const batchName = `${activeMode.charAt(0).toUpperCase() + activeMode.slice(1)} RFQ Batch - ${new Date().toLocaleDateString()}`;
+      const summary = calculateBatchSummary(rfqProcessor.results);
+      
+      const batch = {
+        batch_name: batchName,
+        customer_name: pricingSettings.selectedCustomer || undefined,
+        shipment_count: rfqData.length,
+        total_quotes_received: summary.total_quotes_received,
+        best_total_price: summary.best_total_price,
+        total_profit: summary.total_profit,
+        pricing_settings: pricingSettings.pricingSettings,
+        selected_carriers: carrierManagement.selectedCarriers,
+        rfq_data: rfqData,
+        results_data: rfqProcessor.results,
+        created_by: 'unified_rfq_tool'
+      };
+
+      await saveRFQBatch(batch);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (error) {
+      console.error('Failed to save batch:', error);
+      alert('Failed to save results. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
   
   const exportResults = () => {
@@ -1412,6 +1453,29 @@ export const UnifiedRFQTool: React.FC<UnifiedRFQToolProps> = ({
                   The system will analyze all customers in the database and apply appropriate margins
                 </p>
               </div>
+              
+              {rfqProcessor.results.length > 0 && (
+                <button
+                  onClick={handleSaveResults}
+                  disabled={isSaving}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                    saveSuccess 
+                      ? 'bg-green-600 text-white' 
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  } ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {isSaving ? (
+                    <Loader className="h-4 w-4 animate-spin" />
+                  ) : saveSuccess ? (
+                    <CheckCircle className="h-4 w-4" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  <span>
+                    {isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save Results'}
+                  </span>
+                </button>
+              )}
             </div>
           </div>
         </div>
