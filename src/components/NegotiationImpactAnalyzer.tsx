@@ -107,8 +107,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
     isRunning: false
   });
   
-  // Track shipments for reuse between phases
-  const [analyzedShipments, setAnalyzedShipments] = useState<ShipmentRecord[]>([]);
+  // Store shipments by customer for reuse between phases
+  const [customerShipments, setCustomerShipments] = useState<Map<string, ShipmentRecord[]>>(new Map());
   const [analysisComplete, setAnalysisComplete] = useState(false);
 
   useEffect(() => {
@@ -236,9 +236,6 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       if (!shipments || shipments.length === 0) {
         throw new Error('No shipments found in the selected date range');
       }
-      
-      // Store shipments for reuse in Phase 2
-      setAnalyzedShipments(shipments);
 
       setProcessingStatus(prev => ({
         ...prev,
@@ -279,7 +276,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
         totalRevenueAfterMargin: number;
         totalMargin: number;
         marginCount: number;
-        shipments: ShipmentRecord[];
+        shipments: ShipmentRecord[]; // Store shipments per customer
       }>();
 
       let processedCount = 0;
@@ -347,10 +344,16 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
         customer: customerKey,
         shipmentCount: data.shipmentCount,
         totalRevenueAfterMargin: Math.round(data.totalRevenueAfterMargin), // Round to nearest dollar
-        avgMargin: (data.totalMargin / data.marginCount) * 100, // Convert back to percentage
-        shipments: data.shipments // Store shipments for Phase 2
+        avgMargin: (data.totalMargin / data.marginCount) * 100 // Convert back to percentage
       })).sort((a, b) => b.totalRevenueAfterMargin - a.totalRevenueAfterMargin);
 
+      // Store shipments by customer for Phase 2
+      const shipmentsByCustomer = new Map<string, ShipmentRecord[]>();
+      customerResults.forEach((data, customerKey) => {
+        shipmentsByCustomer.set(customerKey, data.shipments);
+      });
+      setCustomerShipments(shipmentsByCustomer);
+      
       setPhase1Results(phase1Data);
       
       console.log(`✅ Phase 1 Complete: Analyzed ${processedCount} shipments for ${phase1Data.length} customers`);
@@ -418,24 +421,22 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       // Step 2.1: Calculate Sum of Costs Before Margin PER CUSTOMER (Post-Negotiation)
       const customerNewCosts = new Map<string, number>();
       
-      // Use the same shipments from Phase 1 for consistency
-      const validShipments: ShipmentRecord[] = [];
-      phase1Results.forEach(result => {
-        if (result.shipments) {
-          validShipments.push(...result.shipments);
-        }
+      // Get all shipments from all customers
+      const allShipments: ShipmentRecord[] = [];
+      customerShipments.forEach(shipments => {
+        allShipments.push(...shipments);
       });
       
-      console.log(`✅ Filtered to ${validShipments.length} valid shipments for analysis`);
+      console.log(`✅ Using ${allShipments.length} shipments from Phase 1 for API analysis`);
 
       setProcessingStatus(prev => ({
         ...prev,
-        totalShipments: validShipments.length
+        totalShipments: allShipments.length
       }));
 
       let processedCount = 0;
 
-      for (const shipment of validShipments) {
+      for (const shipment of allShipments) {
         const customerName = shipment.Customer?.trim();
         if (!customerName) continue;
 
@@ -458,13 +459,13 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
             continue;
           }
           
-          if (!rfqData.grossWeight || rfqData.grossWeight <= 0) {
+          if (!rfqData.grossWeight || rfqData.grossWeight <= 0 || isNaN(rfqData.grossWeight)) {
             console.log(`⚠️ Skipping shipment ${shipment["Invoice #"]} - invalid weight: ${rfqData.grossWeight}`);
             continue;
           }
 
-          console.log(`📞 Getting new quotes for shipment ${shipment["Invoice #"]} (${customerName})`);
-          console.log(`📦 RFQ details: ${rfqData.fromZip} → ${rfqData.toZip}, ${rfqData.pallets} pallets, ${rfqData.grossWeight} lbs`);
+          console.log(`🚚 PHASE 2 API CALL: Getting quotes for shipment ${shipment["Invoice #"]} (${customerName})`);
+          console.log(`📦 RFQ details: ${rfqData.fromZip} → ${rfqData.toZip}, ${rfqData.pallets} pallets, ${rfqData.grossWeight.toLocaleString()} lbs`);
 
           // Determine if this is VLTL
           const isVLTL = shipment["Is VLTL"] === "TRUE" || 
@@ -476,7 +477,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           // Get new quotes from Project44
           let quotes = [];
           try {
-            console.log(`🔍 SENDING ACTUAL API REQUEST to Project44 for ${isVLTL ? 'VLTL' : 'Standard LTL'} shipment ${shipment["Invoice #"]} - Customer: ${customerName}`);
+            console.log(`🔍 SENDING API REQUEST to Project44 for ${isVLTL ? 'VLTL' : 'Standard LTL'} shipment ${shipment["Invoice #"]} - Customer: ${customerName}`);
             
             // THIS IS THE ACTUAL API CALL TO PROJECT44
             quotes = await project44Client.getQuotes(
@@ -513,7 +514,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
               continue;
             }
             
-            console.log(`💰 New cost for ${customerName} shipment ${shipment["Invoice #"]}: ${formatCurrency(newCost)} from carrier ${bestQuote.carrier.name} (${bestQuote.carrierCode || 'unknown code'})`);
+            console.log(`💰 API RESULT: New cost for ${customerName} shipment ${shipment["Invoice #"]}: ${formatCurrency(newCost)} from carrier ${bestQuote.carrier.name} (${bestQuote.carrierCode || 'unknown code'})`);
 
             // Add to customer total
             if (!customerNewCosts.has(customerKey)) {
@@ -529,7 +530,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
         }
 
         // Use a longer delay (1 second) to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
       // Step 2.2: Determine New Required Margin PER CUSTOMER
@@ -763,14 +764,14 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
         <div className="flex items-start space-x-3">
           <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-blue-800">
-            <p className="font-medium mb-2">How This Tool Works (API Calls in Both Phases):</p>
+            <p className="font-medium mb-2">How This Tool Works (API Calls in Phase 2):</p>
             <ol className="list-decimal list-inside space-y-1">
-              <li>Phase 1: Analyzes historical shipments and <strong>uses their actual carrier costs</strong> to establish revenue targets</li>
-              <li>Phase 2: <strong>Sends new API requests to Project44</strong> for the same shipments to get current market rates</li>
+              <li>Phase 1: Analyzes historical shipments from database to establish revenue targets</li>
+              <li>Phase 2: <strong>Makes real-time API calls to Project44</strong> for the same shipments to get current market rates</li>
               <li>Compares historical revenue targets with new API-sourced costs to determine optimal margins</li>
               <li>Both phases use the same shipments for true apples-to-apples comparison</li>
             </ol>
-            <p className="mt-2 text-xs">Note: Phase 2 will make <strong>real API calls to Project44</strong> for each shipment and may take several minutes to complete.</p>
+            <p className="mt-2 font-medium text-blue-700">Note: Phase 2 makes <strong>real-time API calls to Project44</strong> for each shipment and may take several minutes to complete.</p>
           </div>
         </div>
       </div>
@@ -785,8 +786,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
                 <Calendar className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Phase 1: Historical Analysis</h3>
-                <p className="text-sm text-gray-600">Calculate revenue targets from historical shipments</p>
+                <h3 className="text-lg font-semibold text-gray-900">Phase 1: Historical Baseline</h3>
+                <p className="text-sm text-gray-600">Analyze historical shipments from database</p>
               </div>
             </div>
             {phase1Results.length > 0 && (
@@ -810,8 +811,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
               </>
             ) : (
               <>
-                <Calendar className="h-5 w-5" />
-                <span>Analyze Historical Data</span>
+                <Play className="h-5 w-5" />
+                <span>Run Historical Analysis</span>
               </>
             )}
           </button>
@@ -833,8 +834,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
                 <Truck className="h-5 w-5 text-purple-600" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Phase 2: Current Market Analysis</h3>
-                <p className="text-sm text-gray-600">Send same shipments to Project44 API for current rates</p>
+                <h3 className="text-lg font-semibold text-gray-900">Phase 2: API Rate Analysis</h3>
+                <p className="text-sm text-gray-600">Make API calls to Project44 for current rates</p>
               </div>
             </div>
             {analysisComplete && (
@@ -859,7 +860,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
             ) : (
               <>
                 <MapPin className="h-5 w-5" />
-                <span>Get Current Market Rates</span>
+                <span>Make API Calls for Current Rates</span>
               </>
             )}
           </button>
@@ -885,8 +886,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
               </h3>
               <p className="text-sm text-gray-600">
                 {processingStatus.phase === 1
-                  ? 'Analyzing historical shipments and calculating revenue targets'
-                  : 'Sending API requests to Project44 for current market rates'}
+                  ? 'Analyzing historical shipments from database'
+                  : 'Making API calls to Project44 for current market rates'}
               </p>
             </div>
             <div className="text-right">
@@ -913,7 +914,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
             </div>
             
             <div className="text-xs text-gray-500 text-right">
-              {processingStatus.phase === 1 ? 'Processing historical shipment data' : 'Sending API requests to Project44'} - 
+              {processingStatus.phase === 1 ? 'Processing historical shipment data' : 'Making API calls to Project44'} - 
               {processingStatus.totalShipments > 0
                 ? ((processingStatus.processedShipments / processingStatus.totalShipments) * 100).toFixed(1) 
                 : 0}% complete
@@ -958,9 +959,9 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           {/* Phase 1 Results */}
           {phase1Results.length > 0 && (
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 bg-blue-50">
-                <h3 className="text-lg font-semibold text-blue-900">Phase 1: Historical Revenue Targets</h3>
-                <p className="text-sm text-blue-700">Based on actual historical shipment costs and margins</p>
+              <div className="px-6 py-4 border-b border-gray-200 bg-blue-100">
+                <h3 className="text-lg font-semibold text-blue-900">Phase 1: Historical Baseline</h3>
+                <p className="text-sm text-blue-800">Based on actual historical shipment costs and margins</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -990,9 +991,9 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           {/* Phase 2 Results */}
           {phase2Results.length > 0 && (
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 bg-purple-50">
-                <h3 className="text-lg font-semibold text-purple-900">Phase 2: Current Market Rate Analysis</h3>
-                <p className="text-sm text-purple-700">Based on real-time Project44 API quotes for the same shipments</p>
+              <div className="px-6 py-4 border-b border-gray-200 bg-purple-100">
+                <h3 className="text-lg font-semibold text-purple-900">Phase 2: API Rate Analysis</h3>
+                <p className="text-sm text-purple-800">Based on real-time Project44 API calls for the same shipments</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
