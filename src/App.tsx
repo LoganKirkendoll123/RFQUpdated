@@ -596,11 +596,12 @@ function App() {
                       <p className="text-sm text-slate-600">Configure your preferred carrier network for optimal quoting</p>
                     </div>
                     {carriersLoaded && <CheckCircle className="h-6 w-6 text-emerald-500" />}
+                    {carrierManagement.carriersLoaded && <CheckCircle className="h-6 w-6 text-emerald-500" />}
                   </div>
                 </div>
                 
                 <div className="p-6">
-                  {!carriersLoaded && !isLoadingCarriers && (
+                  {!carrierManagement.carriersLoaded && !carrierManagement.isLoadingCarriers && (
                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-8">
                       <div className="text-center">
                         <div className="bg-blue-500 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
