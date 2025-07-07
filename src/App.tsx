@@ -7,6 +7,7 @@ import { ApiKeyInput } from './components/ApiKeyInput';
 import { FileUpload } from './components/FileUpload';
 import { TemplateDownload } from './components/TemplateDownload';
 import { DatabaseToolbox } from './components/DatabaseToolbox';
+import { UnifiedRFQTool } from './components/UnifiedRFQTool';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { Project44APIClient, FreshXAPIClient } from './utils/apiClient';
 import { 
@@ -86,7 +87,7 @@ function App() {
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   
   // UI state
-  const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'database'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database' | 'spot-quote' | 'mass-rfq' | 'unified'>('upload');
   const [fileError, setFileError] = useState<string>('');
   
   // API clients - store as instance variables to maintain token state
@@ -364,7 +365,7 @@ function App() {
         </div>
       </header>
 
-      {/* Hero Banner */}
+      {/* Smart Quoting Hero Banner */}
       <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 shadow-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center justify-between">
@@ -375,7 +376,8 @@ function App() {
               <div>
                 <h2 className="text-2xl font-bold text-white">Automated Freight Quoting Engine</h2>
                 <p className="text-blue-100 mt-1">
-                  Professional freight quoting platform with Project44 integration for LTL and Volume LTL services
+                  Automatically quotes shipments across optimal networks: <strong>FreshX</strong> for reefer, 
+                  <strong>Project44</strong> for LTL/VLTL based on intelligent classification
                 </p>
               </div>
             </div>
@@ -397,7 +399,7 @@ function App() {
         </div>
       </div>
 
-      {/* Workflow Progress */}
+      {/* Professional Workflow Progress */}
       <div className="bg-white border-b border-slate-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between mb-4">
@@ -413,8 +415,10 @@ function App() {
                 { step: 1, label: 'API Setup', icon: Settings, color: 'blue' },
                 { step: 2, label: 'Carrier Network', icon: Users, color: 'indigo' },
                 { step: 3, label: 'Data Upload', icon: Upload, color: 'purple' },
-                { step: 4, label: 'Processing', icon: Brain, color: 'pink' },
+                { step: 4, label: 'Smart Processing', icon: Brain, color: 'pink' },
+                { step: 5, label: 'Auto Quoting', icon: Zap, color: 'orange' },
                 { step: 6, label: 'Results', icon: Target, color: 'emerald' },
+                { step: 7, label: 'Analytics', icon: BarChart3, color: 'teal' }
               ].map((item, index) => {
                 const Icon = item.icon;
                 const isCompleted = currentWorkflowStep > item.step;
@@ -445,7 +449,7 @@ function App() {
                         {item.label}
                       </span>
                     </div>
-                    {index < 4 && (
+                    {index < 6 && (
                       <div className={`flex-1 h-0.5 mx-4 transition-all duration-300 ${
                         isCompleted ? 'bg-emerald-500' : 'bg-slate-200'
                       }`} />
@@ -467,6 +471,7 @@ function App() {
               { id: 'upload', label: 'Setup & Processing', icon: Upload, badge: rfqData.length },
               { id: 'results', label: 'Smart Quotes', icon: Target, badge: results.length },
               { id: 'database', label: 'Database Toolbox', icon: Database },
+              { id: 'unified', label: 'Unified RFQ Tool', icon: Zap }
             ].map((tab) => {
               const Icon = tab.icon;
               return (
@@ -566,7 +571,7 @@ function App() {
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-slate-900">Smart Quoting Template</h3>
-                    <p className="text-sm text-slate-600">Download Excel template for freight quoting</p>
+                    <p className="text-sm text-slate-600">Download enterprise-grade Excel template with automated quoting controls</p>
                   </div>
                 </div>
               </div>
@@ -588,7 +593,7 @@ function App() {
                     </div>
                     <div>
                       <h3 className="text-lg font-semibold text-slate-900">Carrier Network Management</h3>
-                      <p className="text-sm text-slate-600">Configure your preferred carrier network</p>
+                      <p className="text-sm text-slate-600">Configure your preferred carrier network for optimal quoting</p>
                     </div>
                     {carrierManagement.carriersLoaded && <CheckCircle className="h-6 w-6 text-emerald-500" />}
                   </div>
@@ -612,7 +617,7 @@ function App() {
                           className="inline-flex items-center space-x-3 px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl"
                         >
                           <Users className="h-5 w-5" />
-                          <span>Load Carriers</span>
+                          <span>Load Enterprise Carriers</span>
                         </button>
                       </div>
                     </div>
@@ -645,7 +650,7 @@ function App() {
                     </div>
                     <div>
                       <h3 className="text-lg font-semibold text-slate-900">Smart Data Processing</h3>
-                      <p className="text-sm text-slate-600">Upload your shipment data for quoting</p>
+                      <p className="text-sm text-slate-600">Upload your shipment data for automated quoting analysis</p>
                     </div>
                     {rfqData.length > 0 && <CheckCircle className="h-6 w-6 text-emerald-500" />}
                   </div>
@@ -664,10 +669,10 @@ function App() {
                         </div>
                         <div>
                           <div className="font-semibold text-lg">
-                            {rfqData.length} shipment{rfqData.length !== 1 ? 's' : ''} ready for quoting
+                            {rfqData.length} shipment{rfqData.length !== 1 ? 's' : ''} ready for smart quoting
                           </div>
                           <div className="text-sm text-emerald-700 mt-1">
-                            Ready for Project44 LTL and Volume LTL quoting
+                            System will automatically classify each shipment: FreshX for reefer, Project44 for LTL/VLTL
                           </div>
                         </div>
                       </div>
@@ -689,7 +694,7 @@ function App() {
               </div>
             )}
 
-            {/* STEP 4: Run RFQs Button */}
+            {/* STEP 4: Run Smart RFQs Button */}
             {rfqData.length > 0 && Object.values(carrierManagement.selectedCarriers).some(v => v) && (
               <div className="text-center py-8">
                 <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
@@ -700,10 +705,10 @@ function App() {
                     }`}>
                       4
                     </div>
-                    <h3 className="text-xl font-semibold text-slate-900">Execute Quoting</h3>
+                    <h3 className="text-xl font-semibold text-slate-900">Execute Smart Quoting</h3>
                   </div>
                   <p className="text-slate-600 mb-8 max-w-2xl mx-auto">
-                    Launch freight quoting for competitive pricing
+                    Launch automated freight quoting across multiple networks for optimal pricing and service
                   </p>
                   <button
                     onClick={processRFQs}
@@ -717,7 +722,7 @@ function App() {
                     {rfqProcessor.processingStatus.isProcessing ? (
                       <>
                         <Loader className="h-8 w-8 animate-spin" />
-                        <span>Processing Quotes...</span>
+                        <span>Processing Smart Quotes...</span>
                       </>
                     ) : (
                       <>
@@ -728,7 +733,7 @@ function App() {
                     )}
                   </button>
                   <p className="mt-4 text-sm text-slate-500">
-                    Automated quoting • Real-time pricing • Secure processing
+                    Automated quoting • Real-time pricing • Enterprise-grade security
                   </p>
                 </div>
               </div>
@@ -757,7 +762,7 @@ function App() {
 
         {activeTab === 'results' && (
           <div className="space-y-8">
-            {/* Processing Status */}
+            {/* STEP 5: Processing Status */}
             {(rfqProcessor.processingStatus.isProcessing || results.length > 0) && (
               <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
                 <div className="bg-gradient-to-r from-orange-50 to-pink-50 px-6 py-4 border-b border-slate-200">
@@ -770,7 +775,7 @@ function App() {
                     </div>
                     <div>
                       <h3 className="text-lg font-semibold text-slate-900">Automated Quoting Engine</h3>
-                      <p className="text-sm text-slate-600">Real-time quoting and competitive analysis</p>
+                      <p className="text-sm text-slate-600">Real-time smart quoting and competitive analysis</p>
                     </div>
                     {!rfqProcessor.processingStatus.isProcessing && results.length > 0 && <CheckCircle className="h-6 w-6 text-emerald-500" />}
                   </div>
@@ -789,7 +794,7 @@ function App() {
               </div>
             )}
 
-            {/* Results Table */}
+            {/* STEP 6: Results Table */}
             <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
               <div className="bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-4 border-b border-slate-200">
                 <div className="flex items-center space-x-3">
@@ -800,7 +805,7 @@ function App() {
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-slate-900">Smart Quoting Results</h3>
-                    <p className="text-sm text-slate-600">Competitive pricing analysis</p>
+                    <p className="text-sm text-slate-600">Competitive pricing analysis across all networks</p>
                   </div>
                   {results.length > 0 && <CheckCircle className="h-6 w-6 text-emerald-500" />}
                 </div>
@@ -819,6 +824,15 @@ function App() {
 
         {activeTab === 'database' && (
           <DatabaseToolbox />
+        )}
+
+        {activeTab === 'unified' && (
+          <UnifiedRFQTool
+            project44Client={project44Client}
+            freshxClient={freshxClient}
+            initialPricingSettings={pricingSettings}
+            initialSelectedCustomer={selectedCustomer}
+          />
         )}
       </main>
     </div>
