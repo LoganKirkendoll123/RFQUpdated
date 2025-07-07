@@ -1,29 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Zap, 
-  MapPin, 
-  Package, 
-  Clock, 
-  Thermometer, 
   Plus, 
   Trash2, 
-  Calculator,
-  Users,
-  Building2,
-  Truck,
-  Loader,
-  AlertCircle,
-  CheckCircle,
-  Target,
-  DollarSign
+  Loader
 } from 'lucide-react';
-import { Project44APIClient, FreshXAPIClient, CarrierGroup } from '../utils/apiClient';
-import { RFQRow, PricingSettings, ProcessingResult, QuoteWithPricing, LineItemData } from '../types';
-import { CustomerSelection } from './CustomerSelection';
+import { Project44APIClient, FreshXAPIClient } from '../utils/apiClient';
+import { RFQRow, PricingSettings, LineItemData } from '../types';
 import { CarrierSelection } from './CarrierSelection';
 import { PricingSettingsComponent } from './PricingSettings';
 import { RFQCard } from './RFQCard';
 import { calculatePricingWithCustomerMargins } from '../utils/pricingCalculator';
+import { useRFQProcessor } from '../hooks/useRFQProcessor';
+import { useCarrierManagement } from '../hooks/useCarrierManagement';
+import { usePricingSettings } from '../hooks/usePricingSettings';
 
 interface SpotQuoteProps {
   project44Client: Project44APIClient | null;
@@ -80,75 +70,23 @@ export const SpotQuote: React.FC<SpotQuoteProps> = ({
     lineItems: []
   });
 
-  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
-  const [localSelectedCarriers, setLocalSelectedCarriers] = useState<{ [carrierId: string]: boolean }>({});
-  const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
-  const [carriersLoaded, setCarriersLoaded] = useState(false);
-  
-  const [localPricingSettings, setLocalPricingSettings] = useState<PricingSettings>(pricingSettings);
-  const [localSelectedCustomer, setLocalSelectedCustomer] = useState<string>(selectedCustomer);
-  
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [results, setResults] = useState<ProcessingResult[]>([]);
   const [error, setError] = useState<string>('');
 
-  // Initialize local state from props
+  // Use consolidated hooks
+  const carrierManagement = useCarrierManagement({ project44Client });
+  const pricingManagement = usePricingSettings({ 
+    markupPercentage: pricingSettings.markupPercentage,
+    minimumProfit: pricingSettings.minimumProfit,
+    markupType: pricingSettings.markupType,
+    usesCustomerMargins: pricingSettings.usesCustomerMargins,
+    fallbackMarkupPercentage: pricingSettings.fallbackMarkupPercentage
+  });
+  const rfqProcessor = useRFQProcessor({ project44Client, freshxClient });
+
+  // Initialize customer from props
   useEffect(() => {
-    setLocalSelectedCarriers(selectedCarriers);
-  }, [selectedCarriers]);
-
-  useEffect(() => {
-    setLocalPricingSettings(pricingSettings);
-  }, [pricingSettings]);
-
-  useEffect(() => {
-    setLocalSelectedCustomer(selectedCustomer);
-  }, [selectedCustomer]);
-
-  const loadCarriers = async () => {
-    if (!project44Client) return;
-
-    setIsLoadingCarriers(true);
-    setCarriersLoaded(false);
-    try {
-      console.log('🚛 Loading carriers for spot quote...');
-      const groups = await project44Client.getAvailableCarriersByGroup(false, false);
-      setCarrierGroups(groups);
-      setCarriersLoaded(true);
-      console.log(`✅ Loaded ${groups.length} carrier groups for spot quote`);
-    } catch (error) {
-      console.error('❌ Failed to load carriers:', error);
-      setCarrierGroups([]);
-      setCarriersLoaded(false);
-    } finally {
-      setIsLoadingCarriers(false);
-    }
-  };
-
-  const handleCarrierToggle = (carrierId: string, selected: boolean) => {
-    setLocalSelectedCarriers(prev => ({ ...prev, [carrierId]: selected }));
-  };
-
-  const handleSelectAll = (selected: boolean) => {
-    const newSelection: { [carrierId: string]: boolean } = {};
-    carrierGroups.forEach(group => {
-      group.carriers.forEach(carrier => {
-        newSelection[carrier.id] = selected;
-      });
-    });
-    setLocalSelectedCarriers(newSelection);
-  };
-
-  const handleSelectAllInGroup = (groupCode: string, selected: boolean) => {
-    const group = carrierGroups.find(g => g.groupCode === groupCode);
-    if (!group) return;
-    
-    const newSelection = { ...localSelectedCarriers };
-    group.carriers.forEach(carrier => {
-      newSelection[carrier.id] = selected;
-    });
-    setLocalSelectedCarriers(newSelection);
-  };
+    pricingManagement.updateSelectedCustomer(selectedCustomer);
+  }, [selectedCustomer, pricingManagement]);
 
   const addLineItem = () => {
     const newItem: LineItemData = {
@@ -231,7 +169,527 @@ export const SpotQuote: React.FC<SpotQuoteProps> = ({
     return errors;
   };
 
-  const classifyShipment = (rfq: RFQRow): {quoting: 'freshx' | 'project44-standard' | 'project44-volume' | 'project44-dual', reason: string} => {
+  const getShipmentSummary = () => {
+    const rfq: RFQRow = {
+      fromDate: formData.fromDate,
+      fromZip: formData.fromZip,
+      toZip: formData.toZip,
+      pallets: formData.pallets,
+      grossWeight: formData.grossWeight,
+      isStackable: formData.isStackable,
+      isReefer: formData.isReefer,
+      accessorial: []
+    };
+
+    const classification = rfqProcessor.validateRFQ(rfq).length === 0 ? 
+      (rfq.isReefer ? 'FRESHX' : 
+       (rfq.pallets >= 10 || rfq.grossWeight >= 15000) ? 'DUAL' : 'STANDARD') : 'INVALID';
+
+    return {
+      route: `${formData.fromZip} → ${formData.toZip}`,
+      details: `${formData.pallets} pallets, ${formData.grossWeight.toLocaleString()} lbs`,
+      routing: classification,
+      reason: classification === 'FRESHX' ? 'Reefer shipment routed to FreshX' :
+              classification === 'DUAL' ? 'Large shipment - dual mode comparison' :
+              classification === 'STANDARD' ? 'Standard LTL shipment' : 'Invalid shipment data'
+    };
+  };
+
+  const processSpotQuote = async () => {
+    const validationErrors = validateForm();
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(', '));
+      return;
+    }
+
+    if (!project44Client) {
+      setError('Project44 client not available');
+      return;
+    }
+
+    const selectedCarrierIds = carrierManagement.getSelectedCarrierIds();
+    if (selectedCarrierIds.length === 0) {
+      setError('Please select at least one carrier');
+      return;
+    }
+
+    setError('');
+
+    try {
+      // Convert form data to RFQRow
+      const rfqData: RFQRow = {
+        fromDate: formData.fromDate,
+        fromZip: formData.fromZip,
+        toZip: formData.toZip,
+        pallets: formData.pallets,
+        grossWeight: formData.grossWeight,
+        isStackable: formData.isStackable,
+        isReefer: formData.isReefer,
+        temperature: formData.temperature,
+        commodity: formData.commodity,
+        isFoodGrade: formData.isFoodGrade,
+        freightClass: formData.freightClass,
+        commodityDescription: formData.commodityDescription,
+        originCity: formData.originCity,
+        originState: formData.originState,
+        destinationCity: formData.destinationCity,
+        destinationState: formData.destinationState,
+        lineItems: formData.lineItems.length > 0 ? formData.lineItems : undefined,
+        accessorial: []
+      };
+
+      await rfqProcessor.processSingleRFQ(rfqData, {
+        selectedCarriers: carrierManagement.selectedCarriers,
+        pricingSettings: pricingManagement.pricingSettings,
+        selectedCustomer: pricingManagement.selectedCustomer
+      });
+
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to process spot quote';
+      setError(errorMsg);
+      console.error('❌ Spot quote failed:', err);
+    }
+  };
+
+  const handlePriceUpdate = (resultIndex: number, quoteId: number, newPrice: number) => {
+    rfqProcessor.updateQuotePricing(resultIndex, quoteId, newPrice, {
+      pricingSettings: pricingManagement.pricingSettings,
+      selectedCustomer: pricingManagement.selectedCustomer
+    });
+  };
+
+  const summary = getShipmentSummary();
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center space-x-3">
+          <div className="bg-orange-600 p-2 rounded-lg">
+            <Zap className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Spot Quote</h1>
+            <p className="text-sm text-gray-600">
+              Get instant freight quotes with smart routing and competitive pricing
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Form Column */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Basic Shipment Info */}
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Shipment Details</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Pickup Date</label>
+                <input
+                  type="date"
+                  value={formData.fromDate}
+                  onChange={(e) => setFormData(prev => ({ ...prev, fromDate: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Pallets</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={formData.pallets}
+                  onChange={(e) => setFormData(prev => ({ ...prev, pallets: parseInt(e.target.value) || 1 }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Origin ZIP</label>
+                <input
+                  type="text"
+                  value={formData.fromZip}
+                  onChange={(e) => setFormData(prev => ({ ...prev, fromZip: e.target.value }))}
+                  placeholder="60607"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Destination ZIP</label>
+                <input
+                  type="text"
+                  value={formData.toZip}
+                  onChange={(e) => setFormData(prev => ({ ...prev, toZip: e.target.value }))}
+                  placeholder="30033"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Gross Weight (lbs)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100000"
+                  value={formData.grossWeight}
+                  onChange={(e) => setFormData(prev => ({ ...prev, grossWeight: parseInt(e.target.value) || 1000 }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Freight Class</label>
+                <input
+                  type="text"
+                  value={formData.freightClass || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, freightClass: e.target.value }))}
+                  placeholder="70"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+            </div>
+            
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center space-x-4">
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.isStackable}
+                    onChange={(e) => setFormData(prev => ({ ...prev, isStackable: e.target.checked }))}
+                    className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                  />
+                  <span className="text-sm text-gray-700">Stackable</span>
+                </label>
+                
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.isReefer}
+                    onChange={(e) => setFormData(prev => ({ ...prev, isReefer: e.target.checked }))}
+                    className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                  />
+                  <span className="text-sm text-gray-700">Reefer (Route to FreshX)</span>
+                </label>
+              </div>
+              
+              {formData.isReefer && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
+                    <select
+                      value={formData.temperature}
+                      onChange={(e) => setFormData(prev => ({ ...prev, temperature: e.target.value as any }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                    >
+                      <option value="AMBIENT">Ambient</option>
+                      <option value="CHILLED">Chilled</option>
+                      <option value="FROZEN">Frozen</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Commodity</label>
+                    <input
+                      type="text"
+                      value={formData.commodity || ''}
+                      onChange={(e) => setFormData(prev => ({ ...prev, commodity: e.target.value }))}
+                      placeholder="FOODSTUFFS"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Line Items */}
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Line Items (Optional)</h3>
+              <button
+                onClick={addLineItem}
+                className="flex items-center space-x-2 px-3 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add Item</span>
+              </button>
+            </div>
+            
+            {formData.lineItems.length === 0 ? (
+              <p className="text-gray-500 text-sm">
+                No line items added. The system will use default dimensions based on pallets and weight.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {formData.lineItems.map((item, index) => (
+                  <div key={item.id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-medium text-gray-900">Item {index + 1}</h4>
+                      <button
+                        onClick={() => removeLineItem(index)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="md:col-span-3">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                        <input
+                          type="text"
+                          value={item.description}
+                          onChange={(e) => updateLineItem(index, { description: e.target.value })}
+                          placeholder="Item description"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Weight (lbs)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.totalWeight}
+                          onChange={(e) => updateLineItem(index, { totalWeight: parseInt(e.target.value) || 0 })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Freight Class</label>
+                        <input
+                          type="text"
+                          value={item.freightClass}
+                          onChange={(e) => updateLineItem(index, { freightClass: e.target.value })}
+                          placeholder="70"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Packages</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.totalPackages}
+                          onChange={(e) => updateLineItem(index, { totalPackages: parseInt(e.target.value) || 1 })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Length (in)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.packageLength}
+                          onChange={(e) => updateLineItem(index, { packageLength: parseInt(e.target.value) || 48 })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Width (in)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.packageWidth}
+                          onChange={(e) => updateLineItem(index, { packageWidth: parseInt(e.target.value) || 40 })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Height (in)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.packageHeight}
+                          onChange={(e) => updateLineItem(index, { packageHeight: parseInt(e.target.value) || 48 })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <div className="text-sm text-blue-800">
+                    <strong>Weight Check:</strong> Total item weight: {formData.lineItems.reduce((sum, item) => sum + item.totalWeight, 0)} lbs
+                    {Math.abs(formData.grossWeight - formData.lineItems.reduce((sum, item) => sum + item.totalWeight, 0)) > 10 && (
+                      <span className="text-red-600 ml-2">
+                        ⚠️ Should match gross weight ({formData.grossWeight} lbs)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Carrier Selection */}
+          <div className="bg-white rounded-lg shadow-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">Carrier Selection</h3>
+                {!carrierManagement.carriersLoaded && (
+                  <button
+                    onClick={carrierManagement.loadCarriers}
+                    disabled={carrierManagement.isLoadingCarriers}
+                    className="flex items-center space-x-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-400"
+                  >
+                    {carrierManagement.isLoadingCarriers ? (
+                      <Loader className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Truck className="h-4 w-4" />
+                    )}
+                    <span>{carrierManagement.isLoadingCarriers ? 'Loading...' : 'Load Carriers'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+            
+            {carrierManagement.carriersLoaded && (
+              <div className="p-6">
+                <CarrierSelection
+                  carrierGroups={carrierManagement.carrierGroups}
+                  selectedCarriers={carrierManagement.selectedCarriers}
+                  onToggleCarrier={carrierManagement.handleCarrierToggle}
+                  onSelectAll={carrierManagement.handleSelectAll}
+                  onSelectAllInGroup={carrierManagement.handleSelectAllInGroup}
+                  isLoading={carrierManagement.isLoadingCarriers}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Pricing Settings */}
+          <div className="bg-white rounded-lg shadow-md overflow-hidden">
+            <PricingSettingsComponent
+              settings={pricingManagement.pricingSettings}
+              onSettingsChange={pricingManagement.updatePricingSettings}
+              selectedCustomer={pricingManagement.selectedCustomer}
+              onCustomerChange={pricingManagement.updateSelectedCustomer}
+              showAsCard={false}
+            />
+          </div>
+        </div>
+
+        {/* Summary and Action Column */}
+        <div className="space-y-6">
+          {/* Shipment Summary */}
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Quote Summary</h3>
+            
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <MapPin className="h-4 w-4 text-gray-400" />
+                <span className="text-sm text-gray-700">{summary.route}</span>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Package className="h-4 w-4 text-gray-400" />
+                <span className="text-sm text-gray-700">{summary.details}</span>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Target className="h-4 w-4 text-gray-400" />
+                <span className="text-sm text-gray-700">Routing: {summary.routing}</span>
+              </div>
+              
+              {formData.isReefer && (
+                <div className="flex items-center space-x-2">
+                  <Thermometer className="h-4 w-4 text-blue-500" />
+                  <span className="text-sm text-blue-700">{formData.temperature}</span>
+                </div>
+              )}
+              
+              <div className="flex items-center space-x-2">
+                <Users className="h-4 w-4 text-gray-400" />
+                <span className="text-sm text-gray-700">
+                  {carrierManagement.getSelectedCarrierCount()} carriers selected
+                </span>
+              </div>
+              
+              {pricingManagement.selectedCustomer && (
+                <div className="flex items-center space-x-2">
+                  <Building2 className="h-4 w-4 text-gray-400" />
+                  <span className="text-sm text-gray-700">{pricingManagement.selectedCustomer}</span>
+                </div>
+              )}
+            </div>
+            
+            <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+              <div className="text-xs text-gray-600">
+                <strong>Smart Routing:</strong> {summary.reason}
+              </div>
+            </div>
+          </div>
+
+          {/* Get Quote Button */}
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <button
+              onClick={processSpotQuote}
+              disabled={rfqProcessor.processingStatus.isProcessing || !project44Client}
+              className="w-full flex items-center justify-center space-x-2 px-6 py-4 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+            >
+              {rfqProcessor.processingStatus.isProcessing ? (
+                <>
+                  <Loader className="h-5 w-5 animate-spin" />
+                  <span>Getting Quotes...</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="h-5 w-5" />
+                  <span>Get Instant Quote</span>
+                </>
+              )}
+            </button>
+            
+            {error && (
+              <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center space-x-2 text-red-700">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-sm">{error}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Results Section */}
+      {rfqProcessor.results.length > 0 && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center space-x-3">
+              <CheckCircle className="h-6 w-6 text-green-500" />
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Spot Quote Results</h2>
+                <p className="text-sm text-gray-600">
+                  {rfqProcessor.results[0]?.quotes.length || 0} quotes received using smart routing
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {rfqProcessor.results.map((result, index) => (
+            <RFQCard
+              key={index}
+              result={result}
+              onPriceUpdate={(quoteId, newPrice) => handlePriceUpdate(index, quoteId, newPrice)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
     // Check the isReefer field first - this is the primary quoting control
     if (rfq.isReefer === true) {
       return {

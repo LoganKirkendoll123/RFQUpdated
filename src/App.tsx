@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { FileUpload } from './components/FileUpload';
 import { CarrierSelection } from './components/CarrierSelection';
 import { PricingSettingsComponent } from './components/PricingSettings';
 import { ProcessingStatus } from './components/ProcessingStatus';
@@ -7,20 +6,20 @@ import { ResultsTable } from './components/ResultsTable';
 import { Analytics } from './components/Analytics';
 import { ApiKeyInput } from './components/ApiKeyInput';
 import { TemplateDownload } from './components/TemplateDownload';
+import { FileUpload } from './components/FileUpload';
 import { SupabaseStatus } from './components/SupabaseStatus';
 import { SupabaseSetup } from './components/SupabaseSetup';
 import { DatabaseToolbox } from './components/DatabaseToolbox';
 import { SpotQuote } from './components/SpotQuote';
 import { MassRFQFromShipments } from './components/MassRFQFromShipments';
 import { parseCSV, parseXLSX } from './utils/fileParser';
-import { calculatePricing } from './utils/pricingCalculator';
-import { Project44APIClient, FreshXAPIClient, CarrierGroup } from './utils/apiClient';
+import { Project44APIClient, FreshXAPIClient } from './utils/apiClient';
 import { 
   RFQRow, 
-  ProcessingResult, 
-  PricingSettings, 
+  PricingSettings,
+  ProcessingResult,
+  QuoteWithPricing,
   Project44OAuthConfig,
-  QuoteWithPricing 
 } from './types';
 import { 
   saveProject44Config, 
@@ -32,7 +31,9 @@ import {
   savePricingSettings,
   loadPricingSettings
 } from './utils/credentialStorage';
-import { calculatePricingWithCustomerMargins, clearMarginCache } from './utils/pricingCalculator';
+import { clearMarginCache } from './utils/pricingCalculator';
+import { useRFQProcessor } from './hooks/useRFQProcessor';
+import { useCarrierManagement } from './hooks/useCarrierManagement';
 import { 
   Truck, 
   Upload, 
@@ -63,21 +64,9 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-// Enhanced result type for smart quoting
-interface SmartQuotingResult extends ProcessingResult {
-  quotingDecision: 'freshx' | 'project44-standard' | 'project44-volume';
-  quotingReason: string;
-}
-
 function App() {
   // Core state
   const [rfqData, setRfqData] = useState<RFQRow[]>([]);
-  const [results, setResults] = useState<SmartQuotingResult[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [totalSteps, setTotalSteps] = useState(0);
-  const [currentCarrier, setCurrentCarrier] = useState<string>('');
-  const [carrierProgress, setCarrierProgress] = useState<{ current: number; total: number } | undefined>();
   
   // API configuration
   const [project44Config, setProject44Config] = useState<Project44OAuthConfig>({
@@ -92,11 +81,6 @@ function App() {
   const [isProject44Valid, setIsProject44Valid] = useState(false);
   const [isFreshXValid, setIsFreshXValid] = useState(false);
   
-  // Carrier and pricing state
-  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
-  const [selectedCarriers, setSelectedCarriers] = useState<{ [carrierId: string]: boolean }>({});
-  const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
-  const [carriersLoaded, setCarriersLoaded] = useState(false);
   const [pricingSettings, setPricingSettings] = useState<PricingSettings>({
     markupPercentage: 15,
     minimumProfit: 100,
@@ -109,6 +93,13 @@ function App() {
   // UI state
   const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database' | 'spot-quote' | 'mass-rfq'>('upload');
   const [fileError, setFileError] = useState<string>('');
+  
+  // Use consolidated hooks
+  const carrierManagement = useCarrierManagement({ project44Client });
+  const rfqProcessor = useRFQProcessor({ 
+    project44Client, 
+    freshxClient 
+  });
   
   // API clients - store as instance variables to maintain token state
   const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
@@ -162,23 +153,11 @@ function App() {
     // Create new client instance with updated config
     const client = new Project44APIClient(config);
     setProject44Client(client);
-    
-    // Reset carrier state when config changes
-    setCarrierGroups([]);
-    setSelectedCarriers({});
-    setCarriersLoaded(false);
   };
 
   const handleProject44Validation = (isValid: boolean) => {
     console.log('🔍 Project44 validation result:', isValid);
     setIsProject44Valid(isValid);
-    
-    // Reset carrier state when validation changes
-    if (!isValid) {
-      setCarrierGroups([]);
-      setSelectedCarriers({});
-      setCarriersLoaded(false);
-    }
   };
 
   const handleFreshXKeyChange = (apiKey: string) => {
@@ -194,30 +173,6 @@ function App() {
   const handleFreshXValidation = (isValid: boolean) => {
     console.log('🔍 FreshX validation result:', isValid);
     setIsFreshXValid(isValid);
-  };
-
-  const loadCarriers = async () => {
-    if (!project44Client) {
-      console.log('⚠️ No Project44 client available for loading carriers');
-      return;
-    }
-
-    setIsLoadingCarriers(true);
-    setCarriersLoaded(false);
-    try {
-      console.log('🚛 Loading carriers for smart quoting...');
-      // Load all carriers (both standard and volume LTL capable)
-      const groups = await project44Client.getAvailableCarriersByGroup(false, false);
-      setCarrierGroups(groups);
-      setCarriersLoaded(true);
-      console.log(`✅ Loaded ${groups.length} carrier groups for smart quoting`);
-    } catch (error) {
-      console.error('❌ Failed to load carriers:', error);
-      setCarrierGroups([]);
-      setCarriersLoaded(false);
-    } finally {
-      setIsLoadingCarriers(false);
-    }
   };
 
   const handleFileSelect = async (file: File) => {
@@ -236,42 +191,13 @@ function App() {
       console.log(`✅ Parsed ${data.length} RFQ rows`);
       
       // Reset results when new file is loaded
-      setResults([]);
+      rfqProcessor.clearResults();
       setActiveTab('upload');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to parse file';
       setFileError(errorMessage);
       console.error('❌ File parsing error:', error);
     }
-  };
-
-  const handleCarrierToggle = (carrierId: string, selected: boolean) => {
-    const newSelection = { ...selectedCarriers, [carrierId]: selected };
-    setSelectedCarriers(newSelection);
-    saveSelectedCarriers(newSelection);
-  };
-
-  const handleSelectAll = (selected: boolean) => {
-    const newSelection: { [carrierId: string]: boolean } = {};
-    carrierGroups.forEach(group => {
-      group.carriers.forEach(carrier => {
-        newSelection[carrier.id] = selected;
-      });
-    });
-    setSelectedCarriers(newSelection);
-    saveSelectedCarriers(newSelection);
-  };
-
-  const handleSelectAllInGroup = (groupCode: string, selected: boolean) => {
-    const group = carrierGroups.find(g => g.groupCode === groupCode);
-    if (!group) return;
-    
-    const newSelection = { ...selectedCarriers };
-    group.carriers.forEach(carrier => {
-      newSelection[carrier.id] = selected;
-    });
-    setSelectedCarriers(newSelection);
-    saveSelectedCarriers(newSelection);
   };
 
   const handlePricingSettingsChange = (settings: PricingSettings) => {
@@ -286,171 +212,10 @@ function App() {
     console.log(`👤 Customer changed to: ${customer || 'None'}`);
   };
 
-  // Smart quoting classification function
-  const classifyShipment = (rfq: RFQRow): {quoting: 'freshx' | 'project44-standard' | 'project44-volume' | 'project44-dual', reason: string} => {
-    // Check the isReefer field first - this is the primary quoting control
-    if (rfq.isReefer === true) {
-      return {
-        quoting: 'freshx',
-        reason: `Marked as reefer shipment (isReefer=TRUE) - quoted through FreshX reefer network`
-      };
-    }
-    
-    // For non-reefer shipments (isReefer=FALSE or undefined), quote through Project44
-    // Determine LTL vs VLTL based on size and weight
-    if (rfq.pallets >= 10 || rfq.grossWeight >= 15000) {
-      return {
-        quoting: 'project44-dual',
-        reason: `Large shipment (${rfq.pallets} pallets, ${rfq.grossWeight.toLocaleString()} lbs) - quoted through both Project44 Volume LTL and Standard LTL for comparison`
-      };
-    } else {
-      return {
-        quoting: 'project44-standard',
-        reason: `Standard shipment (${rfq.pallets} pallets, ${rfq.grossWeight.toLocaleString()} lbs) - quoted through Project44 Standard LTL`
-      };
-    }
-  };
-
-  const processRFQs = async () => {
-    if (!project44Client) {
-      console.error('❌ No Project44 client available for processing');
-      return;
-    }
-
-    if (rfqData.length === 0) {
-      console.log('⚠️ No RFQ data to process');
-      return;
-    }
-
-    setIsProcessing(true);
-    setResults([]);
-    setActiveTab('results');
-    setTotalSteps(rfqData.length);
-    setCurrentStep(0);
-
-    const selectedCarrierIds = Object.entries(selectedCarriers)
-      .filter(([_, selected]) => selected)
-      .map(([carrierId, _]) => carrierId);
-
-    console.log(`🧠 Starting Smart Quoting RFQ processing: ${rfqData.length} RFQs, ${selectedCarrierIds.length} selected carriers`);
-
-    const allResults: SmartQuotingResult[] = [];
-
-    for (let i = 0; i < rfqData.length; i++) {
-      const rfq = rfqData[i];
-      setCurrentStep(i + 1);
-      
-      // Classify the shipment using the smart quoting logic
-      const classification = classifyShipment(rfq);
-      setCurrentCarrier(`RFQ ${i + 1}: ${classification.quoting.toUpperCase()}`);
-      
-      console.log(`🧠 RFQ ${i + 1}/${rfqData.length} - ${classification.reason}`);
-
-      const result: SmartQuotingResult = {
-        rowIndex: i,
-        originalData: rfq,
-        quotes: [],
-        status: 'processing',
-        quotingDecision: classification.quoting,
-        quotingReason: classification.reason
-      };
-
-      try {
-        let quotes: any[] = [];
-
-        if (classification.quoting === 'freshx' && freshxClient) {
-          console.log(`🌡️ Getting FreshX quotes for RFQ ${i + 1}`);
-          quotes = await freshxClient.getQuotes(rfq);
-        } else if (classification.quoting === 'project44-dual') {
-          console.log(`📦 Getting dual quotes (Volume LTL + Standard LTL) for RFQ ${i + 1}`);
-          
-          // Get both Volume LTL and Standard LTL quotes
-          const [volumeQuotes, standardQuotes] = await Promise.all([
-            project44Client.getQuotes(rfq, selectedCarrierIds, true, false, false),  // Volume LTL
-            project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false)  // Standard LTL
-          ]);
-          
-          // Tag quotes with their mode for identification
-          const taggedVolumeQuotes = volumeQuotes.map(quote => ({
-            ...quote,
-            quoteMode: 'volume',
-            quoteModeLabel: 'Volume LTL'
-          }));
-          
-          const taggedStandardQuotes = standardQuotes.map(quote => ({
-            ...quote,
-            quoteMode: 'standard',
-            quoteModeLabel: 'Standard LTL'
-          }));
-          
-          quotes = [...taggedVolumeQuotes, ...taggedStandardQuotes];
-          console.log(`✅ Dual quoting completed: ${volumeQuotes.length} Volume LTL + ${standardQuotes.length} Standard LTL quotes`);
-        } else {
-          console.log(`🚛 Getting Standard LTL quotes for RFQ ${i + 1}`);
-          quotes = await project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false);
-        }
-        
-        if (quotes.length > 0) {
-          // Apply pricing to quotes
-          const quotesWithPricing = await Promise.all(
-            quotes.map(quote => 
-              calculatePricingWithCustomerMargins(quote, pricingSettings, selectedCustomer)
-            )
-          );
-          
-          result.quotes = quotesWithPricing;
-          result.status = 'success';
-          console.log(`✅ ${classification.quoting.toUpperCase()} RFQ ${i + 1} completed: ${quotes.length} quotes received`);
-        } else {
-          result.status = 'success'; // No error, just no quotes
-          console.log(`ℹ️ ${classification.quoting.toUpperCase()} RFQ ${i + 1} completed: No quotes received`);
-        }
-      } catch (error) {
-        result.error = error instanceof Error ? error.message : 'Unknown error';
-        result.status = 'error';
-        console.error(`❌ ${classification.quoting.toUpperCase()} RFQ ${i + 1} failed:`, error);
-      }
-
-      allResults.push(result);
-      setResults([...allResults]);
-
-      // Small delay between requests
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
-    setIsProcessing(false);
-    setCurrentCarrier('');
-    setCarrierProgress(undefined);
-    console.log(`🏁 Smart Quoting processing completed: ${allResults.length} total results`);
-  };
-
-  const handlePriceUpdate = (resultIndex: number, quoteId: number, newPrice: number) => {
-    setResults(prevResults => {
-      const newResults = [...prevResults];
-      const result = newResults[resultIndex];
-      
-      if (result && result.quotes) {
-        const updatedQuotes = result.quotes.map(quote => {
-          if (quote.quoteId === quoteId) {
-            return calculatePricingWithCustomerMargins(quote, pricingSettings, selectedCustomer, newPrice);
-          }
-          return quote;
-        });
-        
-        newResults[resultIndex] = {
-          ...result,
-          quotes: updatedQuotes
-        };
-      }
-      
-      return newResults;
-    });
-  };
-
   const exportResults = () => {
-    if (results.length === 0) return;
+    if (rfqProcessor.results.length === 0) return;
 
-    const exportData = results.flatMap(result => {
+    const exportData = rfqProcessor.results.flatMap(result => {
       const smartResult = result as any;
       
       return result.quotes.map(quote => {
@@ -525,22 +290,36 @@ function App() {
     console.log('📊 Exporting smart quoting analytics...');
   };
 
+  const processRFQs = async () => {
+    if (rfqData.length === 0) return;
+    
+    setActiveTab('results');
+    await rfqProcessor.processMultipleRFQs(rfqData, {
+      selectedCarriers: carrierManagement.selectedCarriers,
+      pricingSettings,
+      selectedCustomer
+    });
+  };
+
   const getSuccessfulResults = () => results.filter(r => r.status === 'success');
   const getErrorResults = () => results.filter(r => r.status === 'error');
 
   // Determine current workflow step
   const getCurrentWorkflowStep = () => {
     if (!isProject44Valid) return 1; // Step 1: Enter API Info
-    if (!carriersLoaded) return 2; // Step 2: Load and Select Carriers
+    if (!carrierManagement.carriersLoaded) return 2; // Step 2: Load and Select Carriers
     if (rfqData.length === 0) return 3; // Step 3: Upload Shipment File
-    if (Object.values(selectedCarriers).every(v => !v)) return 2; // Back to Step 2: Select Carriers
-    if (results.length === 0) return 4; // Step 4: Run RFQs
-    if (isProcessing) return 5; // Step 5: Processing
+    if (Object.values(carrierManagement.selectedCarriers).every(v => !v)) return 2; // Back to Step 2: Select Carriers
+    if (rfqProcessor.results.length === 0) return 4; // Step 4: Run RFQs
+    if (rfqProcessor.processingStatus.isProcessing) return 5; // Step 5: Processing
     if (activeTab === 'results') return 6; // Step 6: Display Results
     return 7; // Step 7: Display Analysis
   };
 
   const currentWorkflowStep = getCurrentWorkflowStep();
+
+  // For backward compatibility
+  const results = rfqProcessor.results;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -840,7 +619,7 @@ function App() {
                           Connect to Project44's enterprise carrier network for LTL and Volume LTL services.
                         </p>
                         <button
-                          onClick={loadCarriers}
+                          onClick={carrierManagement.loadCarriers}
                           className="inline-flex items-center space-x-3 px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl"
                         >
                           <Users className="h-5 w-5" />
@@ -850,14 +629,14 @@ function App() {
                     </div>
                   )}
 
-                  {(carriersLoaded || isLoadingCarriers) && (
+                  {(carrierManagement.carriersLoaded || carrierManagement.isLoadingCarriers) && (
                     <CarrierSelection
-                      carrierGroups={carrierGroups}
-                      selectedCarriers={selectedCarriers}
-                      onToggleCarrier={handleCarrierToggle}
-                      onSelectAll={handleSelectAll}
-                      onSelectAllInGroup={handleSelectAllInGroup}
-                      isLoading={isLoadingCarriers}
+                      carrierGroups={carrierManagement.carrierGroups}
+                      selectedCarriers={carrierManagement.selectedCarriers}
+                      onToggleCarrier={carrierManagement.handleCarrierToggle}
+                      onSelectAll={carrierManagement.handleSelectAll}
+                      onSelectAllInGroup={carrierManagement.handleSelectAllInGroup}
+                      isLoading={carrierManagement.isLoadingCarriers}
                     />
                   )}
                 </div>
@@ -865,7 +644,7 @@ function App() {
             )}
 
             {/* STEP 3: Upload Shipment File */}
-            {isProject44Valid && carriersLoaded && (
+            {isProject44Valid && carrierManagement.carriersLoaded && (
               <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
                 <div className="bg-gradient-to-r from-purple-50 to-pink-50 px-6 py-4 border-b border-slate-200">
                   <div className="flex items-center space-x-3">
@@ -886,7 +665,7 @@ function App() {
                   <FileUpload
                     onFileSelect={handleFileSelect}
                     error={fileError}
-                    isProcessing={isProcessing}
+                    isProcessing={rfqProcessor.processingStatus.isProcessing}
                   />
                   {rfqData.length > 0 && (
                     <div className="mt-6 p-6 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl">
@@ -922,7 +701,7 @@ function App() {
             )}
 
             {/* STEP 4: Run Smart RFQs Button */}
-            {rfqData.length > 0 && Object.values(selectedCarriers).some(v => v) && (
+            {rfqData.length > 0 && Object.values(carrierManagement.selectedCarriers).some(v => v) && (
               <div className="text-center py-8">
                 <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
                   <div className="flex items-center justify-center space-x-3 mb-4">
@@ -939,7 +718,7 @@ function App() {
                   </p>
                   <button
                     onClick={processRFQs}
-                    disabled={isProcessing}
+                    disabled={rfqProcessor.processingStatus.isProcessing}
                     className={`inline-flex items-center space-x-4 px-12 py-6 font-bold rounded-2xl transition-all duration-200 text-xl shadow-2xl ${
                       isProcessing 
                         ? 'bg-slate-400 cursor-not-allowed text-white' 
@@ -990,7 +769,7 @@ function App() {
           <SpotQuote
             project44Client={project44Client}
             freshxClient={freshxClient}
-            selectedCarriers={selectedCarriers}
+            selectedCarriers={carrierManagement.selectedCarriers}
             pricingSettings={pricingSettings}
             selectedCustomer={selectedCustomer}
           />
@@ -999,7 +778,7 @@ function App() {
         {activeTab === 'results' && (
           <div className="space-y-8">
             {/* STEP 5: Processing Status */}
-            {(isProcessing || results.length > 0) && (
+            {(rfqProcessor.processingStatus.isProcessing || results.length > 0) && (
               <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
                 <div className="bg-gradient-to-r from-orange-50 to-pink-50 px-6 py-4 border-b border-slate-200">
                   <div className="flex items-center space-x-3">
@@ -1018,13 +797,13 @@ function App() {
                 </div>
                 <div className="p-6">
                   <ProcessingStatus
-                    total={totalSteps}
-                    completed={currentStep}
+                    total={rfqProcessor.processingStatus.totalSteps}
+                    completed={rfqProcessor.processingStatus.currentStep}
                     success={getSuccessfulResults().length}
                     errors={getErrorResults().length}
-                    isProcessing={isProcessing}
-                    currentCarrier={currentCarrier}
-                    carrierProgress={carrierProgress}
+                    isProcessing={rfqProcessor.processingStatus.isProcessing}
+                    currentCarrier={rfqProcessor.processingStatus.currentItem}
+                    carrierProgress={undefined}
                   />
                 </div>
               </div>
@@ -1050,7 +829,7 @@ function App() {
                 <ResultsTable
                   results={results}
                   onExport={exportResults}
-                  onPriceUpdate={handlePriceUpdate}
+                  onPriceUpdate={(resultIndex, quoteId, newPrice) => rfqProcessor.updateQuotePricing(resultIndex, quoteId, newPrice, { pricingSettings, selectedCustomer })}
                 />
               </div>
             </div>
@@ -1090,7 +869,7 @@ function App() {
           <MassRFQFromShipments
             project44Client={project44Client}
             freshxClient={freshxClient}
-            selectedCarriers={selectedCarriers}
+            selectedCarriers={carrierManagement.selectedCarriers}
             pricingSettings={pricingSettings}
             selectedCustomer={selectedCustomer}
           />
