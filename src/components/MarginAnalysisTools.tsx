@@ -831,7 +831,7 @@ export const MarginAnalysisTools: React.FC = () => {
               <CheckCircle className="h-5 w-5 text-green-600" />
               <span className="text-green-800 font-medium">
                 Loaded {shipmentData.length} shipments from {startDate} to {endDate}
-                {selectedCustomer && \` for ${selectedCustomer}`}
+                {selectedCustomer && ` for ${selectedCustomer}`}
               </span>
             </div>
           </div>
@@ -1123,7 +1123,7 @@ export const MarginAnalysisTools: React.FC = () => {
                       {formatCurrency(result.totalTargetPrice)}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
-                      <span className={\`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                         result.recommendedMargin > 15 ? 'bg-green-100 text-green-800' :
                         result.recommendedMargin > 10 ? 'bg-yellow-100 text-yellow-800' :
                         'bg-red-100 text-red-800'
