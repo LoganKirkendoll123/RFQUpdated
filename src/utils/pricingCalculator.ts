@@ -1,5 +1,4 @@
 import { Quote, QuoteWithPricing, PricingSettings, RateCharge } from '../types';
-import { supabase } from './supabase';
 
 // Customer-carrier margin lookup cache
 const marginCache = new Map<string, number>();
@@ -23,40 +22,9 @@ export const getCustomerCarrierMargin = async (
   try {
     console.log(`🔍 Looking up margin for customer "${customerName}" and carrier "${carrierName}" (SCAC: ${carrierScac})`);
     
-    // Query CustomerCarriers table for matching customer and carrier
-    let query = supabase
-      .from('CustomerCarriers')
-      .select('Percentage')
-      .eq('InternalName', customerName);
-    
-    // Try to match by carrier name first, then by SCAC if available
-    if (carrierScac) {
-      query = query.or(`P44CarrierCode.eq.${carrierScac},P44CarrierCode.ilike.%${carrierName}%`);
-    } else {
-      query = query.ilike('P44CarrierCode', `%${carrierName}%`);
-    }
-    
-    const { data, error } = await query.limit(1);
-    
-    if (error) {
-      console.error('❌ Error querying CustomerCarriers:', error);
-      return null;
-    }
-    
-    if (data && data.length > 0) {
-      const percentage = parseFloat(data[0].Percentage || '0');
-      console.log(`✅ Found customer margin: ${percentage}% for ${customerName} + ${carrierName}`);
-      
-      // Cache the result
-      marginCache.set(cacheKey, percentage);
-      return percentage;
-    } else {
-      console.log(`ℹ️ No margin found for customer "${customerName}" and carrier "${carrierName}"`);
-      
-      // Cache null result to avoid repeated queries
-      marginCache.set(cacheKey, 0);
-      return null;
-    }
+    // For now, return null - customer margins would require database integration
+    console.log(`ℹ️ Customer margin lookup not implemented - using fallback margin`);
+    return null;
   } catch (error) {
     console.error('❌ Failed to lookup customer-carrier margin:', error);
     return null;
