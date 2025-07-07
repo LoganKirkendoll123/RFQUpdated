@@ -47,6 +47,10 @@ interface ShipmentRecord {
   "Revenue"?: string;
   "Carrier Quote"?: string;
   "Profit"?: string;
+  "Origin City"?: string;
+  "State"?: string;
+  "Destination City"?: string;
+  "State_1"?: string;
 }
 
 interface CustomerCarrierMargin {
@@ -116,16 +120,23 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
   const [analysisComplete, setAnalysisComplete] = useState(false);
 
   useEffect(() => {
+    console.log('🔄 NegotiationImpactAnalyzer component mounted');
     loadAvailableP44Accounts();
     if (project44Client) {
+      console.log('🔍 Project44 client available, testing connection...');
       testApiConnection();
       loadCarriers();
+    } else {
+      console.log('⚠️ Project44 client not available');
+      setApiConnectionStatus('error');
+      setApiConnectionMessage('Project44 client not available');
     }
-  }, []);
+  }, [project44Client]);
 
   // Test the Project44 API connection
   const testApiConnection = async () => {
     if (!project44Client) {
+      console.log('❌ Cannot test API connection - Project44 client not available');
       setApiConnectionStatus('error');
       setApiConnectionMessage('Project44 client not available');
       return;
@@ -133,18 +144,6 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
     
     try {
       console.log('🔍 Testing Project44 API connection...');
-      
-      // Create a simple test RFQ
-      const testRfq: RFQRow = {
-        fromDate: new Date().toISOString().split('T')[0],
-        fromZip: '60607',
-        toZip: '30033',
-        pallets: 1,
-        grossWeight: 1000,
-        isStackable: false,
-        isReefer: false,
-        accessorial: []
-      };
       
       // Try to get a token - this will throw if credentials are invalid
       await project44Client.getAccessToken();
@@ -160,7 +159,10 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
   };
 
   const loadCarriers = async () => {
-    if (!project44Client) return;
+    if (!project44Client) {
+      console.log('❌ Cannot load carriers - Project44 client not available');
+      return;
+    }
     
     setIsLoadingCarriers(true);
     try {
@@ -256,7 +258,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
     });
 
     try {
-      console.log('🚀 Starting Phase 1: Initial Analysis (Pre-Negotiation Baseline)');
+      console.log('🚀 Starting Phase 1: Initial Analysis with Project44 API');
       
       // Step 1.1: Filter Shipments by Date Range
       console.log(`📅 Filtering shipments from ${dateRange.start} to ${dateRange.end}`);
@@ -311,75 +313,186 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
         }
       });
 
-      // Step 1.2 & 1.3: Calculate Revenue After Margin per Customer
+      // Get selected carrier IDs from the UI
+      let selectedCarrierIds = Object.entries(selectedCarriers)
+        .filter(([_, selected]) => selected)
+        .map(([carrierId, _]) => carrierId);
+
+      if (selectedCarrierIds.length === 0) {
+        // If no carriers are explicitly selected, use all available carriers from loaded groups
+        if (carrierGroups.length > 0) {
+          carrierGroups.forEach(group => {
+            group.carriers.forEach(carrier => {
+              selectedCarrierIds.push(carrier.id);
+            });
+          });
+          console.log(`🚛 No carriers explicitly selected, using all ${selectedCarrierIds.length} available carriers`);
+        } else {
+          throw new Error('No carriers available for analysis');
+        }
+      }
+
+      // Group shipments by customer
+      const shipmentsByCustomer = new Map<string, ShipmentRecord[]>();
+      for (const shipment of shipments) {
+        const customerName = shipment.Customer?.trim();
+        if (!customerName) continue;
+        
+        const customerKey = customerName.toUpperCase();
+        
+        // Skip if no margin found for this customer
+        if (!marginLookup.has(customerKey)) {
+          console.log(`⚠️ Skipping shipment ${shipment["Invoice #"]} - no margin found for customer: ${customerName}`);
+          continue;
+        }
+        
+        if (!shipmentsByCustomer.has(customerKey)) {
+          shipmentsByCustomer.set(customerKey, []);
+        }
+        
+        shipmentsByCustomer.get(customerKey)!.push(shipment);
+      }
+      
+      // Store shipments by customer for Phase 2
+      setCustomerShipments(shipmentsByCustomer);
+      
+      console.log(`👥 Found ${shipmentsByCustomer.size} customers with shipments and valid margins`);
+
+      // Process each customer's shipments with Project44 API
       const customerResults = new Map<string, {
         shipmentCount: number;
         totalRevenueAfterMargin: number;
         totalMargin: number;
         marginCount: number;
-        shipments: ShipmentRecord[]; // Store shipments per customer
       }>();
-
-      let processedCount = 0;
       
-      for (const shipment of shipments) {
-        processedCount++;
+      let processedCount = 0;
+      const totalShipments = Array.from(shipmentsByCustomer.values()).reduce((sum, shipments) => sum + shipments.length, 0);
+      
+      setProcessingStatus(prev => ({
+        ...prev,
+        totalShipments: totalShipments
+      }));
+      
+      for (const [customerKey, customerShipments] of shipmentsByCustomer.entries()) {
+        const marginInfo = marginLookup.get(customerKey)!;
+        const customerMargin = marginInfo.percentage;
+        
+        console.log(`🔍 Processing ${customerShipments.length} shipments for customer: ${marginInfo.customerName} (margin: ${(customerMargin * 100).toFixed(1)}%)`);
         
         setProcessingStatus(prev => ({
           ...prev,
-          processedShipments: processedCount,
-          currentCustomer: shipment.Customer || 'Unknown'
+          currentCustomer: marginInfo.customerName
         }));
-
-        const customerName = shipment.Customer?.trim();
-        if (!customerName) {
-          console.log(`⚠️ Skipping shipment ${shipment["Invoice #"]} - no customer name`);
-          continue;
-        }
-
-        const customerKey = customerName.toUpperCase();
-        console.log(`🔍 Looking up margin for customer key: ${customerKey}`);
         
-        // Look up customer margin
-        const marginInfo = marginLookup.get(customerKey);
-        if (!marginInfo) {
-          console.log(`⚠️ Skipping shipment ${shipment["Invoice #"]} - no margin found for customer: ${customerName}`);
-          continue;
-        }
-        
-        const customerMargin = marginInfo.percentage;
-
-        // Get the cost (carrier quote)
-        const carrierQuote = parseFloat(shipment["Carrier Quote"] || '0');
-        if (carrierQuote <= 0) {
-          console.log(`⚠️ Skipping shipment ${shipment["Invoice #"]} - invalid carrier quote: ${carrierQuote}`);
-          continue;
-        }
-
-        // Calculate revenue after margin: cost / (1 - margin)
-        const revenueAfterMargin = carrierQuote / (1 - customerMargin); 
-        
-        console.log(`💰 Shipment ${shipment["Invoice #"]}: Cost=${formatCurrency(carrierQuote)}, Margin=${(customerMargin * 100).toFixed(1)}%, Revenue=${formatCurrency(revenueAfterMargin)}`);
-
-        // Aggregate by customer
+        // Initialize customer results
         if (!customerResults.has(customerKey)) {
           customerResults.set(customerKey, {
             shipmentCount: 0,
             totalRevenueAfterMargin: 0,
             totalMargin: 0,
-            marginCount: 0,
-            shipments: []
+            marginCount: 0
           });
         }
-
+        
         const customerData = customerResults.get(customerKey)!;
-        customerData.shipmentCount++;
-        customerData.totalRevenueAfterMargin += revenueAfterMargin;
-        customerData.totalMargin += customerMargin;
-        customerData.marginCount++;
-        customerData.shipments.push(shipment);
+        
+        // Process each shipment with Project44 API
+        for (const shipment of customerShipments) {
+          processedCount++;
+          
+          setProcessingStatus(prev => ({
+            ...prev,
+            processedShipments: processedCount
+          }));
+          
+          try {
+            // Convert shipment to RFQ format
+            const rfqData = convertShipmentToRFQ(shipment);
+            
+            // Validate RFQ data
+            if (!rfqData.fromZip || !rfqData.toZip) {
+              console.log(`⚠️ Skipping shipment ${shipment["Invoice #"]} - missing ZIP codes`);
+              continue;
+            }
+            
+            if (!rfqData.grossWeight || rfqData.grossWeight <= 0 || isNaN(rfqData.grossWeight)) {
+              console.log(`⚠️ Skipping shipment ${shipment["Invoice #"]} - invalid weight: ${rfqData.grossWeight}`);
+              continue;
+            }
+            
+            console.log(`🚚 PHASE 1 API CALL: Getting quotes for shipment ${shipment["Invoice #"]} (${marginInfo.customerName})`);
+            console.log(`📦 RFQ details: ${rfqData.fromZip} → ${rfqData.toZip}, ${rfqData.pallets} pallets, ${rfqData.grossWeight.toLocaleString()} lbs`);
+            
+            // Determine if this is VLTL
+            const isVLTL = shipment["Is VLTL"] === "TRUE" || 
+                          rfqData.pallets >= 10 || 
+                          rfqData.grossWeight >= 15000;
+            
+            console.log(`🚚 Shipment ${shipment["Invoice #"]} is ${isVLTL ? 'VLTL' : 'Standard LTL'}`);
+            
+            // Get quotes from Project44 API
+            let quotes = [];
+            try {
+              console.log(`🔍 SENDING API REQUEST to Project44 for ${isVLTL ? 'VLTL' : 'Standard LTL'} shipment ${shipment["Invoice #"]} - Customer: ${marginInfo.customerName}`);
+              
+              // THIS IS THE ACTUAL API CALL TO PROJECT44
+              quotes = await project44Client.getQuotes(
+                rfqData, 
+                selectedCarrierIds, 
+                isVLTL, // isVolumeMode
+                false,  // isFTLMode
+                false   // isReeferMode
+              );
+              console.log(`✅ SUCCESS! Received ${quotes.length} quotes from Project44 API for shipment ${shipment["Invoice #"]}`);
+            } catch (quoteError) {
+              console.error(`❌ API ERROR: Failed to get quotes for shipment ${shipment["Invoice #"]}:`, quoteError);
+              console.log(`🔄 Continuing with next shipment...`);
+              continue;
+            }
+            
+            if (quotes.length > 0) {
+              // Use the best (lowest) quote
+              const bestQuote = quotes.reduce((best, current) => {
+                const bestTotal = best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts;
+                const currentTotal = current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts;
+                
+                // Ensure we're comparing valid numbers
+                if (isNaN(bestTotal) || bestTotal <= 0) return current;
+                if (isNaN(currentTotal) || currentTotal <= 0) return best;
+                
+                // Return the lower cost quote
+                return currentTotal < bestTotal ? current : best;
+              });
+              
+              const carrierCost = bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts;
+              if (carrierCost <= 0) {
+                console.log(`⚠️ Invalid cost (${carrierCost}) for shipment ${shipment["Invoice #"]}, skipping`);
+                continue;
+              }
+              
+              // Calculate revenue after margin: cost / (1 - margin)
+              const revenueAfterMargin = carrierCost / (1 - customerMargin);
+              
+              console.log(`💰 API RESULT: Shipment ${shipment["Invoice #"]}: Cost=${formatCurrency(carrierCost)}, Margin=${(customerMargin * 100).toFixed(1)}%, Revenue=${formatCurrency(revenueAfterMargin)}`);
+              
+              // Update customer results
+              customerData.shipmentCount++;
+              customerData.totalRevenueAfterMargin += revenueAfterMargin;
+              customerData.totalMargin += customerMargin;
+              customerData.marginCount++;
+            } else {
+              console.log(`⚠️ No quotes received from Project44 API for shipment ${shipment["Invoice #"]}`);
+            }
+          } catch (error) {
+            console.error(`❌ Failed to process shipment ${shipment["Invoice #"]}:`, error);
+          }
+          
+          // Small delay to avoid overwhelming the API
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
-
+      
       // Step 1.4: Store Initial Results
       const phase1Data: Phase1Result[] = Array.from(customerResults.entries()).map(([customerKey, data]) => ({
         customer: customerKey,
@@ -387,17 +500,10 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
         totalRevenueAfterMargin: Math.round(data.totalRevenueAfterMargin), // Round to nearest dollar
         avgMargin: (data.totalMargin / data.marginCount) * 100 // Convert back to percentage
       })).sort((a, b) => b.totalRevenueAfterMargin - a.totalRevenueAfterMargin);
-
-      // Store shipments by customer for Phase 2
-      const shipmentsByCustomer = new Map<string, ShipmentRecord[]>();
-      customerResults.forEach((data, customerKey) => {
-        shipmentsByCustomer.set(customerKey, data.shipments);
-      });
-      setCustomerShipments(shipmentsByCustomer);
       
       setPhase1Results(phase1Data);
       
-      console.log(`✅ Phase 1 Complete: Analyzed ${processedCount} shipments for ${phase1Data.length} customers`);
+      console.log(`✅ Phase 1 Complete: Analyzed ${processedCount} shipments for ${phase1Data.length} customers using Project44 API`);
       phase1Data.forEach(result => {
         console.log(`📊 ${result.customer}: ${result.shipmentCount} shipments, ${formatCurrency(result.totalRevenueAfterMargin)} revenue, ${result.avgMargin.toFixed(1)}% avg margin`);
       });
@@ -831,14 +937,14 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
         <div className="flex items-start space-x-3">
           <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-blue-800">
-            <p className="font-medium mb-2">How This Tool Works (API Calls in Phase 2):</p>
+            <p className="font-medium mb-2">How This Tool Works (API Calls in Both Phases):</p>
             <ol className="list-decimal list-inside space-y-1">
-              <li>Phase 1: Analyzes historical shipments from database to establish revenue targets</li>
-              <li>Phase 2: <strong>Makes real-time API calls to Project44</strong> for the same shipments to get current market rates</li>
-              <li>Compares historical revenue targets with new API-sourced costs to determine optimal margins</li>
+              <li>Phase 1: Makes API calls to Project44 for historical shipments to establish baseline</li>
+              <li>Phase 2: Makes API calls to Project44 with different carrier selection to simulate negotiation</li>
+              <li>Compares API results between phases to determine optimal margins</li>
               <li>Both phases use the same shipments for true apples-to-apples comparison</li>
             </ol>
-            <p className="mt-2 font-medium text-blue-700">Note: Phase 2 makes <strong>real-time API calls to Project44</strong> for each shipment and may take several minutes to complete.</p>
+            <p className="mt-2 font-medium text-blue-700">Note: Both phases make <strong>real-time API calls to Project44</strong> for each shipment and may take several minutes to complete.</p>
           </div>
         </div>
       </div>
@@ -853,8 +959,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
                 <Calendar className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Phase 1: Historical Baseline</h3>
-                <p className="text-sm text-gray-600">Analyze historical shipments from database</p>
+                <h3 className="text-lg font-semibold text-gray-900">Phase 1: Baseline API Analysis</h3>
+                <p className="text-sm text-gray-600">Make API calls to Project44 for baseline rates</p>
               </div>
             </div>
             {phase1Results.length > 0 && (
@@ -874,12 +980,12 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
             {processingStatus.isRunning && processingStatus.phase === 1 ? (
               <>
                 <Loader className="h-5 w-5 animate-spin" />
-                <span>Analyzing...</span>
+                <span>Making API Calls...</span>
               </>
             ) : (
               <>
                 <Play className="h-5 w-5" />
-                <span>Run Historical Analysis</span>
+                <span>Run Baseline API Analysis</span>
               </>
             )}
           </button>
@@ -901,8 +1007,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
                 <Truck className="h-5 w-5 text-purple-600" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Phase 2: API Rate Analysis</h3>
-                <p className="text-sm text-gray-600">Make API calls to Project44 for current rates</p>
+                <h3 className="text-lg font-semibold text-gray-900">Phase 2: Negotiation API Analysis</h3>
+                <p className="text-sm text-gray-600">Make API calls to Project44 with new carrier selection</p>
               </div>
             </div>
             {analysisComplete && (
@@ -922,12 +1028,12 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
             {processingStatus.isRunning && processingStatus.phase === 2 ? (
               <>
                 <Loader className="h-5 w-5 animate-spin" />
-                <span>Analyzing...</span>
+                <span>Making API Calls...</span>
               </>
             ) : (
               <>
                 <MapPin className="h-5 w-5" />
-                <span>Make API Calls for Current Rates</span>
+                <span>Run Negotiation API Analysis</span>
               </>
             )}
           </button>
@@ -953,8 +1059,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
               </h3>
               <p className="text-sm text-gray-600">
                 {processingStatus.phase === 1
-                  ? 'Analyzing historical shipments from database'
-                  : 'Making API calls to Project44 for current market rates'}
+                  ? 'Making API calls to Project44 for baseline rates'
+                  : 'Making API calls to Project44 for negotiated rates'}
               </p>
             </div>
             <div className="text-right">
@@ -981,7 +1087,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
             </div>
             
             <div className="text-xs text-gray-500 text-right">
-              {processingStatus.phase === 1 ? 'Processing historical shipment data' : 'Making API calls to Project44'} - 
+              Making API calls to Project44 - 
               {processingStatus.totalShipments > 0
                 ? ((processingStatus.processedShipments / processingStatus.totalShipments) * 100).toFixed(1) 
                 : 0}% complete
@@ -1027,8 +1133,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           {phase1Results.length > 0 && (
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-200 bg-blue-100">
-                <h3 className="text-lg font-semibold text-blue-900">Phase 1: Historical Baseline</h3>
-                <p className="text-sm text-blue-800">Based on actual historical shipment costs and margins</p>
+                <h3 className="text-lg font-semibold text-blue-900">Phase 1: Baseline API Analysis</h3>
+                <p className="text-sm text-blue-800">Based on Project44 API calls for baseline rates</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -1059,8 +1165,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           {phase2Results.length > 0 && (
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-200 bg-purple-100">
-                <h3 className="text-lg font-semibold text-purple-900">Phase 2: API Rate Analysis</h3>
-                <p className="text-sm text-purple-800">Based on real-time Project44 API calls for the same shipments</p>
+                <h3 className="text-lg font-semibold text-purple-900">Phase 2: Negotiation API Analysis</h3>
+                <p className="text-sm text-purple-800">Based on Project44 API calls with negotiated rates</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
