@@ -1,19 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { CarrierSelection } from './components/CarrierSelection';
-import { PricingSettingsComponent } from './components/PricingSettings';
-import { ProcessingStatus } from './components/ProcessingStatus';
-import { ResultsTable } from './components/ResultsTable';
-import { ApiKeyInput } from './components/ApiKeyInput';
-import { FileUpload } from './components/FileUpload';
-import { TemplateDownload } from './components/TemplateDownload';
+import React from 'react';
 import { UnifiedRFQTool } from './components/UnifiedRFQTool';
-import { parseCSV, parseXLSX } from './utils/fileParser';
 import { Project44APIClient, FreshXAPIClient } from './utils/apiClient';
 import { 
-  RFQRow, 
-  PricingSettings,
-  ProcessingResult,
-  QuoteWithPricing,
   Project44OAuthConfig,
 } from './types';
 import { 
@@ -21,94 +9,27 @@ import {
   loadProject44Config,
   saveFreshXApiKey,
   loadFreshXApiKey,
-  saveSelectedCarriers,
-  loadSelectedCarriers,
-  savePricingSettings,
-  loadPricingSettings
 } from './utils/credentialStorage';
-import { clearMarginCache } from './utils/pricingCalculator';
-import { useRFQProcessor } from './hooks/useRFQProcessor';
-import { useCarrierManagement } from './hooks/useCarrierManagement';
 import { 
-  Truck, 
-  Upload, 
-  Settings, 
-  BarChart3, 
-  FileText, 
-  AlertCircle,
-  CheckCircle,
-  Loader,
-  RefreshCw,
-  Users,
-  Play,
-  ArrowRight,
-  Brain,
-  Zap,
-  Target,
-  Shield,
-  TrendingUp,
-  Clock,
   DollarSign,
-  Award,
-  Star,
-  Sparkles,
-  Building2,
-  Globe,
-  Layers
+  Shield,
+  Star
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 
 function App() {
-  // Core state
-  const [rfqData, setRfqData] = useState<RFQRow[]>([]);
-  
-  // API configuration
-  const [project44Config, setProject44Config] = useState<Project44OAuthConfig>({
-    oauthUrl: '/api/v4/oauth2/token',
-    basicUser: '',
-    basicPassword: '',
-    clientId: '',
-    clientSecret: '',
-    ratingApiUrl: '/api/v4/ltl/quotes/rates/query'
-  });
-  const [freshxApiKey, setFreshxApiKey] = useState('');
-  const [isProject44Valid, setIsProject44Valid] = useState(false);
-  const [isFreshXValid, setIsFreshXValid] = useState(false);
-  
-  const [pricingSettings, setPricingSettings] = useState<PricingSettings>({
-    markupPercentage: 15,
-    minimumProfit: 100,
-    markupType: 'percentage',
-    usesCustomerMargins: false,
-    fallbackMarkupPercentage: 23
-  });
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('');
-  
-  // UI state
-  const [activeTab, setActiveTab] = useState<'unified'>('unified');
-  const [fileError, setFileError] = useState<string>('');
-  
-  // API clients - store as instance variables to maintain token state
-  const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
-  const [freshxClient, setFreshxClient] = useState<FreshXAPIClient | null>(null);
+  // Load saved configuration on mount
+  const [project44Client, setProject44Client] = React.useState<Project44APIClient | null>(null);
+  const [freshxClient, setFreshxClient] = React.useState<FreshXAPIClient | null>(null);
+  const [isProject44Valid, setIsProject44Valid] = React.useState(false);
+  const [isFreshXValid, setIsFreshXValid] = React.useState(false);
 
-  // Use consolidated hooks
-  const carrierManagement = useCarrierManagement({ project44Client });
-  const rfqProcessor = useRFQProcessor({ 
-    project44Client, 
-    freshxClient 
-  });
-  
-  // Load saved data on component mount
-  useEffect(() => {
+  React.useEffect(() => {
     console.log('🔄 Loading saved configuration from local storage...');
     
     // Load Project44 config
     const savedProject44Config = loadProject44Config();
     if (savedProject44Config) {
       console.log('✅ Loaded saved Project44 config');
-      setProject44Config(savedProject44Config);
-      // Create client instance with saved config
       const client = new Project44APIClient(savedProject44Config);
       setProject44Client(client);
       setIsProject44Valid(true);
@@ -118,70 +39,11 @@ function App() {
     const savedFreshXKey = loadFreshXApiKey();
     if (savedFreshXKey) {
       console.log('✅ Loaded saved FreshX API key');
-      setFreshxApiKey(savedFreshXKey);
       const client = new FreshXAPIClient(savedFreshXKey);
       setFreshxClient(client);
       setIsFreshXValid(true);
     }
-    
-    // Load selected carriers
-    const savedCarriers = loadSelectedCarriers();
-    if (savedCarriers) {
-      console.log('✅ Loaded saved carrier selection');
-      carrierManagement.setSelectedCarriers(savedCarriers);
-    }
-    
-    // Load pricing settings
-    const savedPricing = loadPricingSettings();
-    if (savedPricing) {
-      console.log('✅ Loaded saved pricing settings');
-      setPricingSettings(savedPricing);
-    }
   }, []);
-
-  const handleProject44ConfigChange = (config: Project44OAuthConfig) => {
-    console.log('🔧 Project44 config updated, creating new client...');
-    setProject44Config(config);
-    saveProject44Config(config);
-    
-    // Create new client instance with updated config
-    const client = new Project44APIClient(config);
-    setProject44Client(client);
-  };
-
-  const handleProject44Validation = (isValid: boolean) => {
-    console.log('🔍 Project44 validation result:', isValid);
-    setIsProject44Valid(isValid);
-  };
-
-  const handleFreshXKeyChange = (apiKey: string) => {
-    console.log('🔧 FreshX API key updated, creating new client...');
-    setFreshxApiKey(apiKey);
-    saveFreshXApiKey(apiKey);
-    
-    // Create new client instance with updated key
-    const client = new FreshXAPIClient(apiKey);
-    setFreshxClient(client);
-  };
-
-  const handleFreshXValidation = (isValid: boolean) => {
-    console.log('🔍 FreshX validation result:', isValid);
-    setIsFreshXValid(isValid);
-  };
-
-
-  const handlePricingSettingsChange = (settings: PricingSettings) => {
-    setPricingSettings(settings);
-    savePricingSettings(settings);
-  };
-
-  const handleCustomerChange = (customer: string) => {
-    setSelectedCustomer(customer);
-    // Clear margin cache when customer changes
-    clearMarginCache();
-    console.log(`👤 Customer changed to: ${customer || 'None'}`);
-  };
-
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -265,17 +127,13 @@ function App() {
         </div>
       </div>
 
-
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Unified RFQ Tool - Main Interface */}
         <UnifiedRFQTool
           project44Client={project44Client}
           freshxClient={freshxClient}
-          initialPricingSettings={pricingSettings}
-          initialSelectedCustomer={selectedCustomer}
         />
-
       </main>
     </div>
   );
