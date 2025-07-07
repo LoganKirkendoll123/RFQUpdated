@@ -1,127 +1,100 @@
 import React, { useState, useEffect } from 'react';
 import { 
+  Zap, 
+  MapPin, 
+  Package, 
+  Clock, 
+  Thermometer, 
   Plus, 
   Trash2, 
-  Upload, 
-  Download, 
-  Play, 
-  Settings, 
-  Package, 
-  MapPin, 
-  Calendar, 
-  User, 
-  Phone, 
-  Mail, 
-  Building, 
-  AlertTriangle,
-  CheckCircle,
+  Calculator,
+  Users,
+  Building2,
+  Truck,
   Loader,
-  FileText,
-  Zap,
+  AlertCircle,
+  CheckCircle,
   Target,
-  Brain
+  DollarSign,
+  Upload,
+  Database,
+  History,
+  FileText,
+  BarChart3,
+  ArrowRight,
+  RefreshCw,
+  Settings,
+  Filter,
+  Search,
+  Calendar,
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
-import { RFQRow, LineItemData, PricingSettings, Project44OAuthConfig } from '../types';
 import { Project44APIClient, FreshXAPIClient } from '../utils/apiClient';
+import { RFQRow, PricingSettings, ProcessingResult, QuoteWithPricing, LineItemData } from '../types';
+import { CustomerSelection } from './CustomerSelection';
+import { CarrierSelection } from './CarrierSelection';
 import { PricingSettingsComponent } from './PricingSettings';
-import { ProcessingStatus } from './ProcessingStatus';
 import { ResultsTable } from './ResultsTable';
+import { FileUpload } from './FileUpload';
+import { parseCSV, parseXLSX } from '../utils/fileParser';
 import { useRFQProcessor } from '../hooks/useRFQProcessor';
+import { useCarrierManagement } from '../hooks/useCarrierManagement';
 import { usePricingSettings } from '../hooks/usePricingSettings';
+import { supabase } from '../utils/supabase';
+import * as XLSX from 'xlsx';
 
 interface UnifiedRFQToolProps {
   project44Client: Project44APIClient | null;
   freshxClient: FreshXAPIClient | null;
-  initialPricingSettings?: PricingSettings;
+  initialPricingSettings: PricingSettings;
   initialSelectedCustomer?: string;
 }
 
-// Project44 LTL/VLTL accessorial options
-const PROJECT44_ACCESSORIALS = [
-  // Pickup Accessorial Services
-  { code: 'AIRPU', label: 'Airport Pickup' },
-  { code: 'APPTPU', label: 'Pickup Appointment' },
-  { code: 'CAMPPU', label: 'Camp Pickup' },
-  { code: 'CFSPU', label: 'Container Freight Station Pickup' },
-  { code: 'CHRCPU', label: 'Church Pickup' },
-  { code: 'CLUBPU', label: 'Country Club Pickup' },
-  { code: 'CNVPU', label: 'Convention/Tradeshow Pickup' },
-  { code: 'CONPU', label: 'Construction Site Pickup' },
-  { code: 'DOCKPU', label: 'Dock Pickup' },
-  { code: 'EDUPU', label: 'School Pickup' },
-  { code: 'FARMPU', label: 'Farm Pickup' },
-  { code: 'GOVPU', label: 'Government Site Pickup' },
-  { code: 'GROPU', label: 'Grocery Warehouse Pickup' },
-  { code: 'HOSPU', label: 'Hospital Pickup' },
-  { code: 'HOTLPU', label: 'Hotel Pickup' },
-  { code: 'INPU', label: 'Inside Pickup' },
-  { code: 'LGPU', label: 'Liftgate Pickup' },
-  { code: 'LTDPU', label: 'Limited Access Pickup' },
-  { code: 'MILPU', label: 'Military Installation Pickup' },
-  { code: 'MINEPU', label: 'Mine Site Pickup' },
-  { code: 'NARPU', label: 'Native American Reservation Pickup' },
-  { code: 'NBPU', label: 'Non-Business Hours Pickup' },
-  { code: 'NURSPU', label: 'Nursing Home Pickup' },
-  { code: 'PARKPU', label: 'Fair/Amusement/Park Pickup' },
-  { code: 'PIERPU', label: 'Pier Pickup' },
-  { code: 'PRISPU', label: 'Prison Pickup' },
-  { code: 'RESPU', label: 'Residential Pickup' },
-  { code: 'SATPU', label: 'Saturday Pickup' },
-  { code: 'SORTPU', label: 'Sort/Segregate Pickup' },
-  { code: 'SSTORPU', label: 'Self-Storage Pickup' },
-  { code: 'UTLPU', label: 'Utility Site Pickup' },
+type InputSource = 'csv' | 'manual' | 'history' | 'past-rfq';
+type CarrierMode = 'single' | 'multiple';
+type CustomerMode = 'single' | 'all' | 'specific';
 
-  // Delivery Accessorial Services
-  { code: 'AIRDEL', label: 'Airport Delivery' },
-  { code: 'CAMPDEL', label: 'Camp Delivery' },
-  { code: 'CFSDEL', label: 'Container Freight Station Delivery' },
-  { code: 'CHRCDEL', label: 'Church Delivery' },
-  { code: 'CLUBDEL', label: 'Country Club Delivery' },
-  { code: 'CNVDEL', label: 'Convention/Tradeshow Delivery' },
-  { code: 'CONDEL', label: 'Construction Site Delivery' },
-  { code: 'DCDEL', label: 'Distribution Center Delivery' },
-  { code: 'DOCKDEL', label: 'Dock Delivery' },
-  { code: 'EDUDEL', label: 'School Delivery' },
-  { code: 'FARMDEL', label: 'Farm Delivery' },
-  { code: 'GOVDEL', label: 'Government Site Delivery' },
-  { code: 'GRODEL', label: 'Grocery Warehouse Delivery' },
-  { code: 'HDAYDEL', label: 'Holiday Delivery' },
-  { code: 'HOSDEL', label: 'Hospital Delivery' },
-  { code: 'HOTLDEL', label: 'Hotel Delivery' },
-  { code: 'INDEL', label: 'Inside Delivery' },
-  { code: 'INEDEL', label: 'Inside Delivery - With Elevator' },
-  { code: 'INGDEL', label: 'Inside Delivery - Ground Floor' },
-  { code: 'INNEDEL', label: 'Inside Delivery - No Elevator' },
-  { code: 'MALLDEL', label: 'Mall Delivery' },
-  { code: 'MILDEL', label: 'Military Installation Delivery' },
-  { code: 'MINEDEL', label: 'Mine Site Delivery' },
-  { code: 'NARDEL', label: 'Native American Reservation Delivery' },
-  { code: 'NBDEL', label: 'Non-Business Hours Delivery' },
-  { code: 'NCDEL', label: 'Non-Commercial Delivery' },
-  { code: 'NOTIFY', label: 'Delivery Notification' },
-  { code: 'NURSDEL', label: 'Nursing Home Delivery' },
-  { code: 'PARKDEL', label: 'Fair/Amusement/Park Delivery' },
-  { code: 'PIERDEL', label: 'Pier Delivery' },
-  { code: 'PRISDEL', label: 'Prison Delivery' },
-  { code: 'RESDEL', label: 'Residential Delivery' },
-  { code: 'RSRTDEL', label: 'Resort Delivery' },
-  { code: 'SATDEL', label: 'Saturday Delivery' },
-  { code: 'SORTDEL', label: 'Sort/Segregate Delivery' },
-  { code: 'SSTORDEL', label: 'Self-Storage Delivery' },
-  { code: 'SUNDEL', label: 'Sunday Delivery' },
-  { code: 'UTLDEL', label: 'Utility Site Delivery' },
-  { code: 'WEDEL', label: 'Weekend Delivery' }
-];
+interface ManualRFQFormData {
+  fromDate: string;
+  fromZip: string;
+  toZip: string;
+  pallets: number;
+  grossWeight: number;
+  isStackable: boolean;
+  isReefer: boolean;
+  temperature?: 'AMBIENT' | 'CHILLED' | 'FROZEN';
+  commodity?: string;
+  isFoodGrade?: boolean;
+  freightClass?: string;
+  commodityDescription?: string;
+  originCity?: string;
+  originState?: string;
+  destinationCity?: string;
+  destinationState?: string;
+  lineItems: LineItemData[];
+}
 
-const PACKAGE_TYPES = [
-  'BAG', 'BALE', 'BOX', 'BUCKET', 'BUNDLE', 'CAN', 'CARTON', 'CASE', 
-  'COIL', 'CRATE', 'CYLINDER', 'DRUM', 'PAIL', 'PLT', 'PIECES', 
-  'REEL', 'ROLL', 'SKID', 'TOTE', 'TUBE'
-];
+interface HistoricalShipment {
+  id: number;
+  customer_name: string;
+  origin_zip: string;
+  destination_zip: string;
+  pallets: number;
+  weight: number;
+  carrier_name?: string;
+  quoted_rate?: number;
+  shipment_date: string;
+}
 
-const TEMPERATURE_OPTIONS = ['AMBIENT', 'CHILLED', 'FROZEN'];
-const COMMODITY_OPTIONS = ['ALCOHOL', 'FOODSTUFFS', 'FRESH_SEAFOOD', 'FROZEN_SEAFOOD', 'ICE_CREAM', 'PRODUCE'];
-const FREIGHT_CLASSES = ['50', '55', '60', '65', '70', '77.5', '85', '92.5', '100', '110', '125', '150', '175', '200', '250', '300', '400', '500'];
+interface PastRFQBatch {
+  id: string;
+  batch_name: string;
+  customer_name?: string;
+  created_at: string;
+  shipment_count: number;
+  rfq_data: RFQRow[];
+}
 
 export const UnifiedRFQTool: React.FC<UnifiedRFQToolProps> = ({
   project44Client,
@@ -129,678 +102,1544 @@ export const UnifiedRFQTool: React.FC<UnifiedRFQToolProps> = ({
   initialPricingSettings,
   initialSelectedCustomer
 }) => {
-  const [activeTab, setActiveTab] = useState<'builder' | 'settings' | 'results'>('builder');
+  // Input configuration
+  const [inputSource, setInputSource] = useState<InputSource>('csv');
+  const [carrierMode, setCarrierMode] = useState<CarrierMode>('multiple');
+  const [customerMode, setCustomerMode] = useState<CustomerMode>('single');
+  const [compareWithPastRFQ, setCompareWithPastRFQ] = useState(false);
   
-  // RFQ Form State
-  const [rfqData, setRfqData] = useState<RFQRow>({
+  // Data state
+  const [rfqData, setRfqData] = useState<RFQRow[]>([]);
+  const [manualFormData, setManualFormData] = useState<ManualRFQFormData>({
     fromDate: new Date().toISOString().split('T')[0],
     fromZip: '',
     toZip: '',
     pallets: 1,
     grossWeight: 1000,
     isStackable: false,
-    accessorial: [],
     isReefer: false,
+    freightClass: '70',
     lineItems: []
   });
-
-  // Line Items State
-  const [lineItems, setLineItems] = useState<LineItemData[]>([
-    {
-      id: 1,
-      description: '',
-      totalWeight: 1000,
-      freightClass: '70',
-      packageLength: 48,
-      packageWidth: 40,
-      packageHeight: 48,
-      packageType: 'PLT',
-      totalPackages: 1,
-      stackable: false
-    }
-  ]);
-
-  // Selected accessorials
-  const [selectedAccessorials, setSelectedAccessorials] = useState<string[]>([]);
-
-  // Processing state
-  const rfqProcessor = useRFQProcessor({ project44Client, freshxClient });
-  const { pricingSettings, selectedCustomer, updatePricingSettings, updateSelectedCustomer } = usePricingSettings(initialPricingSettings);
-
-  // Validation state
-  const [validationErrors, setValidationErrors] = useState<string[]>([]);
-
-  // Update RFQ data when line items change
+  const [historicalShipments, setHistoricalShipments] = useState<HistoricalShipment[]>([]);
+  const [selectedHistoricalShipments, setSelectedHistoricalShipments] = useState<number[]>([]);
+  const [pastRFQBatches, setPastRFQBatches] = useState<PastRFQBatch[]>([]);
+  const [selectedPastRFQBatch, setSelectedPastRFQBatch] = useState<string>('');
+  const [pastRFQData, setPastRFQData] = useState<RFQRow[]>([]);
+  
+  // Filters
+  const [customerFilter, setCustomerFilter] = useState('');
+  const [dateRangeFilter, setDateRangeFilter] = useState({ start: '', end: '' });
+  const [carrierFilter, setCarrierFilter] = useState('');
+  
+  // Error state
+  const [fileError, setFileError] = useState<string>('');
+  const [formError, setFormError] = useState<string>('');
+  
+  // Use consolidated hooks
+  const { 
+    pricingSettings, 
+    selectedCustomer, 
+    updatePricingSettings, 
+    updateSelectedCustomer 
+  } = usePricingSettings(initialPricingSettings);
+  
+  const carrierManagement = useCarrierManagement({ project44Client });
+  
+  const rfqProcessor = useRFQProcessor({ 
+    project44Client, 
+    freshxClient 
+  });
+  
+  // Single carrier selection (for single carrier mode)
+  const [selectedSingleCarrier, setSelectedSingleCarrier] = useState<string>('');
+  
+  // Customer selection for specific customer mode
+  const [specificCustomers, setSpecificCustomers] = useState<string[]>([]);
+  
+  // Load historical data
   useEffect(() => {
-    const totalWeight = lineItems.reduce((sum, item) => sum + item.totalWeight, 0);
-    setRfqData(prev => ({
-      ...prev,
-      grossWeight: totalWeight,
-      lineItems: lineItems.length > 0 ? lineItems : undefined,
-      accessorial: selectedAccessorials
-    }));
-  }, [lineItems, selectedAccessorials]);
-
-  // Initialize with selected customer
-  useEffect(() => {
-    if (initialSelectedCustomer) {
-      updateSelectedCustomer(initialSelectedCustomer);
+    if (inputSource === 'history') {
+      loadHistoricalShipments();
+    } else if (inputSource === 'past-rfq') {
+      loadPastRFQBatches();
     }
-  }, [initialSelectedCustomer, updateSelectedCustomer]);
-
-  const handleRfqFieldChange = (field: keyof RFQRow, value: any) => {
-    setRfqData(prev => ({ ...prev, [field]: value }));
+  }, [inputSource, customerFilter, dateRangeFilter, carrierFilter]);
+  
+  const loadHistoricalShipments = async () => {
+    try {
+      let query = supabase.from('Shipments').select('*');
+      
+      if (customerFilter) {
+        query = query.eq('Customer', customerFilter);
+      }
+      
+      if (dateRangeFilter.start) {
+        query = query.gte('Scheduled Pickup Date', dateRangeFilter.start);
+      }
+      
+      if (dateRangeFilter.end) {
+        query = query.lte('Scheduled Pickup Date', dateRangeFilter.end);
+      }
+      
+      if (carrierFilter) {
+        query = query.or(`Booked Carrier.eq.${carrierFilter},Quoted Carrier.eq.${carrierFilter}`);
+      }
+      
+      const { data, error } = await query.order('Scheduled Pickup Date', { ascending: false }).limit(100);
+      
+      if (error) {
+        console.error('Error loading historical shipments:', error);
+        return;
+      }
+      
+      // Transform to our internal format
+      const shipments: HistoricalShipment[] = data.map(s => ({
+        id: s['Invoice #'],
+        customer_name: s.Customer || '',
+        origin_zip: s.Zip || '',
+        destination_zip: s.Zip_1 || '',
+        pallets: s['Tot Packages'] || 1,
+        weight: parseInt(s['Tot Weight']?.replace(/[^\d]/g, '') || '0'),
+        carrier_name: s['Booked Carrier'] || s['Quoted Carrier'],
+        quoted_rate: parseFloat(s.Revenue?.replace(/[^\d.]/g, '') || '0'),
+        shipment_date: s['Scheduled Pickup Date'] || ''
+      }));
+      
+      setHistoricalShipments(shipments);
+    } catch (error) {
+      console.error('Failed to load historical shipments:', error);
+    }
   };
-
-  const handleLineItemChange = (index: number, field: keyof LineItemData, value: any) => {
-    setLineItems(prev => prev.map((item, i) => 
-      i === index ? { ...item, [field]: value } : item
-    ));
+  
+  const loadPastRFQBatches = async () => {
+    try {
+      let query = supabase.from('mass_rfq_batches').select('id, batch_name, customer_name, created_at, shipment_count, rfq_data');
+      
+      if (customerFilter) {
+        query = query.eq('customer_name', customerFilter);
+      }
+      
+      if (dateRangeFilter.start) {
+        query = query.gte('created_at', dateRangeFilter.start);
+      }
+      
+      if (dateRangeFilter.end) {
+        query = query.lte('created_at', dateRangeFilter.end);
+      }
+      
+      const { data, error } = await query.order('created_at', { ascending: false }).limit(50);
+      
+      if (error) {
+        console.error('Error loading past RFQ batches:', error);
+        return;
+      }
+      
+      setPastRFQBatches(data);
+    } catch (error) {
+      console.error('Failed to load past RFQ batches:', error);
+    }
   };
-
+  
+  const loadPastRFQData = async (batchId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('mass_rfq_batches')
+        .select('rfq_data')
+        .eq('id', batchId)
+        .single();
+      
+      if (error) {
+        console.error('Error loading past RFQ data:', error);
+        return;
+      }
+      
+      if (data && data.rfq_data) {
+        setPastRFQData(data.rfq_data);
+      }
+    } catch (error) {
+      console.error('Failed to load past RFQ data:', error);
+    }
+  };
+  
+  const handleFileSelect = async (file: File) => {
+    setFileError('');
+    try {
+      console.log('📁 Processing file:', file.name);
+      let data: RFQRow[];
+      
+      if (file.name.endsWith('.csv')) {
+        data = await parseCSV(file, true);
+      } else {
+        data = await parseXLSX(file, true);
+      }
+      
+      setRfqData(data);
+      console.log(`✅ Parsed ${data.length} RFQ rows`);
+      
+      // Reset results when new file is loaded
+      rfqProcessor.clearResults();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to parse file';
+      setFileError(errorMessage);
+      console.error('❌ File parsing error:', error);
+    }
+  };
+  
+  const handleManualFormChange = (field: keyof ManualRFQFormData, value: any) => {
+    setManualFormData(prev => ({ ...prev, [field]: value }));
+  };
+  
   const addLineItem = () => {
-    const newId = Math.max(...lineItems.map(item => item.id), 0) + 1;
-    setLineItems(prev => [...prev, {
-      id: newId,
+    const newItem: LineItemData = {
+      id: manualFormData.lineItems.length + 1,
       description: '',
-      totalWeight: 500,
+      totalWeight: 0,
       freightClass: '70',
       packageLength: 48,
       packageWidth: 40,
       packageHeight: 48,
       packageType: 'PLT',
       totalPackages: 1,
+      totalPieces: 1,
       stackable: false
-    }]);
+    };
+    setManualFormData(prev => ({
+      ...prev,
+      lineItems: [...prev.lineItems, newItem]
+    }));
   };
-
+  
+  const updateLineItem = (index: number, updates: Partial<LineItemData>) => {
+    setManualFormData(prev => ({
+      ...prev,
+      lineItems: prev.lineItems.map((item, i) => 
+        i === index ? { ...item, ...updates } : item
+      )
+    }));
+  };
+  
   const removeLineItem = (index: number) => {
-    if (lineItems.length > 1) {
-      setLineItems(prev => prev.filter((_, i) => i !== index));
-    }
+    setManualFormData(prev => ({
+      ...prev,
+      lineItems: prev.lineItems.filter((_, i) => i !== index)
+    }));
   };
-
-  const handleAccessorialToggle = (code: string) => {
-    setSelectedAccessorials(prev => 
-      prev.includes(code) 
-        ? prev.filter(c => c !== code)
-        : [...prev, code]
-    );
+  
+  const validateManualForm = (): string[] => {
+    return rfqProcessor.validateRFQ({
+      ...manualFormData,
+      accessorial: []
+    });
   };
-
-  const validateRFQ = (): boolean => {
-    const errors: string[] = [];
-
-    if (!rfqData.fromDate) errors.push('Pickup date is required');
-    if (!rfqData.fromZip || !/^\d{5}$/.test(rfqData.fromZip)) errors.push('Valid origin ZIP code is required');
-    if (!rfqData.toZip || !/^\d{5}$/.test(rfqData.toZip)) errors.push('Valid destination ZIP code is required');
-    if (rfqData.pallets < 1) errors.push('At least 1 pallet is required');
-    if (rfqData.grossWeight < 1) errors.push('Weight must be greater than 0');
-
-    // Validate line items
-    lineItems.forEach((item, index) => {
-      if (!item.description.trim()) errors.push(`Item ${index + 1}: Description is required`);
-      if (item.totalWeight <= 0) errors.push(`Item ${index + 1}: Weight must be greater than 0`);
-      if (!item.freightClass) errors.push(`Item ${index + 1}: Freight class is required`);
-      if (item.packageLength <= 0 || item.packageWidth <= 0 || item.packageHeight <= 0) {
-        errors.push(`Item ${index + 1}: All dimensions must be greater than 0`);
+  
+  const handleHistoricalShipmentSelect = (id: number, selected: boolean) => {
+    setSelectedHistoricalShipments(prev => {
+      if (selected) {
+        return [...prev, id];
+      } else {
+        return prev.filter(shipId => shipId !== id);
       }
     });
-
-    setValidationErrors(errors);
-    return errors.length === 0;
   };
-
-  const processRFQ = async () => {
-    if (!validateRFQ()) return;
-
-    const selectedCarriers = { 'Default': true }; // Use default carrier selection
-    
-    try {
-      await rfqProcessor.processSingleRFQ(rfqData, {
-        selectedCarriers,
-        pricingSettings,
-        selectedCustomer
-      });
-      setActiveTab('results');
-    } catch (error) {
-      console.error('Failed to process RFQ:', error);
+  
+  const handleSelectAllHistoricalShipments = (selected: boolean) => {
+    if (selected) {
+      setSelectedHistoricalShipments(historicalShipments.map(s => s.id));
+    } else {
+      setSelectedHistoricalShipments([]);
     }
   };
+  
+  const handlePastRFQBatchSelect = (batchId: string) => {
+    setSelectedPastRFQBatch(batchId);
+    loadPastRFQData(batchId);
+  };
+  
+  const convertHistoricalShipmentsToRFQs = (): RFQRow[] => {
+    return selectedHistoricalShipments.map(id => {
+      const shipment = historicalShipments.find(s => s.id === id);
+      if (!shipment) return null;
+      
+      return {
+        fromDate: shipment.shipment_date || new Date().toISOString().split('T')[0],
+        fromZip: shipment.origin_zip,
+        toZip: shipment.destination_zip,
+        pallets: shipment.pallets,
+        grossWeight: shipment.weight,
+        isStackable: false,
+        isReefer: false,
+        accessorial: []
+      };
+    }).filter(Boolean) as RFQRow[];
+  };
+  
+  const convertManualFormToRFQ = (): RFQRow => {
+    return {
+      ...manualFormData,
+      accessorial: []
+    };
+  };
+  
+  const prepareRFQData = (): RFQRow[] => {
+    switch (inputSource) {
+      case 'csv':
+        return rfqData;
+      case 'manual':
+        return [convertManualFormToRFQ()];
+      case 'history':
+        return convertHistoricalShipmentsToRFQs();
+      case 'past-rfq':
+        return pastRFQData;
+      default:
+        return [];
+    }
+  };
+  
+  const getSelectedCarriers = () => {
+    if (carrierMode === 'single') {
+      // For single carrier mode, create an object with just the selected carrier
+      if (!selectedSingleCarrier) return {};
+      
+      return { [selectedSingleCarrier]: true };
+    } else {
+      // For multiple carrier mode, use the carrier management selection
+      return carrierManagement.selectedCarriers;
+    }
+  };
+  
+  const getCustomersForProcessing = (): string[] => {
+    switch (customerMode) {
+      case 'single':
+        return selectedCustomer ? [selectedCustomer] : [];
+      case 'all':
+        return []; // Empty array means all customers
+      case 'specific':
+        return specificCustomers;
+      default:
+        return selectedCustomer ? [selectedCustomer] : [];
+    }
+  };
+  
+  const processRFQs = async () => {
+    const data = prepareRFQData();
+    
+    if (data.length === 0) {
+      setFormError('No RFQ data to process');
+      return;
+    }
+    
+    // Validate data
+    if (inputSource === 'manual') {
+      const errors = validateManualForm();
+      if (errors.length > 0) {
+        setFormError(errors.join(', '));
+        return;
+      }
+    }
+    
+    const selectedCarriers = getSelectedCarriers();
+    const customers = getCustomersForProcessing();
+    
+    // If comparing with past RFQ, we need to do special processing
+    if (compareWithPastRFQ && inputSource === 'past-rfq') {
+      // TODO: Implement comparison logic
+      console.log('Comparing with past RFQ...');
+    } else {
+      // Standard processing
+      await rfqProcessor.processMultipleRFQs(data, {
+        selectedCarriers,
+        pricingSettings,
+        selectedCustomer: customers[0] || '' // Use first customer or empty string
+      });
+    }
+  };
+  
+  const handlePriceUpdate = (resultIndex: number, quoteId: number, newPrice: number) => {
+    rfqProcessor.updateQuotePricing(
+      resultIndex, 
+      quoteId, 
+      newPrice, 
+      { 
+        pricingSettings, 
+        selectedCustomer 
+      }
+    );
+  };
+  
+  const exportResults = () => {
+    if (rfqProcessor.results.length === 0) return;
 
-  const renderBuilder = () => (
-    <div className="space-y-8">
-      {/* Core Shipment Information */}
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Package className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Core Shipment Information</h3>
-              <p className="text-sm text-gray-600">Basic shipment details and routing control</p>
-            </div>
+    const exportData = rfqProcessor.results.flatMap(result => {
+      const smartResult = result as any;
+      
+      return result.quotes.map(quote => {
+        const quoteWithPricing = quote as QuoteWithPricing;
+        const quoteWithMode = quote as any;
+        
+        return {
+          'RFQ Number': result.rowIndex + 1,
+          'Routing Decision': smartResult.quotingDecision?.replace('project44-', '').toUpperCase() || 'STANDARD',
+          'Quote Type': quoteWithMode.quoteModeLabel || 'Standard LTL',
+          'Routing Reason': smartResult.quotingReason || 'Standard LTL processing',
+          'Origin ZIP': result.originalData.fromZip,
+          'Destination ZIP': result.originalData.toZip,
+          'Pallets': result.originalData.pallets,
+          'Weight (lbs)': result.originalData.grossWeight,
+          'Is Reefer': result.originalData.isReefer ? 'TRUE' : 'FALSE',
+          'Temperature': result.originalData.temperature || 'AMBIENT',
+          'Pickup Date': result.originalData.fromDate,
+          'Carrier Name': quote.carrier.name,
+          'Carrier SCAC': quote.carrier.scac || '',
+          'Carrier MC': quote.carrier.mcNumber || '',
+          'Service Level': quote.serviceLevel?.description || quote.serviceLevel?.code || '',
+          'Transit Days': quote.transitDays || '',
+          'Carrier Rate': quoteWithPricing.carrierTotalRate || 0,
+          'Customer Price': quoteWithPricing.customerPrice || 0,
+          'Profit Margin': quoteWithPricing.profit || 0,
+          'Profit %': quoteWithPricing.carrierTotalRate > 0 ? 
+            ((quoteWithPricing.profit / quoteWithPricing.carrierTotalRate) * 100).toFixed(1) + '%' : '0%',
+          'Processing Status': result.status.toUpperCase(),
+          'Error Message': result.error || ''
+        };
+      });
+    });
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Smart Quoting Results');
+    
+    // Set column widths for better readability
+    const colWidths = [
+      { wch: 12 }, // RFQ Number
+      { wch: 15 }, // Routing Decision
+      { wch: 15 }, // Quote Type
+      { wch: 40 }, // Routing Reason
+      { wch: 12 }, // Origin ZIP
+      { wch: 12 }, // Destination ZIP
+      { wch: 10 }, // Pallets
+      { wch: 12 }, // Weight
+      { wch: 10 }, // Is Reefer
+      { wch: 12 }, // Temperature
+      { wch: 12 }, // Pickup Date
+      { wch: 25 }, // Carrier Name
+      { wch: 12 }, // Carrier SCAC
+      { wch: 12 }, // Carrier MC
+      { wch: 20 }, // Service Level
+      { wch: 12 }, // Transit Days
+      { wch: 15 }, // Carrier Rate
+      { wch: 15 }, // Customer Price
+      { wch: 15 }, // Profit Margin
+      { wch: 10 }, // Profit %
+      { wch: 15 }, // Processing Status
+      { wch: 30 }  // Error Message
+    ];
+    
+    ws['!cols'] = colWidths;
+    
+    const fileName = `freight-quotes-${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+  
+  // Render input source selection
+  const renderInputSourceSelection = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Input Source</h3>
+      
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <button
+          onClick={() => setInputSource('csv')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            inputSource === 'csv' 
+              ? 'border-blue-500 bg-blue-50' 
+              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+          }`}
+        >
+          <Upload className={`h-8 w-8 mb-2 ${inputSource === 'csv' ? 'text-blue-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${inputSource === 'csv' ? 'text-blue-700' : 'text-gray-700'}`}>
+            Upload CSV/Excel
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Import from file</span>
+        </button>
+        
+        <button
+          onClick={() => setInputSource('manual')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            inputSource === 'manual' 
+              ? 'border-green-500 bg-green-50' 
+              : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
+          }`}
+        >
+          <Plus className={`h-8 w-8 mb-2 ${inputSource === 'manual' ? 'text-green-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${inputSource === 'manual' ? 'text-green-700' : 'text-gray-700'}`}>
+            Manual Entry
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Create single RFQ</span>
+        </button>
+        
+        <button
+          onClick={() => setInputSource('history')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            inputSource === 'history' 
+              ? 'border-purple-500 bg-purple-50' 
+              : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50'
+          }`}
+        >
+          <History className={`h-8 w-8 mb-2 ${inputSource === 'history' ? 'text-purple-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${inputSource === 'history' ? 'text-purple-700' : 'text-gray-700'}`}>
+            Shipment History
+          </span>
+          <span className="text-xs text-gray-500 mt-1">From database</span>
+        </button>
+        
+        <button
+          onClick={() => setInputSource('past-rfq')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            inputSource === 'past-rfq' 
+              ? 'border-orange-500 bg-orange-50' 
+              : 'border-gray-200 hover:border-orange-300 hover:bg-orange-50'
+          }`}
+        >
+          <FileText className={`h-8 w-8 mb-2 ${inputSource === 'past-rfq' ? 'text-orange-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${inputSource === 'past-rfq' ? 'text-orange-700' : 'text-gray-700'}`}>
+            Past RFQ Batch
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Reuse previous RFQs</span>
+        </button>
+      </div>
+    </div>
+  );
+  
+  // Render carrier mode selection
+  const renderCarrierModeSelection = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Carrier Selection Mode</h3>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <button
+          onClick={() => setCarrierMode('single')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            carrierMode === 'single' 
+              ? 'border-blue-500 bg-blue-50' 
+              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+          }`}
+        >
+          <Truck className={`h-8 w-8 mb-2 ${carrierMode === 'single' ? 'text-blue-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${carrierMode === 'single' ? 'text-blue-700' : 'text-gray-700'}`}>
+            Single Carrier
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Quote with one carrier</span>
+        </button>
+        
+        <button
+          onClick={() => setCarrierMode('multiple')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            carrierMode === 'multiple' 
+              ? 'border-green-500 bg-green-50' 
+              : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
+          }`}
+        >
+          <Users className={`h-8 w-8 mb-2 ${carrierMode === 'multiple' ? 'text-green-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${carrierMode === 'multiple' ? 'text-green-700' : 'text-gray-700'}`}>
+            Multiple Carriers
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Compare across carriers</span>
+        </button>
+      </div>
+    </div>
+  );
+  
+  // Render customer mode selection
+  const renderCustomerModeSelection = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Customer Selection Mode</h3>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <button
+          onClick={() => setCustomerMode('single')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            customerMode === 'single' 
+              ? 'border-blue-500 bg-blue-50' 
+              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+          }`}
+        >
+          <Building2 className={`h-8 w-8 mb-2 ${customerMode === 'single' ? 'text-blue-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${customerMode === 'single' ? 'text-blue-700' : 'text-gray-700'}`}>
+            Single Customer
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Apply one customer's margins</span>
+        </button>
+        
+        <button
+          onClick={() => setCustomerMode('all')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            customerMode === 'all' 
+              ? 'border-green-500 bg-green-50' 
+              : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
+          }`}
+        >
+          <Users className={`h-8 w-8 mb-2 ${customerMode === 'all' ? 'text-green-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${customerMode === 'all' ? 'text-green-700' : 'text-gray-700'}`}>
+            All Customers
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Analyze entire customer base</span>
+        </button>
+        
+        <button
+          onClick={() => setCustomerMode('specific')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            customerMode === 'specific' 
+              ? 'border-purple-500 bg-purple-50' 
+              : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50'
+          }`}
+        >
+          <Filter className={`h-8 w-8 mb-2 ${customerMode === 'specific' ? 'text-purple-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${customerMode === 'specific' ? 'text-purple-700' : 'text-gray-700'}`}>
+            Specific Customers
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Select multiple customers</span>
+        </button>
+      </div>
+      
+      {inputSource === 'past-rfq' && (
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={compareWithPastRFQ}
+              onChange={(e) => setCompareWithPastRFQ(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm font-medium text-gray-700">
+              Compare with past RFQ to determine new customer margins
+            </span>
+          </label>
+          <p className="text-xs text-gray-500 mt-1 ml-6">
+            This will calculate new margins needed to maintain the same revenue as the past RFQ
+          </p>
+        </div>
+      )}
+    </div>
+  );
+  
+  // Render CSV upload input
+  const renderCSVUpload = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Upload RFQ Data</h3>
+      
+      <FileUpload
+        onFileSelect={handleFileSelect}
+        error={fileError}
+        isProcessing={rfqProcessor.processingStatus.isProcessing}
+      />
+      
+      {rfqData.length > 0 && (
+        <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="flex items-center space-x-2 text-green-800">
+            <CheckCircle className="h-5 w-5" />
+            <span className="font-medium">
+              {rfqData.length} RFQ{rfqData.length !== 1 ? 's' : ''} loaded successfully
+            </span>
           </div>
+          <p className="text-sm text-green-700 mt-1 ml-7">
+            Ready for processing with smart routing
+          </p>
+        </div>
+      )}
+    </div>
+  );
+  
+  // Render manual RFQ form
+  const renderManualRFQForm = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Create Manual RFQ</h3>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Pickup Date</label>
+          <input
+            type="date"
+            value={manualFormData.fromDate}
+            onChange={(e) => handleManualFormChange('fromDate', e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          />
         </div>
         
-        <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Calendar className="inline h-4 w-4 mr-1" />
-                Pickup Date *
-              </label>
-              <input
-                type="date"
-                value={rfqData.fromDate}
-                onChange={(e) => handleRfqFieldChange('fromDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <MapPin className="inline h-4 w-4 mr-1" />
-                Origin ZIP *
-              </label>
-              <input
-                type="text"
-                value={rfqData.fromZip}
-                onChange={(e) => handleRfqFieldChange('fromZip', e.target.value)}
-                placeholder="60607"
-                maxLength={5}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <MapPin className="inline h-4 w-4 mr-1" />
-                Destination ZIP *
-              </label>
-              <input
-                type="text"
-                value={rfqData.toZip}
-                onChange={(e) => handleRfqFieldChange('toZip', e.target.value)}
-                placeholder="30033"
-                maxLength={5}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Pallets *
-              </label>
-              <input
-                type="number"
-                value={rfqData.pallets}
-                onChange={(e) => handleRfqFieldChange('pallets', parseInt(e.target.value) || 1)}
-                min="1"
-                max="100"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Total Weight (lbs) *
-              </label>
-              <input
-                type="number"
-                value={rfqData.grossWeight}
-                readOnly
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
-                title="Calculated from line items"
-              />
-              <p className="text-xs text-gray-500 mt-1">Auto-calculated from line items</p>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Brain className="inline h-4 w-4 mr-1" />
-                Smart Routing Control *
-              </label>
-              <select
-                value={rfqData.isReefer ? 'true' : 'false'}
-                onChange={(e) => handleRfqFieldChange('isReefer', e.target.value === 'true')}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="false">Project44 Networks (LTL/VLTL)</option>
-                <option value="true">FreshX Reefer Network</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                {rfqData.isReefer ? 'Routes to FreshX for temperature-controlled shipping' : 'Routes to Project44 for standard/volume LTL'}
-              </p>
-            </div>
-          </div>
-          
-          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={rfqData.isStackable}
-                  onChange={(e) => handleRfqFieldChange('isStackable', e.target.checked)}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm font-medium text-gray-700">Stackable Shipment</span>
-              </label>
-            </div>
-            
-            {rfqData.isReefer && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Temperature</label>
-                  <select
-                    value={rfqData.temperature || 'AMBIENT'}
-                    onChange={(e) => handleRfqFieldChange('temperature', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    {TEMPERATURE_OPTIONS.map(temp => (
-                      <option key={temp} value={temp}>{temp}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Commodity</label>
-                  <select
-                    value={rfqData.commodity || 'FOODSTUFFS'}
-                    onChange={(e) => handleRfqFieldChange('commodity', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    {COMMODITY_OPTIONS.map(commodity => (
-                      <option key={commodity} value={commodity}>{commodity}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={rfqData.isFoodGrade || false}
-                      onChange={(e) => handleRfqFieldChange('isFoodGrade', e.target.checked)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm font-medium text-gray-700">Food Grade Required</span>
-                  </label>
-                </div>
-              </>
-            )}
-          </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Pallets</label>
+          <input
+            type="number"
+            min="1"
+            max="100"
+            value={manualFormData.pallets}
+            onChange={(e) => handleManualFormChange('pallets', parseInt(e.target.value) || 1)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Origin ZIP</label>
+          <input
+            type="text"
+            value={manualFormData.fromZip}
+            onChange={(e) => handleManualFormChange('fromZip', e.target.value)}
+            placeholder="60607"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Destination ZIP</label>
+          <input
+            type="text"
+            value={manualFormData.toZip}
+            onChange={(e) => handleManualFormChange('toZip', e.target.value)}
+            placeholder="30033"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Gross Weight (lbs)</label>
+          <input
+            type="number"
+            min="1"
+            max="100000"
+            value={manualFormData.grossWeight}
+            onChange={(e) => handleManualFormChange('grossWeight', parseInt(e.target.value) || 1000)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Freight Class</label>
+          <input
+            type="text"
+            value={manualFormData.freightClass || ''}
+            onChange={(e) => handleManualFormChange('freightClass', e.target.value)}
+            placeholder="70"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          />
         </div>
       </div>
-
-      {/* Line Items */}
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-purple-50 to-pink-50 px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="bg-purple-600 p-2 rounded-lg">
-                <Package className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Line Items</h3>
-                <p className="text-sm text-gray-600">Individual items with specific dimensions and freight classes</p>
-              </div>
-            </div>
-            <button
-              onClick={addLineItem}
-              className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add Item</span>
-            </button>
-          </div>
+      
+      <div className="mt-4 space-y-3">
+        <div className="flex items-center space-x-4">
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={manualFormData.isStackable}
+              onChange={(e) => handleManualFormChange('isStackable', e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">Stackable</span>
+          </label>
+          
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={manualFormData.isReefer}
+              onChange={(e) => handleManualFormChange('isReefer', e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">Reefer (Route to FreshX)</span>
+          </label>
         </div>
         
-        <div className="p-6">
-          <div className="space-y-6">
-            {lineItems.map((item, index) => (
-              <div key={item.id} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-md font-semibold text-gray-900">Item {index + 1}</h4>
-                  {lineItems.length > 1 && (
-                    <button
-                      onClick={() => removeLineItem(index)}
-                      className="text-red-600 hover:text-red-700 transition-colors"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
+        {manualFormData.isReefer && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
+              <select
+                value={manualFormData.temperature}
+                onChange={(e) => handleManualFormChange('temperature', e.target.value as any)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="AMBIENT">Ambient</option>
+                <option value="CHILLED">Chilled</option>
+                <option value="FROZEN">Frozen</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Commodity</label>
+              <input
+                type="text"
+                value={manualFormData.commodity || ''}
+                onChange={(e) => handleManualFormChange('commodity', e.target.value)}
+                placeholder="FOODSTUFFS"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Line Items */}
+      <div className="mt-4">
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-sm font-medium text-gray-700">Line Items (Optional)</h4>
+          <button
+            onClick={addLineItem}
+            className="flex items-center space-x-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            <Plus className="h-3 w-3" />
+            <span>Add Item</span>
+          </button>
+        </div>
+        
+        {manualFormData.lineItems.length === 0 ? (
+          <p className="text-xs text-gray-500">
+            No line items added. The system will use default dimensions based on pallets and weight.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {manualFormData.lineItems.map((item, index) => (
+              <div key={item.id} className="border border-gray-200 rounded p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-gray-700">Item {index + 1}</span>
+                  <button
+                    onClick={() => removeLineItem(index)}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Description *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="col-span-2">
                     <input
                       type="text"
                       value={item.description}
-                      onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
-                      placeholder="Electronics Equipment"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      required
+                      onChange={(e) => updateLineItem(index, { description: e.target.value })}
+                      placeholder="Description"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Weight (lbs) *</label>
                     <input
                       type="number"
                       value={item.totalWeight}
-                      onChange={(e) => handleLineItemChange(index, 'totalWeight', parseFloat(e.target.value) || 0)}
-                      min="1"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      required
+                      onChange={(e) => updateLineItem(index, { totalWeight: parseInt(e.target.value) || 0 })}
+                      placeholder="Weight (lbs)"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Freight Class *</label>
-                    <select
+                    <input
+                      type="text"
                       value={item.freightClass}
-                      onChange={(e) => handleLineItemChange(index, 'freightClass', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      required
-                    >
-                      {FREIGHT_CLASSES.map(fc => (
-                        <option key={fc} value={fc}>{fc}</option>
-                      ))}
-                    </select>
+                      onChange={(e) => updateLineItem(index, { freightClass: e.target.value })}
+                      placeholder="Freight Class"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                    />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Length (in) *</label>
                     <input
                       type="number"
                       value={item.packageLength}
-                      onChange={(e) => handleLineItemChange(index, 'packageLength', parseFloat(e.target.value) || 0)}
-                      min="1"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      required
+                      onChange={(e) => updateLineItem(index, { packageLength: parseInt(e.target.value) || 0 })}
+                      placeholder="Length (in)"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Width (in) *</label>
                     <input
                       type="number"
                       value={item.packageWidth}
-                      onChange={(e) => handleLineItemChange(index, 'packageWidth', parseFloat(e.target.value) || 0)}
-                      min="1"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      required
+                      onChange={(e) => updateLineItem(index, { packageWidth: parseInt(e.target.value) || 0 })}
+                      placeholder="Width (in)"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Height (in) *</label>
                     <input
                       type="number"
                       value={item.packageHeight}
-                      onChange={(e) => handleLineItemChange(index, 'packageHeight', parseFloat(e.target.value) || 0)}
-                      min="1"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      required
+                      onChange={(e) => updateLineItem(index, { packageHeight: parseInt(e.target.value) || 0 })}
+                      placeholder="Height (in)"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Package Type</label>
-                    <select
-                      value={item.packageType || 'PLT'}
-                      onChange={(e) => handleLineItemChange(index, 'packageType', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    >
-                      {PACKAGE_TYPES.map(type => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Packages</label>
-                    <input
-                      type="number"
-                      value={item.totalPackages || 1}
-                      onChange={(e) => handleLineItemChange(index, 'totalPackages', parseInt(e.target.value) || 1)}
-                      min="1"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Value ($)</label>
-                    <input
-                      type="number"
-                      value={item.totalValue || ''}
-                      onChange={(e) => handleLineItemChange(index, 'totalValue', parseFloat(e.target.value) || undefined)}
-                      min="0"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">NMFC Code</label>
-                    <input
-                      type="text"
-                      value={item.nmfcItemCode || ''}
-                      onChange={(e) => handleLineItemChange(index, 'nmfcItemCode', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="flex items-center space-x-2 mt-6">
+                    <label className="flex items-center space-x-1">
                       <input
                         type="checkbox"
-                        checked={item.stackable || false}
-                        onChange={(e) => handleLineItemChange(index, 'stackable', e.target.checked)}
-                        className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        checked={item.stackable}
+                        onChange={(e) => updateLineItem(index, { stackable: e.target.checked })}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-3 w-3"
                       />
-                      <span className="text-sm font-medium text-gray-700">Stackable</span>
+                      <span className="text-xs text-gray-700">Stackable</span>
                     </label>
                   </div>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        )}
       </div>
-
-      {/* Accessorial Services */}
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-green-50 to-emerald-50 px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="bg-green-600 p-2 rounded-lg">
-              <Settings className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Accessorial Services</h3>
-              <p className="text-sm text-gray-600">Additional services for pickup and delivery</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {PROJECT44_ACCESSORIALS.map(accessorial => (
-              <label key={accessorial.code} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-50 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={selectedAccessorials.includes(accessorial.code)}
-                  onChange={() => handleAccessorialToggle(accessorial.code)}
-                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-                />
-                <div>
-                  <div className="text-sm font-medium text-gray-900">{accessorial.code}</div>
-                  <div className="text-xs text-gray-600">{accessorial.label}</div>
-                </div>
-              </label>
-            ))}
-          </div>
-          
-          {selectedAccessorials.length > 0 && (
-            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-              <div className="text-sm font-medium text-green-800 mb-2">
-                Selected Services ({selectedAccessorials.length}):
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {selectedAccessorials.map(code => (
-                  <span key={code} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    {code}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Validation Errors */}
-      {validationErrors.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-start space-x-3">
-            <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <h4 className="text-sm font-medium text-red-800 mb-2">Please fix the following errors:</h4>
-              <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
-                {validationErrors.map((error, index) => (
-                  <li key={index}>{error}</li>
-                ))}
-              </ul>
-            </div>
+      
+      {formError && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center space-x-2 text-red-700">
+            <AlertCircle className="h-4 w-4" />
+            <span className="text-sm">{formError}</span>
           </div>
         </div>
       )}
-
-      {/* Process Button */}
-      <div className="text-center">
-        <button
-          onClick={processRFQ}
-          disabled={rfqProcessor.processingStatus.isProcessing}
-          className={`inline-flex items-center space-x-3 px-8 py-4 font-bold rounded-xl transition-all duration-200 text-lg shadow-lg ${
-            rfqProcessor.processingStatus.isProcessing 
-              ? 'bg-gray-400 cursor-not-allowed text-white' 
-              : 'bg-gradient-to-r from-blue-500 via-purple-500 to-green-500 hover:from-blue-600 hover:via-purple-600 hover:to-green-600 text-white hover:shadow-xl transform hover:scale-105'
-          }`}
-        >
-          {rfqProcessor.processingStatus.isProcessing ? (
-            <>
-              <Loader className="h-6 w-6 animate-spin" />
-              <span>Processing Quote...</span>
-            </>
-          ) : (
-            <>
-              <Target className="h-6 w-6" />
-              <span>Get Smart Quote</span>
-              <Zap className="h-5 w-5" />
-            </>
-          )}
-        </button>
-      </div>
     </div>
   );
-
-  const renderSettings = () => (
-    <div className="space-y-8">
+  
+  // Render historical shipments selection
+  const renderHistoricalShipments = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Historical Shipments</h3>
+      
+      {/* Filters */}
+      <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Customer</label>
+            <input
+              type="text"
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              placeholder="Filter by customer..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+            <input
+              type="date"
+              value={dateRangeFilter.start}
+              onChange={(e) => setDateRangeFilter(prev => ({ ...prev, start: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+            <input
+              type="date"
+              value={dateRangeFilter.end}
+              onChange={(e) => setDateRangeFilter(prev => ({ ...prev, end: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Carrier</label>
+            <input
+              type="text"
+              value={carrierFilter}
+              onChange={(e) => setCarrierFilter(e.target.value)}
+              placeholder="Filter by carrier..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+        
+        <div className="flex justify-end mt-3">
+          <button
+            onClick={() => {
+              setCustomerFilter('');
+              setDateRangeFilter({ start: '', end: '' });
+              setCarrierFilter('');
+            }}
+            className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+          >
+            Clear Filters
+          </button>
+        </div>
+      </div>
+      
+      {/* Shipments Table */}
+      <div className="overflow-x-auto border border-gray-200 rounded-lg">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedHistoricalShipments.length === historicalShipments.length && historicalShipments.length > 0}
+                    onChange={(e) => handleSelectAllHistoricalShipments(e.target.checked)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Select</span>
+                </label>
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Route</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Carrier</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rate</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {historicalShipments.map((shipment) => (
+              <tr key={shipment.id} className="hover:bg-gray-50">
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={selectedHistoricalShipments.includes(shipment.id)}
+                    onChange={(e) => handleHistoricalShipmentSelect(shipment.id, e.target.checked)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">{shipment.shipment_date}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900">{shipment.customer_name}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                  <div className="flex items-center space-x-1">
+                    <MapPin className="h-3 w-3 text-gray-400" />
+                    <span>{shipment.origin_zip} → {shipment.destination_zip}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                  <div className="flex items-center space-x-1">
+                    <Package className="h-3 w-3 text-gray-400" />
+                    <span>{shipment.pallets} pallets, {shipment.weight.toLocaleString()} lbs</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">{shipment.carrier_name || '—'}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                  {shipment.quoted_rate ? `$${shipment.quoted_rate.toLocaleString()}` : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      
+      {historicalShipments.length === 0 && (
+        <div className="text-center py-8 text-gray-500">
+          <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+          <p>No historical shipments found matching your filters</p>
+        </div>
+      )}
+      
+      {selectedHistoricalShipments.length > 0 && (
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center space-x-2 text-blue-800">
+            <CheckCircle className="h-4 w-4" />
+            <span className="font-medium">
+              {selectedHistoricalShipments.length} shipment{selectedHistoricalShipments.length !== 1 ? 's' : ''} selected
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+  
+  // Render past RFQ batches selection
+  const renderPastRFQBatches = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Past RFQ Batch</h3>
+      
+      {/* Filters */}
+      <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Customer</label>
+            <input
+              type="text"
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              placeholder="Filter by customer..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+            <input
+              type="date"
+              value={dateRangeFilter.start}
+              onChange={(e) => setDateRangeFilter(prev => ({ ...prev, start: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+            <input
+              type="date"
+              value={dateRangeFilter.end}
+              onChange={(e) => setDateRangeFilter(prev => ({ ...prev, end: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+        
+        <div className="flex justify-end mt-3">
+          <button
+            onClick={() => {
+              setCustomerFilter('');
+              setDateRangeFilter({ start: '', end: '' });
+            }}
+            className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+          >
+            Clear Filters
+          </button>
+        </div>
+      </div>
+      
+      {/* RFQ Batches */}
+      <div className="space-y-3">
+        {pastRFQBatches.map((batch) => (
+          <div 
+            key={batch.id}
+            onClick={() => handlePastRFQBatchSelect(batch.id)}
+            className={`p-4 border rounded-lg cursor-pointer transition-all ${
+              selectedPastRFQBatch === batch.id
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-medium text-gray-900">{batch.batch_name}</h4>
+                <div className="text-sm text-gray-600 mt-1">
+                  {batch.customer_name && (
+                    <div className="flex items-center space-x-1">
+                      <Building2 className="h-3 w-3" />
+                      <span>{batch.customer_name}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center space-x-1 mt-1">
+                    <Calendar className="h-3 w-3" />
+                    <span>{new Date(batch.created_at).toLocaleDateString()}</span>
+                    <span className="mx-1">•</span>
+                    <Package className="h-3 w-3" />
+                    <span>{batch.shipment_count} shipments</span>
+                  </div>
+                </div>
+              </div>
+              
+              {selectedPastRFQBatch === batch.id && (
+                <CheckCircle className="h-5 w-5 text-blue-500" />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      {pastRFQBatches.length === 0 && (
+        <div className="text-center py-8 text-gray-500">
+          <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+          <p>No past RFQ batches found matching your filters</p>
+        </div>
+      )}
+      
+      {selectedPastRFQBatch && pastRFQData.length > 0 && (
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center space-x-2 text-blue-800">
+            <CheckCircle className="h-4 w-4" />
+            <span className="font-medium">
+              {pastRFQData.length} RFQ{pastRFQData.length !== 1 ? 's' : ''} loaded from selected batch
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+  
+  // Render carrier selection
+  const renderCarrierSelection = () => {
+    if (carrierMode === 'single') {
+      // Single carrier dropdown
+      return (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Carrier</h3>
+          
+          <div className="relative">
+            <select
+              value={selectedSingleCarrier}
+              onChange={(e) => setSelectedSingleCarrier(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 appearance-none"
+            >
+              <option value="">Select a carrier...</option>
+              {carrierManagement.carrierGroups.flatMap(group => 
+                group.carriers.map(carrier => (
+                  <option key={carrier.id} value={carrier.id}>
+                    {carrier.name} {carrier.scac ? `(${carrier.scac})` : ''}
+                  </option>
+                ))
+              )}
+            </select>
+            <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+              <Truck className="h-5 w-5 text-gray-400" />
+            </div>
+          </div>
+          
+          {!carrierManagement.carriersLoaded && (
+            <button
+              onClick={carrierManagement.loadCarriers}
+              disabled={carrierManagement.isLoadingCarriers}
+              className="mt-4 w-full flex items-center justify-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+            >
+              {carrierManagement.isLoadingCarriers ? (
+                <>
+                  <Loader className="h-4 w-4 animate-spin" />
+                  <span>Loading Carriers...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4" />
+                  <span>Load Carriers</span>
+                </>
+              )}
+            </button>
+          )}
+          
+          {selectedSingleCarrier && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center space-x-2 text-blue-800">
+                <CheckCircle className="h-4 w-4" />
+                <span className="font-medium">
+                  Carrier selected: {carrierManagement.carrierGroups.flatMap(g => g.carriers).find(c => c.id === selectedSingleCarrier)?.name}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    } else {
+      // Multiple carrier selection
+      return (
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h3 className="text-lg font-semibold text-gray-900">Select Multiple Carriers</h3>
+          </div>
+          
+          <div className="p-6">
+            {!carrierManagement.carriersLoaded && !carrierManagement.isLoadingCarriers && (
+              <button
+                onClick={carrierManagement.loadCarriers}
+                className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Truck className="h-5 w-5" />
+                <span>Load Carrier Network</span>
+              </button>
+            )}
+            
+            {(carrierManagement.carriersLoaded || carrierManagement.isLoadingCarriers) && (
+              <CarrierSelection
+                carrierGroups={carrierManagement.carrierGroups}
+                selectedCarriers={carrierManagement.selectedCarriers}
+                onToggleCarrier={carrierManagement.handleCarrierToggle}
+                onSelectAll={carrierManagement.handleSelectAll}
+                onSelectAllInGroup={carrierManagement.handleSelectAllInGroup}
+                isLoading={carrierManagement.isLoadingCarriers}
+              />
+            )}
+          </div>
+        </div>
+      );
+    }
+  };
+  
+  // Render customer selection
+  const renderCustomerSelection = () => {
+    if (customerMode === 'single') {
+      // Single customer selection
+      return (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Customer</h3>
+          
+          <CustomerSelection
+            selectedCustomer={selectedCustomer}
+            onCustomerChange={updateSelectedCustomer}
+          />
+        </div>
+      );
+    } else if (customerMode === 'specific') {
+      // Specific customers selection
+      return (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Specific Customers</h3>
+          
+          <div className="mb-4">
+            <div className="flex items-center space-x-2 mb-2">
+              <Search className="h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search customers..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            
+            <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-lg">
+              {/* This would be populated with customer checkboxes */}
+              <div className="p-4 text-center text-gray-500">
+                <p>Customer selection will be implemented here</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex justify-between">
+            <button className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+              Clear All
+            </button>
+            <button className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+              Select All
+            </button>
+          </div>
+        </div>
+      );
+    } else {
+      // All customers (no UI needed)
+      return (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">All Customers Selected</h3>
+          
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center space-x-2 text-blue-800">
+              <Users className="h-5 w-5" />
+              <div>
+                <p className="font-medium">Processing for all customers</p>
+                <p className="text-sm mt-1">
+                  The system will analyze all customers in the database and apply appropriate margins
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+  };
+  
+  // Render pricing settings
+  const renderPricingSettings = () => (
+    <div className="bg-white rounded-lg shadow-md overflow-hidden">
       <PricingSettingsComponent
         settings={pricingSettings}
         onSettingsChange={updatePricingSettings}
         selectedCustomer={selectedCustomer}
         onCustomerChange={updateSelectedCustomer}
-        showAsCard={false}
       />
     </div>
   );
-
-  const renderResults = () => (
-    <div className="space-y-8">
-      {rfqProcessor.processingStatus.isProcessing && (
-        <ProcessingStatus
-          total={1}
-          completed={rfqProcessor.processingStatus.isProcessing ? 0 : 1}
-          success={rfqProcessor.results.length > 0 && rfqProcessor.results[0].status === 'success' ? 1 : 0}
-          errors={rfqProcessor.results.length > 0 && rfqProcessor.results[0].status === 'error' ? 1 : 0}
-          isProcessing={rfqProcessor.processingStatus.isProcessing}
-          currentCarrier={rfqProcessor.processingStatus.currentItem}
-        />
-      )}
+  
+  // Render process button
+  const renderProcessButton = () => {
+    const isReadyToProcess = () => {
+      switch (inputSource) {
+        case 'csv':
+          return rfqData.length > 0;
+        case 'manual':
+          return manualFormData.fromZip && manualFormData.toZip;
+        case 'history':
+          return selectedHistoricalShipments.length > 0;
+        case 'past-rfq':
+          return pastRFQData.length > 0;
+        default:
+          return false;
+      }
+    };
+    
+    const getButtonText = () => {
+      if (rfqProcessor.processingStatus.isProcessing) {
+        return 'Processing...';
+      }
       
-      <ResultsTable
-        results={rfqProcessor.results}
-        onExport={() => {}}
-        onPriceUpdate={(resultIndex, quoteId, newPrice) => 
-          rfqProcessor.updateQuotePricing(resultIndex, quoteId, newPrice, { pricingSettings, selectedCustomer })
-        }
-      />
-    </div>
-  );
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-indigo-50 to-purple-50 px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="bg-indigo-600 p-2 rounded-lg">
-              <Zap className="h-5 w-5 text-white" />
-            </div>
+      const inputText = {
+        'csv': 'File',
+        'manual': 'Manual RFQ',
+        'history': 'Historical Shipments',
+        'past-rfq': 'Past RFQ Batch'
+      }[inputSource];
+      
+      return `Process ${inputText}`;
+    };
+    
+    return (
+      <div className="bg-white rounded-lg shadow-md p-6 text-center">
+        <button
+          onClick={processRFQs}
+          disabled={!isReadyToProcess() || rfqProcessor.processingStatus.isProcessing}
+          className={`inline-flex items-center space-x-3 px-8 py-4 font-semibold rounded-xl transition-all duration-200 text-lg shadow-lg ${
+            !isReadyToProcess() || rfqProcessor.processingStatus.isProcessing
+              ? 'bg-gray-400 cursor-not-allowed text-white'
+              : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white hover:shadow-xl'
+          }`}
+        >
+          {rfqProcessor.processingStatus.isProcessing ? (
+            <>
+              <Loader className="h-6 w-6 animate-spin" />
+              <span>Processing...</span>
+            </>
+          ) : (
+            <>
+              <Zap className="h-6 w-6" />
+              <span>{getButtonText()}</span>
+            </>
+          )}
+        </button>
+        
+        <p className="mt-3 text-sm text-gray-500">
+          {rfqProcessor.processingStatus.isProcessing
+            ? `Processing ${rfqProcessor.processingStatus.currentStep} of ${rfqProcessor.processingStatus.totalSteps}`
+            : 'Smart routing will automatically classify each shipment'}
+        </p>
+      </div>
+    );
+  };
+  
+  // Render results
+  const renderResults = () => {
+    if (rfqProcessor.results.length === 0) {
+      return null;
+    }
+    
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">Unified RFQ Tool</h2>
-              <p className="text-sm text-gray-600">Build and quote individual shipments with all template options</p>
+              <h3 className="text-xl font-semibold text-gray-900">Processing Results</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {rfqProcessor.results.length} RFQ{rfqProcessor.results.length !== 1 ? 's' : ''} processed with smart routing
+              </p>
             </div>
+            
+            <button
+              onClick={exportResults}
+              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export Results</span>
+            </button>
           </div>
         </div>
         
-        {/* Tab Navigation */}
-        <div className="px-6 py-4">
-          <nav className="flex space-x-1 bg-gray-100 rounded-lg p-1">
-            {[
-              { id: 'builder', label: 'RFQ Builder', icon: FileText },
-              { id: 'settings', label: 'Pricing Settings', icon: Settings },
-              { id: 'results', label: 'Results', icon: Target, badge: rfqProcessor.results.length }
-            ].map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                    activeTab === tab.id
-                      ? 'bg-white text-indigo-600 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{tab.label}</span>
-                  {tab.badge !== undefined && tab.badge > 0 && (
-                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                      activeTab === tab.id 
-                        ? 'bg-indigo-100 text-indigo-800' 
-                        : 'bg-gray-200 text-gray-600'
-                    }`}>
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
+        <ResultsTable
+          results={rfqProcessor.results}
+          onExport={exportResults}
+          onPriceUpdate={handlePriceUpdate}
+        />
+      </div>
+    );
+  };
+  
+  // Render comparison results (for past RFQ comparison)
+  const renderComparisonResults = () => {
+    if (!compareWithPastRFQ || inputSource !== 'past-rfq') {
+      return null;
+    }
+    
+    // This would show the comparison between past and current RFQs
+    return (
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Margin Impact Analysis</h3>
+        
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Original Revenue</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">New Cost</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Required Margin</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Change</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Impact</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              <tr className="hover:bg-gray-50">
+                <td className="px-6 py-4 text-sm font-medium text-gray-900">Sample Customer</td>
+                <td className="px-6 py-4 text-sm text-gray-900">$5,000</td>
+                <td className="px-6 py-4 text-sm text-gray-900">$4,200</td>
+                <td className="px-6 py-4 text-sm text-gray-900">16.0%</td>
+                <td className="px-6 py-4 text-sm">
+                  <div className="flex items-center space-x-1 text-green-600">
+                    <TrendingUp className="h-4 w-4" />
+                    <span>+1.0%</span>
+                  </div>
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-600">Modest margin improvement</td>
+              </tr>
+              <tr className="hover:bg-gray-50">
+                <td className="px-6 py-4 text-sm font-medium text-gray-900">Another Customer</td>
+                <td className="px-6 py-4 text-sm text-gray-900">$8,500</td>
+                <td className="px-6 py-4 text-sm text-gray-900">$7,500</td>
+                <td className="px-6 py-4 text-sm text-gray-900">11.8%</td>
+                <td className="px-6 py-4 text-sm">
+                  <div className="flex items-center space-x-1 text-red-600">
+                    <TrendingDown className="h-4 w-4" />
+                    <span>-3.2%</span>
+                  </div>
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-600">Margin compression - review pricing</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
-
-      {/* Tab Content */}
-      {activeTab === 'builder' && renderBuilder()}
-      {activeTab === 'settings' && renderSettings()}
-      {activeTab === 'results' && renderResults()}
+    );
+  };
+  
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center space-x-3">
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-3 rounded-xl shadow-lg">
+            <Zap className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Unified Multi-Mode RFQ Tool</h1>
+            <p className="text-sm text-gray-600">
+              Comprehensive freight quoting across multiple modes, carriers, and customers
+            </p>
+          </div>
+        </div>
+      </div>
+      
+      {/* Configuration Section */}
+      <div className="space-y-6">
+        {/* Step 1: Input Source */}
+        {renderInputSourceSelection()}
+        
+        {/* Step 2: Input-specific UI */}
+        {inputSource === 'csv' && renderCSVUpload()}
+        {inputSource === 'manual' && renderManualRFQForm()}
+        {inputSource === 'history' && renderHistoricalShipments()}
+        {inputSource === 'past-rfq' && renderPastRFQBatches()}
+        
+        {/* Step 3: Carrier Mode */}
+        {renderCarrierModeSelection()}
+        
+        {/* Step 4: Carrier Selection */}
+        {renderCarrierSelection()}
+        
+        {/* Step 5: Customer Mode */}
+        {renderCustomerModeSelection()}
+        
+        {/* Step 6: Customer Selection */}
+        {renderCustomerSelection()}
+        
+        {/* Step 7: Pricing Settings */}
+        {renderPricingSettings()}
+        
+        {/* Step 8: Process Button */}
+        {renderProcessButton()}
+      </div>
+      
+      {/* Results Section */}
+      {renderResults()}
+      
+      {/* Comparison Results (for past RFQ comparison) */}
+      {renderComparisonResults()}
     </div>
   );
 };
