@@ -1083,10 +1083,7 @@ function App() {
         )}
 
         {activeTab === 'database' && (
-          <DatabaseToolbox 
-            project44Client={project44Client}
-            selectedCustomer={selectedCustomer}
-          />
+          <DatabaseToolbox />
         )}
 
         {activeTab === 'mass-rfq' && (
