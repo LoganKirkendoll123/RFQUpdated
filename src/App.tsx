@@ -12,6 +12,7 @@ import { SupabaseSetup } from './components/SupabaseSetup';
 import { DatabaseToolbox } from './components/DatabaseToolbox';
 import { SpotQuote } from './components/SpotQuote';
 import { MassRFQFromShipments } from './components/MassRFQFromShipments';
+import { UnifiedRFQTool } from './components/UnifiedRFQTool';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { Project44APIClient, FreshXAPIClient } from './utils/apiClient';
 import { 
@@ -91,7 +92,7 @@ function App() {
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   
   // UI state
-  const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database' | 'spot-quote' | 'mass-rfq'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database' | 'spot-quote' | 'mass-rfq' | 'unified'>('upload');
   const [fileError, setFileError] = useState<string>('');
   
   // Use consolidated hooks
@@ -477,7 +478,8 @@ function App() {
               { id: 'results', label: 'Smart Quotes', icon: Target, badge: results.length },
               { id: 'analytics', label: 'Business Intelligence', icon: BarChart3 },
               { id: 'database', label: 'Database Toolbox', icon: Database },
-              { id: 'mass-rfq', label: 'Mass RFQ', icon: Users }
+              { id: 'mass-rfq', label: 'Mass RFQ', icon: Users },
+              { id: 'unified', label: 'Unified RFQ Tool', icon: Zap }
             ].map((tab) => {
               const Icon = tab.icon;
               return (
@@ -872,6 +874,15 @@ function App() {
             selectedCarriers={carrierManagement.selectedCarriers}
             pricingSettings={pricingSettings}
             selectedCustomer={selectedCustomer}
+          />
+        )}
+        
+        {activeTab === 'unified' && (
+          <UnifiedRFQTool
+            project44Client={project44Client}
+            freshxClient={freshxClient}
+            initialPricingSettings={pricingSettings}
+            initialSelectedCustomer={selectedCustomer}
           />
         )}
       </main>
