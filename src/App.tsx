@@ -130,7 +130,7 @@ function App() {
     const savedCarriers = loadSelectedCarriers();
     if (savedCarriers) {
       console.log('✅ Loaded saved carrier selection');
-      setSelectedCarriers(savedCarriers);
+      carrierManagement.setSelectedCarriers(savedCarriers);
     }
     
     // Load pricing settings
