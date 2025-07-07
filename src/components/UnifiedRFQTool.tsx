@@ -19,7 +19,7 @@ import {
   Upload,
   Database,
   Sparkles,
-  Save
+  Save,
   FileText,
   BarChart3,
   ArrowRight,
