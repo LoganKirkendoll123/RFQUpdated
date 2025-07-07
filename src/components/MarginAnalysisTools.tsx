@@ -30,7 +30,8 @@ import {
   MapPin,
   Package,
   Star,
-  Loader
+  Loader,
+  Plus
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { Project44APIClient } from '../utils/apiClient';
