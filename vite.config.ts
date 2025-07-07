@@ -9,7 +9,7 @@ export default defineConfig({
       '/api/project44-oauth': {
         target: 'https://na12.api.project44.com',
         changeOrigin: true,
-        secure: true,
+        secure: false,
         rewrite: (path) => path.replace(/^\/api\/project44-oauth/, ''),
         headers: {
           'Host': 'na12.api.project44.com'
@@ -31,7 +31,7 @@ export default defineConfig({
       '/api/project44': {
         target: 'https://na12.api.project44.com',
         changeOrigin: true,
-        secure: true,
+        secure: false,
         rewrite: (path) => path.replace(/^\/api\/project44/, ''),
         headers: {
           'Host': 'na12.api.project44.com'
