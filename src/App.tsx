@@ -595,12 +595,12 @@ function App() {
                       <h3 className="text-lg font-semibold text-slate-900">Carrier Network Management</h3>
                       <p className="text-sm text-slate-600">Configure your preferred carrier network for optimal quoting</p>
                     </div>
-                    {carriersLoaded && <CheckCircle className="h-6 w-6 text-emerald-500" />}
+                    {carrierManagement.carriersLoaded && <CheckCircle className="h-6 w-6 text-emerald-500" />}
                   </div>
                 </div>
                 
                 <div className="p-6">
-                  {!carriersLoaded && !isLoadingCarriers && (
+                  {!carrierManagement.carriersLoaded && !carrierManagement.isLoadingCarriers && (
                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-8">
                       <div className="text-center">
                         <div className="bg-blue-500 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
@@ -714,12 +714,12 @@ function App() {
                     onClick={processRFQs}
                     disabled={rfqProcessor.processingStatus.isProcessing}
                     className={`inline-flex items-center space-x-4 px-12 py-6 font-bold rounded-2xl transition-all duration-200 text-xl shadow-2xl ${
-                      isProcessing 
+                      rfqProcessor.processingStatus.isProcessing 
                         ? 'bg-slate-400 cursor-not-allowed text-white' 
                         : 'bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 hover:from-pink-600 hover:via-purple-600 hover:to-indigo-600 text-white hover:shadow-3xl transform hover:scale-105'
                     }`}
                   >
-                    {isProcessing ? (
+                    {rfqProcessor.processingStatus.isProcessing ? (
                       <>
                         <Loader className="h-8 w-8 animate-spin" />
                         <span>Processing Smart Quotes...</span>
@@ -768,8 +768,8 @@ function App() {
                 <div className="bg-gradient-to-r from-orange-50 to-pink-50 px-6 py-4 border-b border-slate-200">
                   <div className="flex items-center space-x-3">
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
-                      !isProcessing && results.length > 0 ? 'bg-emerald-500 text-white' : 
-                      isProcessing ? 'bg-orange-500 text-white' : 'bg-slate-300 text-slate-600'
+                      !rfqProcessor.processingStatus.isProcessing && results.length > 0 ? 'bg-emerald-500 text-white' : 
+                      rfqProcessor.processingStatus.isProcessing ? 'bg-orange-500 text-white' : 'bg-slate-300 text-slate-600'
                     }`}>
                       5
                     </div>
@@ -777,7 +777,7 @@ function App() {
                       <h3 className="text-lg font-semibold text-slate-900">Automated Quoting Engine</h3>
                       <p className="text-sm text-slate-600">Real-time smart quoting and competitive analysis</p>
                     </div>
-                    {!isProcessing && results.length > 0 && <CheckCircle className="h-6 w-6 text-emerald-500" />}
+                    {!rfqProcessor.processingStatus.isProcessing && results.length > 0 && <CheckCircle className="h-6 w-6 text-emerald-500" />}
                   </div>
                 </div>
                 <div className="p-6">
