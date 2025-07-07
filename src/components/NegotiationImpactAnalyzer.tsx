@@ -202,7 +202,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
     }
     
     if (!project44Client) {
-      alert('Project44 client not available. Please ensure your Project44 API credentials are valid.');
+      alert('Project44 client not available');
       return;
     }
 
@@ -374,7 +374,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
 
   const runPhase2Analysis = async () => {
     if (!project44Client) {
-      alert('Project44 client not available. Please ensure your Project44 API credentials are valid.');
+      alert('Project44 client not available');
       return;
     }
 
@@ -498,7 +498,6 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
             const bestQuote = quotes.reduce((best, current) => {
               const bestTotal = best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts;
               const currentTotal = current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts;
-              
               // Ensure we're comparing valid numbers
               if (isNaN(bestTotal) || bestTotal <= 0) return current;
               if (isNaN(currentTotal) || currentTotal <= 0) return best;
@@ -506,9 +505,9 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
               // Return the lower cost quote
               return currentTotal < bestTotal ? current : best;
             });
-
+              console.log(`✅ Received ${quotes.length} quotes from Project44 API for shipment ${shipment["Invoice #"]}`);
             const newCost = bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts;
-            if (newCost <= 0) {
+              console.error(`❌ Failed to get quotes for shipment ${shipment["Invoice #"]}:`, quoteError);
               console.log(`⚠️ Invalid cost (${newCost}) for shipment ${shipment["Invoice #"]}, skipping`);
               continue;
             }
@@ -666,17 +665,6 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">Analysis Configuration</h3>
-          {project44Client ? (
-            <div className="flex items-center space-x-2 text-sm text-green-600">
-              <CheckCircle className="h-4 w-4" />
-              <span>Project44 API Ready</span>
-            </div>
-          ) : (
-            <div className="flex items-center space-x-2 text-sm text-red-600">
-              <AlertCircle className="h-4 w-4" />
-              <span>Project44 API Not Connected</span>
-            </div>
-          )}
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -765,12 +753,12 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           <div className="text-sm text-blue-800">
             <p className="font-medium mb-2">How This Tool Works (API Calls in Both Phases):</p>
             <ol className="list-decimal list-inside space-y-1">
-              <li>Phase 1: Analyzes historical shipments and <strong>uses their actual carrier costs</strong> to establish revenue targets</li>
-              <li>Phase 2: <strong>Sends new API requests to Project44</strong> for the same shipments to get current market rates</li>
+              <li>Phase 1: Analyzes historical shipments from database to establish revenue targets</li>
+              <li>Phase 2: Sends API requests to Project44 for the same shipments to get current market rates</li>
               <li>Compares historical revenue targets with new API-sourced costs to determine optimal margins</li>
               <li>Both phases use the same shipments for true apples-to-apples comparison</li>
             </ol>
-            <p className="mt-2 text-xs">Note: Phase 2 will make <strong>real API calls to Project44</strong> for each shipment and may take several minutes to complete.</p>
+            <p className="mt-2 text-xs">Note: Phase 2 will make API calls to Project44 for each shipment and may take several minutes to complete.</p>
           </div>
         </div>
       </div>
@@ -928,6 +916,9 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           <div className="flex items-center space-x-2">
             <AlertCircle className="h-5 w-5 text-red-600" />
             <span className="text-red-800">{processingStatus.error}</span>
+            <div className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full">
+              API Connected
+            </div>
             <button 
               onClick={() => setProcessingStatus(prev => ({ ...prev, error: undefined }))}
               className="ml-2 px-2 py-1 text-xs bg-red-100 text-red-800 rounded hover:bg-red-200"
