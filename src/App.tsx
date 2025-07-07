@@ -22,8 +22,8 @@ import {
   MapPin
 } from 'lucide-react';
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
-import { supabase } from './utils/supabase';
-import { formatCurrency } from './utils/pricingCalculator';
+import { supabase } from '../utils/supabase';
+import { formatCurrency } from '../utils/pricingCalculator';
 import { RFQRow, Quote } from '../types';
 import * as XLSX from 'xlsx';
 
@@ -120,7 +120,7 @@ interface ProcessingStatus {
   error?: string;
 }
 
-export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
+const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
   project44Client,
   selectedCarriers,
   isProject44Connected = false
@@ -157,6 +157,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
 
   useEffect(() => {
     console.log('🔄 NegotiationImpactAnalyzer component mounted');
+    console.log('🔍 Project44 client available:', !!project44Client);
     loadAvailableP44Accounts();
     if (project44Client) {
       console.log('🔍 Project44 client available, testing connection...');
@@ -211,6 +212,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
   // Test the Project44 API connection
   const testApiConnection = async () => {
     if (!project44Client) {
+      console.log('❌ Cannot test API connection - Project44 client not available');
       setApiConnectionStatus('error');
       setApiConnectionError('No Project44 client available. Please set up your Project44 credentials in the API Setup tab.');
       return false;
@@ -240,9 +242,13 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
 
   // Run API connection test on component mount
   useEffect(() => {
-    if (project44Client && apiConnectionStatus === 'untested') {
-      testApiConnection();
+    const runTest = async () => {
+      if (project44Client && apiConnectionStatus === 'untested') {
+        console.log('🔄 Running automatic API connection test');
+        await testApiConnection();
+      }
     }
+    runTest();
   }, [project44Client]);
 
   // Convert a shipment record to an RFQ format that Project44 API can use
@@ -759,7 +765,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="bg-purple-600 p-2 rounded-lg">
+            <div className="bg-purple-600 p-2 rounded-lg flex-shrink-0">
               <Calculator className="h-6 w-6 text-white" />
             </div>
             <div>
@@ -798,7 +804,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       {/* API Connection Error */}
       {apiConnectionStatus === 'error' && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-start space-x-3">
+          <div className="flex items-start space-x-3 flex-wrap">
             <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
             <div>
               <h3 className="text-lg font-medium text-red-800">Project44 API Connection Error</h3>
@@ -820,19 +826,23 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       
       {/* How It Works */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-        <div className="bg-purple-600 p-2 rounded-lg">
-          <Info className="h-5 w-5 text-white" />
-        </div>
-        <h3 className="text-lg font-medium text-blue-900 mt-4 mb-2">How This Tool Works</h3>
-        <div className="text-sm text-blue-800 space-y-2">
-          <p>This tool uses <strong>direct Project44 API calls</strong> in both phases to analyze the impact of carrier negotiations:</p>
-          <ol className="list-decimal list-inside space-y-1 ml-4">
-            <li><strong>Phase 1:</strong> Establishes baseline costs using the current carrier account</li>
-            <li><strong>Phase 2:</strong> Simulates negotiated rates using your selected carriers</li>
-            <li>Both phases use identical RFQs for a true apples-to-apples comparison</li>
-            <li>The tool calculates how much your margin can improve with the new rates</li>
-          </ol>
-          <p className="mt-2 font-medium">Important: Both phases make real-time API calls to Project44 - no historical costs are used.</p>
+        <div className="flex items-start space-x-3">
+          <div className="bg-purple-600 p-2 rounded-lg flex-shrink-0">
+            <Info className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h3 className="text-lg font-medium text-blue-900 mb-2">How This Tool Works</h3>
+            <div className="text-sm text-blue-800 space-y-2">
+              <p>This tool uses <strong>direct Project44 API calls</strong> in both phases to analyze the impact of carrier negotiations:</p>
+              <ol className="list-decimal list-inside space-y-1 ml-4">
+                <li><strong>Phase 1:</strong> Establishes baseline costs using the current carrier account</li>
+                <li><strong>Phase 2:</strong> Simulates negotiated rates using your selected carriers</li>
+                <li>Both phases use identical RFQs for a true apples-to-apples comparison</li>
+                <li>The tool calculates how much your margin can improve with the new rates</li>
+              </ol>
+              <p className="mt-2 font-medium">Important: Both phases make real-time API calls to Project44 - no historical costs are used.</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -873,12 +883,12 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
                   disabled={!isProject44Connected}
                 >
-                  <option value="">Select P44 Account...</option>
+                  <option value="">Select P44 Account Code...</option>
                   {availableAccounts.map(account => (
                     <option key={account} value={account}>{account}</option>
                   ))}
                 </select>
-                {!isProject44Connected && (
+                {!project44Client && (
                   <div className="text-sm text-red-600">
                     <AlertCircle className="h-4 w-4 inline mr-1" />
                     API not connected
@@ -948,7 +958,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           
           <button
             onClick={runPhase1Analysis}
-            disabled={processingStatus.isRunning || !selectedP44Account || !isProject44Connected || apiConnectionStatus !== 'connected'}
+            disabled={processingStatus.isRunning || !selectedP44Account || !project44Client || apiConnectionStatus !== 'connected'}
             className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
           >
             {processingStatus.isRunning && processingStatus.phase === 1 ? (
@@ -992,7 +1002,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           
           <button
             onClick={runPhase2Analysis}
-            disabled={processingStatus.isRunning || phase1Results.length === 0 || !isProject44Connected || apiConnectionStatus !== 'connected'}
+            disabled={processingStatus.isRunning || phase1Results.length === 0 || !project44Client || apiConnectionStatus !== 'connected'}
             className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
           >
             {processingStatus.isRunning && processingStatus.phase === 2 ? (
@@ -1183,3 +1193,5 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
     </div>
   );
 };
+
+export default NegotiationImpactAnalyzer;
