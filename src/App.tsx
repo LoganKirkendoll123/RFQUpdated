@@ -22,7 +22,7 @@ import {
   MapPin
 } from 'lucide-react';
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
-import { supabase } from '../utils/supabase';
+import { supabase } from './utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { RFQRow, Quote } from '../types';
 import * as XLSX from 'xlsx';
