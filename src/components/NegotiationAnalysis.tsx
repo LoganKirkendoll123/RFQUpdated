@@ -1,16 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Handshake, 
-  TrendingDown, 
-  Calculator, 
-  Users,
-  Loader,
-  AlertTriangle,
-  CheckCircle,
-  DollarSign,
-  Package,
-  Target
-} from 'lucide-react';
+import { HeartHandshake as Handshake, TrendingDown, Calculator, Users, Loader, AlertTriangle, CheckCircle, DollarSign, Package, Target } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { Project44APIClient } from '../utils/apiClient';
