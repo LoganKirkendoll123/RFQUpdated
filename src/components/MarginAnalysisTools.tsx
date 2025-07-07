@@ -27,6 +27,7 @@ import { loadProject44Config } from '../utils/credentialStorage';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { RFQRow } from '../types';
 import { supabase } from '../utils/supabase';
+import { NegotiationImpactAnalyzer } from './NegotiationImpactAnalyzer';
 
 interface MarginAnalysisResult {
   customerName: string;
@@ -1194,6 +1195,9 @@ export const MarginAnalysisTools: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Negotiation Impact Analyzer */}
+      <NegotiationImpactAnalyzer />
     </div>
   );
 };
