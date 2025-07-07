@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Users, Building2, CheckCircle, AlertCircle } from 'lucide-react';
-import { getCustomerList } from '../utils/database';
+import { supabase } from '../utils/supabase';
 
 interface CustomerSelectionProps {
   selectedCustomer: string;
@@ -47,13 +47,11 @@ export const CustomerSelection: React.FC<CustomerSelectionProps> = ({
       let hasMore = true;
       
       while (hasMore) {
-        const { data, error } = await import('../utils/supabase').then(({ supabase }) =>
-          supabase
-            .from('CustomerCarriers')
-            .select('InternalName')
-            .not('InternalName', 'is', null)
-            .range(from, from + batchSize - 1)
-        );
+        const { data, error } = await supabase
+          .from('CustomerCarriers')
+          .select('InternalName')
+          .not('InternalName', 'is', null)
+          .range(from, from + batchSize - 1);
         
         if (error) {
           throw error;
