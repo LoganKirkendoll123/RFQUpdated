@@ -28,7 +28,8 @@ import {
   Search,
   Calendar,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  Download
 } from 'lucide-react';
 import { Project44APIClient, FreshXAPIClient } from '../utils/apiClient';
 import { RFQRow, PricingSettings, ProcessingResult, QuoteWithPricing, LineItemData } from '../types';
@@ -42,6 +43,7 @@ import { useRFQProcessor } from '../hooks/useRFQProcessor';
 import { useCarrierManagement } from '../hooks/useCarrierManagement';
 import { usePricingSettings } from '../hooks/usePricingSettings';
 import { supabase } from '../utils/supabase';
+import { saveRFQResultsToDatabase } from '../utils/database';
 import * as XLSX from 'xlsx';
 
 interface UnifiedRFQToolProps {
@@ -447,7 +449,30 @@ export const UnifiedRFQTool: React.FC<UnifiedRFQToolProps> = ({
       console.log('Comparing with past RFQ...');
     } else {
       // Standard processing
-      await rfqProcessor.processMultipleRFQs(data, {
+      try {
+        await rfqProcessor.processMultipleRFQs(data, {
+          selectedCarriers,
+          pricingSettings,
+          selectedCustomer: customers[0] || '' // Use first customer or empty string
+        });
+        
+        // Save results to database after successful processing
+        if (rfqProcessor.results.length > 0 && selectedCustomer) {
+          console.log('💾 Saving RFQ results to database...');
+          await saveRFQResultsToDatabase(
+            rfqProcessor.results,
+            selectedCustomer,
+            '', // branch - can be enhanced later with UI input
+            ''  // salesRep - can be enhanced later with UI input
+          );
+          console.log('✅ RFQ results saved to database successfully');
+        }
+      } catch (error) {
+        console.error('❌ Error processing RFQs:', error);
+        setFormError(error instanceof Error ? error.message : 'Failed to process RFQs');
+      }
+    }
+  };
         selectedCarriers,
         pricingSettings,
         selectedCustomer: customers[0] || '' // Use first customer or empty string

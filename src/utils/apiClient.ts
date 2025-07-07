@@ -1062,8 +1062,30 @@ export class FreshXAPIClient {
   }
 
   async getQuotes(rfq: RFQRow): Promise<Quote[]> {
+    // Clean and validate ZIP codes for FreshX API
+    const cleanZip = (zip: string): string => {
+      // Remove all non-numeric characters and ensure 5 digits
+      const cleaned = zip.replace(/\D/g, '');
+      if (cleaned.length < 5) {
+        throw new Error(`Invalid ZIP code: ${zip} - must be 5 digits`);
+      }
+      return cleaned.substring(0, 5);
+    };
+
+    // Validate and clean ZIP codes before processing
+    let fromZip: string;
+    let toZip: string;
+    
+    try {
+      fromZip = cleanZip(rfq.fromZip);
+      toZip = cleanZip(rfq.toZip);
+    } catch (error) {
+      console.error('❌ ZIP code validation failed:', error);
+      throw error;
+    }
+
     console.log('🌡️ Getting FreshX reefer quotes for:', {
-      route: `${rfq.fromZip} → ${rfq.toZip}`,
+      route: `${fromZip} → ${toZip}`,
       pallets: rfq.pallets,
       weight: rfq.grossWeight,
       temperature: rfq.temperature,
@@ -1076,8 +1098,8 @@ export class FreshXAPIClient {
     // Build the FreshX request payload
     const requestPayload = {
       fromDate: rfq.fromDate,
-      fromZip: rfq.fromZip,
-      toZip: rfq.toZip,
+      fromZip: fromZip,
+      toZip: toZip,
       pallets: rfq.pallets,
       grossWeight: rfq.grossWeight.toString(),
       temperature: rfq.temperature || 'AMBIENT',
@@ -1139,12 +1161,12 @@ export class FreshXAPIClient {
         pickup: freshxQuote.pickup || {
           city: rfq.originCity || '',
           state: rfq.originState || '',
-          zip: rfq.fromZip
+          zip: fromZip
         },
         dropoff: freshxQuote.dropoff || {
           city: rfq.destinationCity || '',
           state: rfq.destinationState || '',
-          zip: rfq.toZip
+          zip: toZip
         },
         submittedBy: freshxQuote.submittedBy || 'FreshX',
         submissionDatetime: freshxQuote.submissionDatetime || new Date().toISOString(),
