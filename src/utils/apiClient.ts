@@ -41,11 +41,16 @@ export class Project44APIClient {
   private tokenExpiry: number = 0;
   private carrierGroups: CarrierGroup[] = []; // Store carrier groups for lookup
 
+  // Add a public method to get the access token for testing connection
+  public async getAccessToken(): Promise<string> {
+    return this._getAccessToken();
+  }
+
   constructor(config: Project44OAuthConfig) {
     this.config = config;
   }
 
-  private async getAccessToken(): Promise<string> {
+  private async _getAccessToken(): Promise<string> {
     // Check if we have a valid token
     if (this.accessToken && Date.now() < this.tokenExpiry) {
       return this.accessToken;
@@ -112,7 +117,7 @@ export class Project44APIClient {
   }
 
   async getAvailableCarriersByGroup(isVolumeMode: boolean = false, isFTLMode: boolean = false): Promise<CarrierGroup[]> {
-    const token = await this.getAccessToken();
+    const token = await this._getAccessToken();
     
     const modeDescription = isVolumeMode ? 'Volume LTL (VLTL)' : isFTLMode ? 'Full Truckload' : 'Standard LTL';
     console.log(`🚛 Loading carriers for ${modeDescription}...`);
@@ -397,7 +402,7 @@ export class Project44APIClient {
   }
 
   async getServiceLevelsByCarriers(carrierIds: string[], isVolumeMode: boolean = false, isFTLMode: boolean = false): Promise<ServiceLevelInfo[]> {
-    const token = await this.getAccessToken();
+    const token = await this._getAccessToken();
     
     const modeDescription = isVolumeMode ? 'Volume LTL (VLTL)' : isFTLMode ? 'Full Truckload' : 'Standard LTL';
     console.log(`🎯 Fetching service levels for ${modeDescription} carriers:`, carrierIds);
@@ -453,7 +458,7 @@ export class Project44APIClient {
     isFTLMode: boolean = false,
     isReeferMode: boolean = false
   ): Promise<Quote[]> {
-    const token = await this.getAccessToken();
+    const token = await this._getAccessToken();
     
     const modeDescription = isReeferMode ? 'Refrigerated LTL' : 
                            isVolumeMode ? 'Volume LTL (VLTL)' : 
@@ -679,7 +684,7 @@ export class Project44APIClient {
     isFTLMode: boolean = false,
     isReeferMode: boolean = false
   ): Promise<Quote[]> {
-    const token = await this.getAccessToken();
+    const token = await this._getAccessToken();
     
     const modeDescription = isReeferMode ? 'Refrigerated LTL' : 
                            isVolumeMode ? 'Volume LTL (VLTL)' : 
@@ -716,7 +721,7 @@ export class Project44APIClient {
           allowUnacceptedAccessorials: true,
           fetchAllGuaranteed: true,
           fetchAllInsideDelivery: false,
-          fetchAllServiceLevels: yes
+          fetchAllServiceLevels: true
         },
         enableUnitConversion: rfq.enableUnitConversion ?? true,
         fallBackToDefaultAccountGroup: rfq.fallBackToDefaultAccountGroup ?? true,
