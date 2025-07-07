@@ -12,11 +12,6 @@
   to = "/.netlify/functions/project44-oauth-proxy"
   status = 200
 
-[[redirects]]
-  from = "/api/freshx/*"
-  to = "/.netlify/functions/freshx-proxy"
-  status = 200
-
 [[headers]]
   for = "/*"
   [headers.values]
