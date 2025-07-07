@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { CarrierScorecard } from './CarrierScorecard';
 import { AIForecasting } from './AIForecasting';
 import { NegotiationAnalysis } from './NegotiationAnalysis';
