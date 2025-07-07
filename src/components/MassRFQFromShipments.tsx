@@ -1380,3 +1380,5 @@ export const MassRFQFromShipments: React.FC<MassRFQFromShipmentsProps> = ({
     </div>
   );
 };
+
+export { MassRFQFromShipments }
