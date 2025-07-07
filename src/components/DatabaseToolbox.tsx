@@ -31,6 +31,7 @@ import {
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { MarginAnalysisTools } from './MarginAnalysisTools';
+import { NegotiationImpactAnalyzer } from './NegotiationImpactAnalyzer';
 
 // Updated interfaces matching your exact database schema
 interface Shipment {
@@ -113,6 +114,10 @@ export const DatabaseToolbox: React.FC = () => {
   const [uniqueBranches, setUniqueBranches] = useState<string[]>([]);
   const [uniqueSalesReps, setUniqueSalesReps] = useState<string[]>([]);
   const [uniqueCarriers, setUniqueCarriers] = useState<string[]>([]);
+  
+  // Props for NegotiationImpactAnalyzer
+  const [project44Client] = useState<any>(null); // You may need to pass this from parent
+  const [selectedCarriers] = useState<{ [carrierId: string]: boolean }>({});
 
   useEffect(() => {
     loadData();
@@ -828,7 +833,8 @@ export const DatabaseToolbox: React.FC = () => {
           {[
             { id: 'shipments', label: 'Shipments', icon: Package, count: activeTab === 'shipments' ? totalCount : null },
             { id: 'customercarriers', label: 'Customer Carriers', icon: Users, count: activeTab === 'customercarriers' ? totalCount : null },
-            { id: 'margin-tools', label: 'Margin Analysis', icon: Calculator, count: null }
+            { id: 'margin-tools', label: 'Margin Analysis', icon: Calculator, count: null },
+            { id: 'negotiation', label: 'Negotiation Impact', icon: TrendingUp, count: null }
           ].map((tab) => {
             const Icon = tab.icon;
             return (
@@ -843,6 +849,9 @@ export const DatabaseToolbox: React.FC = () => {
                   setFilterSalesRep('');
                   setFilterCarrier('');
                   setDateFilter({ start: '', end: '' });
+                  if (tab.id === 'negotiation') {
+                    // Reset any negotiation-specific state if needed
+                  }
                 }}
                 className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                   activeTab === tab.id
@@ -889,6 +898,12 @@ export const DatabaseToolbox: React.FC = () => {
         <>
           {activeTab === 'shipments' && renderShipmentsTab()}
           {activeTab === 'customercarriers' && renderCustomerCarriersTab()}
+          {activeTab === 'negotiation' && (
+            <NegotiationImpactAnalyzer
+              project44Client={project44Client}
+              selectedCarriers={selectedCarriers}
+            />
+          )}
           {activeTab === 'margin-tools' && <MarginAnalysisTools />}
         </>
       )}
