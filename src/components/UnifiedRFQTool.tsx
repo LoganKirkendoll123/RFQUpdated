@@ -1,183 +1,100 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Plus, Trash2, Save, Play, Upload, Download, Settings, Package, Truck, MapPin, Calendar, Thermometer, Shield, User, Phone, Mail, Building2, Clock, DollarSign, Ruler, Copyright as Weight, AlertTriangle, CheckCircle, Info, Globe, CreditCard, FileText, Target, Layers } from 'lucide-react';
-import { RFQRow, LineItemData, PricingSettings, Project44OAuthConfig } from '../types';
+import { 
+  Zap, 
+  MapPin, 
+  Package, 
+  Clock, 
+  Thermometer, 
+  Plus, 
+  Trash2, 
+  Calculator,
+  Users,
+  Building2,
+  Truck,
+  Loader,
+  AlertCircle,
+  CheckCircle,
+  Target,
+  DollarSign,
+  Upload,
+  Database,
+  History,
+  FileText,
+  BarChart3,
+  ArrowRight,
+  RefreshCw,
+  Settings,
+  Filter,
+  Search,
+  Calendar,
+  TrendingUp,
+  TrendingDown
+} from 'lucide-react';
 import { Project44APIClient, FreshXAPIClient } from '../utils/apiClient';
+import { RFQRow, PricingSettings, ProcessingResult, QuoteWithPricing, LineItemData } from '../types';
+import { CustomerSelection } from './CustomerSelection';
+import { CarrierSelection } from './CarrierSelection';
 import { PricingSettingsComponent } from './PricingSettings';
-import { ProcessingStatus } from './ProcessingStatus';
 import { ResultsTable } from './ResultsTable';
+import { FileUpload } from './FileUpload';
+import { parseCSV, parseXLSX } from '../utils/fileParser';
 import { useRFQProcessor } from '../hooks/useRFQProcessor';
-import { downloadProject44ExcelTemplate } from '../utils/templateGenerator';
+import { useCarrierManagement } from '../hooks/useCarrierManagement';
+import { usePricingSettings } from '../hooks/usePricingSettings';
+import { supabase } from '../utils/supabase';
+import * as XLSX from 'xlsx';
 
 interface UnifiedRFQToolProps {
   project44Client: Project44APIClient | null;
   freshxClient: FreshXAPIClient | null;
   initialPricingSettings: PricingSettings;
-  initialSelectedCustomer: string;
+  initialSelectedCustomer?: string;
 }
 
-// Project44 LTL/VLTL accessorial options - complete list from template
-const PROJECT44_ACCESSORIALS = [
-  // Pickup Accessorial Services
-  { code: 'AIRPU', label: 'Airport Pickup' },
-  { code: 'APPTPU', label: 'Pickup Appointment' },
-  { code: 'CAMPPU', label: 'Camp Pickup' },
-  { code: 'CFSPU', label: 'Container Freight Station Pickup' },
-  { code: 'CHRCPU', label: 'Church Pickup' },
-  { code: 'CLUBPU', label: 'Country Club Pickup' },
-  { code: 'CNVPU', label: 'Convention/Tradeshow Pickup' },
-  { code: 'CONPU', label: 'Construction Site Pickup' },
-  { code: 'DOCKPU', label: 'Dock Pickup' },
-  { code: 'EDUPU', label: 'School Pickup' },
-  { code: 'FARMPU', label: 'Farm Pickup' },
-  { code: 'GOVPU', label: 'Government Site Pickup' },
-  { code: 'GROPU', label: 'Grocery Warehouse Pickup' },
-  { code: 'HOSPU', label: 'Hospital Pickup' },
-  { code: 'HOTLPU', label: 'Hotel Pickup' },
-  { code: 'INPU', label: 'Inside Pickup' },
-  { code: 'LGPU', label: 'Liftgate Pickup' },
-  { code: 'LTDPU', label: 'Limited Access Pickup' },
-  { code: 'MILPU', label: 'Military Installation Pickup' },
-  { code: 'MINEPU', label: 'Mine Site Pickup' },
-  { code: 'NARPU', label: 'Native American Reservation Pickup' },
-  { code: 'NBPU', label: 'Non-Business Hours Pickup' },
-  { code: 'NURSPU', label: 'Nursing Home Pickup' },
-  { code: 'PARKPU', label: 'Fair/Amusement/Park Pickup' },
-  { code: 'PIERPU', label: 'Pier Pickup' },
-  { code: 'PRISPU', label: 'Prison Pickup' },
-  { code: 'RESPU', label: 'Residential Pickup' },
-  { code: 'SATPU', label: 'Saturday Pickup' },
-  { code: 'SORTPU', label: 'Sort/Segregate Pickup' },
-  { code: 'SSTORPU', label: 'Self-Storage Pickup' },
-  { code: 'UTLPU', label: 'Utility Site Pickup' },
+type InputSource = 'csv' | 'manual' | 'history' | 'past-rfq';
+type CarrierMode = 'single' | 'multiple';
+type CustomerMode = 'single' | 'all' | 'specific';
 
-  // Delivery Accessorial Services
-  { code: 'AIRDEL', label: 'Airport Delivery' },
-  { code: 'CAMPDEL', label: 'Camp Delivery' },
-  { code: 'CFSDEL', label: 'Container Freight Station Delivery' },
-  { code: 'CHRCDEL', label: 'Church Delivery' },
-  { code: 'CLUBDEL', label: 'Country Club Delivery' },
-  { code: 'CNVDEL', label: 'Convention/Tradeshow Delivery' },
-  { code: 'CONDEL', label: 'Construction Site Delivery' },
-  { code: 'DCDEL', label: 'Distribution Center Delivery' },
-  { code: 'DOCKDEL', label: 'Dock Delivery' },
-  { code: 'EDUDEL', label: 'School Delivery' },
-  { code: 'FARMDEL', label: 'Farm Delivery' },
-  { code: 'GOVDEL', label: 'Government Site Delivery' },
-  { code: 'GRODEL', label: 'Grocery Warehouse Delivery' },
-  { code: 'HDAYDEL', label: 'Holiday Delivery' },
-  { code: 'HOSDEL', label: 'Hospital Delivery' },
-  { code: 'HOTLDEL', label: 'Hotel Delivery' },
-  { code: 'INDEL', label: 'Inside Delivery' },
-  { code: 'INEDEL', label: 'Inside Delivery - With Elevator' },
-  { code: 'INGDEL', label: 'Inside Delivery - Ground Floor' },
-  { code: 'INNEDEL', label: 'Inside Delivery - No Elevator' },
-  { code: 'MALLDEL', label: 'Mall Delivery' },
-  { code: 'MILDEL', label: 'Military Installation Delivery' },
-  { code: 'MINEDEL', label: 'Mine Site Delivery' },
-  { code: 'NARDEL', label: 'Native American Reservation Delivery' },
-  { code: 'NBDEL', label: 'Non-Business Hours Delivery' },
-  { code: 'NCDEL', label: 'Non-Commercial Delivery' },
-  { code: 'NOTIFY', label: 'Delivery Notification' },
-  { code: 'NURSDEL', label: 'Nursing Home Delivery' },
-  { code: 'PARKDEL', label: 'Fair/Amusement/Park Delivery' },
-  { code: 'PIERDEL', label: 'Pier Delivery' },
-  { code: 'PRISDEL', label: 'Prison Delivery' },
-  { code: 'RESDEL', label: 'Residential Delivery' },
-  { code: 'RSRTDEL', label: 'Resort Delivery' },
-  { code: 'SATDEL', label: 'Saturday Delivery' },
-  { code: 'SORTDEL', label: 'Sort/Segregate Delivery' },
-  { code: 'SSTORDEL', label: 'Self-Storage Delivery' },
-  { code: 'SUNDEL', label: 'Sunday Delivery' },
-  { code: 'UTLDEL', label: 'Utility Site Delivery' },
-  { code: 'WEDEL', label: 'Weekend Delivery' }
-];
+interface ManualRFQFormData {
+  fromDate: string;
+  fromZip: string;
+  toZip: string;
+  pallets: number;
+  grossWeight: number;
+  isStackable: boolean;
+  isReefer: boolean;
+  temperature?: 'AMBIENT' | 'CHILLED' | 'FROZEN';
+  commodity?: string;
+  isFoodGrade?: boolean;
+  freightClass?: string;
+  commodityDescription?: string;
+  originCity?: string;
+  originState?: string;
+  destinationCity?: string;
+  destinationState?: string;
+  lineItems: LineItemData[];
+}
 
-const TEMPERATURE_OPTIONS = [
-  { value: 'AMBIENT', label: 'Ambient (Room Temperature)' },
-  { value: 'CHILLED', label: 'Chilled (32-50°F)' },
-  { value: 'FROZEN', label: 'Frozen (Below 32°F)' }
-];
+interface HistoricalShipment {
+  id: number;
+  customer_name: string;
+  origin_zip: string;
+  destination_zip: string;
+  pallets: number;
+  weight: number;
+  carrier_name?: string;
+  quoted_rate?: number;
+  shipment_date: string;
+}
 
-const COMMODITY_OPTIONS = [
-  { value: 'ALCOHOL', label: 'Alcohol' },
-  { value: 'FOODSTUFFS', label: 'Foodstuffs' },
-  { value: 'FRESH_SEAFOOD', label: 'Fresh Seafood' },
-  { value: 'FROZEN_SEAFOOD', label: 'Frozen Seafood' },
-  { value: 'ICE_CREAM', label: 'Ice Cream' },
-  { value: 'PRODUCE', label: 'Produce' }
-];
-
-const FREIGHT_CLASS_OPTIONS = [
-  { value: '50', label: 'Class 50 - Very Dense' },
-  { value: '55', label: 'Class 55' },
-  { value: '60', label: 'Class 60' },
-  { value: '65', label: 'Class 65' },
-  { value: '70', label: 'Class 70 - Standard' },
-  { value: '77.5', label: 'Class 77.5' },
-  { value: '85', label: 'Class 85' },
-  { value: '92.5', label: 'Class 92.5' },
-  { value: '100', label: 'Class 100' },
-  { value: '110', label: 'Class 110' },
-  { value: '125', label: 'Class 125' },
-  { value: '150', label: 'Class 150' },
-  { value: '175', label: 'Class 175' },
-  { value: '200', label: 'Class 200' },
-  { value: '250', label: 'Class 250' },
-  { value: '300', label: 'Class 300' },
-  { value: '400', label: 'Class 400' },
-  { value: '500', label: 'Class 500 - Very Light' }
-];
-
-const PACKAGE_TYPE_OPTIONS = [
-  { value: 'PLT', label: 'Pallet (PLT)' },
-  { value: 'BOX', label: 'Box' },
-  { value: 'CRATE', label: 'Crate' },
-  { value: 'CARTON', label: 'Carton' },
-  { value: 'CASE', label: 'Case' },
-  { value: 'DRUM', label: 'Drum' },
-  { value: 'PAIL', label: 'Pail' },
-  { value: 'BUNDLE', label: 'Bundle' },
-  { value: 'COIL', label: 'Coil' },
-  { value: 'CYLINDER', label: 'Cylinder' },
-  { value: 'PIECES', label: 'Pieces' },
-  { value: 'REEL', label: 'Reel' },
-  { value: 'ROLL', label: 'Roll' },
-  { value: 'SKID', label: 'Skid' },
-  { value: 'TOTE', label: 'Tote' },
-  { value: 'TUBE', label: 'Tube' }
-];
-
-const HAZMAT_PACKING_GROUPS = [
-  { value: 'I', label: 'Packing Group I (High Danger)' },
-  { value: 'II', label: 'Packing Group II (Medium Danger)' },
-  { value: 'III', label: 'Packing Group III (Low Danger)' },
-  { value: 'NONE', label: 'None' }
-];
-
-const PAYMENT_TERMS_OPTIONS = [
-  { value: 'PREPAID', label: 'Prepaid' },
-  { value: 'COLLECT', label: 'Collect' },
-  { value: 'THIRD_PARTY', label: 'Third Party' }
-];
-
-const DIRECTION_OPTIONS = [
-  { value: 'SHIPPER', label: 'Shipper' },
-  { value: 'CONSIGNEE', label: 'Consignee' },
-  { value: 'THIRD_PARTY', label: 'Third Party' }
-];
-
-const CURRENCY_OPTIONS = [
-  { value: 'USD', label: 'US Dollar (USD)' },
-  { value: 'CAD', label: 'Canadian Dollar (CAD)' },
-  { value: 'MXN', label: 'Mexican Peso (MXN)' },
-  { value: 'EUR', label: 'Euro (EUR)' }
-];
-
-const COUNTRY_OPTIONS = [
-  { value: 'US', label: 'United States' },
-  { value: 'CA', label: 'Canada' },
-  { value: 'MX', label: 'Mexico' }
-];
+interface PastRFQBatch {
+  id: string;
+  batch_name: string;
+  customer_name?: string;
+  created_at: string;
+  shipment_count: number;
+  rfq_data: RFQRow[];
+}
 
 export const UnifiedRFQTool: React.FC<UnifiedRFQToolProps> = ({
   project44Client,
@@ -185,61 +102,197 @@ export const UnifiedRFQTool: React.FC<UnifiedRFQToolProps> = ({
   initialPricingSettings,
   initialSelectedCustomer
 }) => {
-  // Core RFQ state
-  const [rfq, setRfq] = useState<RFQRow>({
+  // Input configuration
+  const [inputSource, setInputSource] = useState<InputSource>('csv');
+  const [carrierMode, setCarrierMode] = useState<CarrierMode>('multiple');
+  const [customerMode, setCustomerMode] = useState<CustomerMode>('single');
+  const [compareWithPastRFQ, setCompareWithPastRFQ] = useState(false);
+  
+  // Data state
+  const [rfqData, setRfqData] = useState<RFQRow[]>([]);
+  const [manualFormData, setManualFormData] = useState<ManualRFQFormData>({
     fromDate: new Date().toISOString().split('T')[0],
     fromZip: '',
     toZip: '',
     pallets: 1,
     grossWeight: 1000,
     isStackable: false,
-    accessorial: [],
     isReefer: false,
+    freightClass: '70',
     lineItems: []
   });
-
-  // UI state
-  const [activeSection, setActiveSection] = useState<'basic' | 'items' | 'addresses' | 'contacts' | 'hazmat' | 'timing' | 'api' | 'accessorials'>('basic');
-  const [pricingSettings, setPricingSettings] = useState<PricingSettings>(initialPricingSettings);
-  const [selectedCustomer, setSelectedCustomer] = useState<string>(initialSelectedCustomer);
-  const [selectedAccessorials, setSelectedAccessorials] = useState<{ [code: string]: boolean }>({});
-
-  // Processing state
-  const rfqProcessor = useRFQProcessor({ project44Client, freshxClient });
-
-  // Update accessorial array when selections change
+  const [historicalShipments, setHistoricalShipments] = useState<HistoricalShipment[]>([]);
+  const [selectedHistoricalShipments, setSelectedHistoricalShipments] = useState<number[]>([]);
+  const [pastRFQBatches, setPastRFQBatches] = useState<PastRFQBatch[]>([]);
+  const [selectedPastRFQBatch, setSelectedPastRFQBatch] = useState<string>('');
+  const [pastRFQData, setPastRFQData] = useState<RFQRow[]>([]);
+  
+  // Filters
+  const [customerFilter, setCustomerFilter] = useState('');
+  const [dateRangeFilter, setDateRangeFilter] = useState({ start: '', end: '' });
+  const [carrierFilter, setCarrierFilter] = useState('');
+  
+  // Error state
+  const [fileError, setFileError] = useState<string>('');
+  const [formError, setFormError] = useState<string>('');
+  
+  // Use consolidated hooks
+  const { 
+    pricingSettings, 
+    selectedCustomer, 
+    updatePricingSettings, 
+    updateSelectedCustomer 
+  } = usePricingSettings(initialPricingSettings);
+  
+  const carrierManagement = useCarrierManagement({ project44Client });
+  
+  const rfqProcessor = useRFQProcessor({ 
+    project44Client, 
+    freshxClient 
+  });
+  
+  // Single carrier selection (for single carrier mode)
+  const [selectedSingleCarrier, setSelectedSingleCarrier] = useState<string>('');
+  
+  // Customer selection for specific customer mode
+  const [specificCustomers, setSpecificCustomers] = useState<string[]>([]);
+  
+  // Load historical data
   useEffect(() => {
-    const accessorialCodes = Object.entries(selectedAccessorials)
-      .filter(([_, selected]) => selected)
-      .map(([code, _]) => code);
-    
-    setRfq(prev => ({ ...prev, accessorial: accessorialCodes }));
-  }, [selectedAccessorials]);
-
-  // Calculate total weight from line items
-  useEffect(() => {
-    if (rfq.lineItems && rfq.lineItems.length > 0) {
-      const totalWeight = rfq.lineItems.reduce((sum, item) => sum + item.totalWeight, 0);
-      setRfq(prev => ({ ...prev, grossWeight: totalWeight }));
+    if (inputSource === 'history') {
+      loadHistoricalShipments();
+    } else if (inputSource === 'past-rfq') {
+      loadPastRFQBatches();
     }
-  }, [rfq.lineItems]);
-
-  const handleInputChange = (field: keyof RFQRow, value: any) => {
-    setRfq(prev => ({ ...prev, [field]: value }));
+  }, [inputSource, customerFilter, dateRangeFilter, carrierFilter]);
+  
+  const loadHistoricalShipments = async () => {
+    try {
+      let query = supabase.from('Shipments').select('*');
+      
+      if (customerFilter) {
+        query = query.eq('Customer', customerFilter);
+      }
+      
+      if (dateRangeFilter.start) {
+        query = query.gte('Scheduled Pickup Date', dateRangeFilter.start);
+      }
+      
+      if (dateRangeFilter.end) {
+        query = query.lte('Scheduled Pickup Date', dateRangeFilter.end);
+      }
+      
+      if (carrierFilter) {
+        query = query.or(`Booked Carrier.eq.${carrierFilter},Quoted Carrier.eq.${carrierFilter}`);
+      }
+      
+      const { data, error } = await query.order('Scheduled Pickup Date', { ascending: false }).limit(100);
+      
+      if (error) {
+        console.error('Error loading historical shipments:', error);
+        return;
+      }
+      
+      // Transform to our internal format
+      const shipments: HistoricalShipment[] = data.map(s => ({
+        id: s['Invoice #'],
+        customer_name: s.Customer || '',
+        origin_zip: s.Zip || '',
+        destination_zip: s.Zip_1 || '',
+        pallets: s['Tot Packages'] || 1,
+        weight: parseInt(s['Tot Weight']?.replace(/[^\d]/g, '') || '0'),
+        carrier_name: s['Booked Carrier'] || s['Quoted Carrier'],
+        quoted_rate: parseFloat(s.Revenue?.replace(/[^\d.]/g, '') || '0'),
+        shipment_date: s['Scheduled Pickup Date'] || ''
+      }));
+      
+      setHistoricalShipments(shipments);
+    } catch (error) {
+      console.error('Failed to load historical shipments:', error);
+    }
   };
-
-  const handleLineItemChange = (index: number, field: keyof LineItemData, value: any) => {
-    setRfq(prev => ({
-      ...prev,
-      lineItems: prev.lineItems?.map((item, i) => 
-        i === index ? { ...item, [field]: value } : item
-      ) || []
-    }));
+  
+  const loadPastRFQBatches = async () => {
+    try {
+      let query = supabase.from('mass_rfq_batches').select('id, batch_name, customer_name, created_at, shipment_count, rfq_data');
+      
+      if (customerFilter) {
+        query = query.eq('customer_name', customerFilter);
+      }
+      
+      if (dateRangeFilter.start) {
+        query = query.gte('created_at', dateRangeFilter.start);
+      }
+      
+      if (dateRangeFilter.end) {
+        query = query.lte('created_at', dateRangeFilter.end);
+      }
+      
+      const { data, error } = await query.order('created_at', { ascending: false }).limit(50);
+      
+      if (error) {
+        console.error('Error loading past RFQ batches:', error);
+        return;
+      }
+      
+      setPastRFQBatches(data);
+    } catch (error) {
+      console.error('Failed to load past RFQ batches:', error);
+    }
   };
-
+  
+  const loadPastRFQData = async (batchId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('mass_rfq_batches')
+        .select('rfq_data')
+        .eq('id', batchId)
+        .single();
+      
+      if (error) {
+        console.error('Error loading past RFQ data:', error);
+        return;
+      }
+      
+      if (data && data.rfq_data) {
+        setPastRFQData(data.rfq_data);
+      }
+    } catch (error) {
+      console.error('Failed to load past RFQ data:', error);
+    }
+  };
+  
+  const handleFileSelect = async (file: File) => {
+    setFileError('');
+    try {
+      console.log('📁 Processing file:', file.name);
+      let data: RFQRow[];
+      
+      if (file.name.endsWith('.csv')) {
+        data = await parseCSV(file, true);
+      } else {
+        data = await parseXLSX(file, true);
+      }
+      
+      setRfqData(data);
+      console.log(`✅ Parsed ${data.length} RFQ rows`);
+      
+      // Reset results when new file is loaded
+      rfqProcessor.clearResults();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to parse file';
+      setFileError(errorMessage);
+      console.error('❌ File parsing error:', error);
+    }
+  };
+  
+  const handleManualFormChange = (field: keyof ManualRFQFormData, value: any) => {
+    setManualFormData(prev => ({ ...prev, [field]: value }));
+  };
+  
   const addLineItem = () => {
     const newItem: LineItemData = {
-      id: (rfq.lineItems?.length || 0) + 1,
+      id: manualFormData.lineItems.length + 1,
       description: '',
       totalWeight: 0,
       freightClass: '70',
@@ -251,1330 +304,1342 @@ export const UnifiedRFQTool: React.FC<UnifiedRFQToolProps> = ({
       totalPieces: 1,
       stackable: false
     };
-
-    setRfq(prev => ({
+    setManualFormData(prev => ({
       ...prev,
-      lineItems: [...(prev.lineItems || []), newItem]
+      lineItems: [...prev.lineItems, newItem]
     }));
   };
-
+  
+  const updateLineItem = (index: number, updates: Partial<LineItemData>) => {
+    setManualFormData(prev => ({
+      ...prev,
+      lineItems: prev.lineItems.map((item, i) => 
+        i === index ? { ...item, ...updates } : item
+      )
+    }));
+  };
+  
   const removeLineItem = (index: number) => {
-    setRfq(prev => ({
+    setManualFormData(prev => ({
       ...prev,
-      lineItems: prev.lineItems?.filter((_, i) => i !== index) || []
+      lineItems: prev.lineItems.filter((_, i) => i !== index)
     }));
   };
-
-  const processRFQ = async () => {
-    try {
-      const result = await rfqProcessor.processSingleRFQ(rfq, {
-        selectedCarriers: {}, // Use all carriers for unified tool
-        pricingSettings,
-        selectedCustomer
-      });
-      console.log('RFQ processed:', result);
-    } catch (error) {
-      console.error('Failed to process RFQ:', error);
+  
+  const validateManualForm = (): string[] => {
+    return rfqProcessor.validateRFQ({
+      ...manualFormData,
+      accessorial: []
+    });
+  };
+  
+  const handleHistoricalShipmentSelect = (id: number, selected: boolean) => {
+    setSelectedHistoricalShipments(prev => {
+      if (selected) {
+        return [...prev, id];
+      } else {
+        return prev.filter(shipId => shipId !== id);
+      }
+    });
+  };
+  
+  const handleSelectAllHistoricalShipments = (selected: boolean) => {
+    if (selected) {
+      setSelectedHistoricalShipments(historicalShipments.map(s => s.id));
+    } else {
+      setSelectedHistoricalShipments([]);
     }
   };
-
-  const exportToTemplate = () => {
-    downloadProject44ExcelTemplate();
+  
+  const handlePastRFQBatchSelect = (batchId: string) => {
+    setSelectedPastRFQBatch(batchId);
+    loadPastRFQData(batchId);
   };
+  
+  const convertHistoricalShipmentsToRFQs = (): RFQRow[] => {
+    return selectedHistoricalShipments.map(id => {
+      const shipment = historicalShipments.find(s => s.id === id);
+      if (!shipment) return null;
+      
+      return {
+        fromDate: shipment.shipment_date || new Date().toISOString().split('T')[0],
+        fromZip: shipment.origin_zip,
+        toZip: shipment.destination_zip,
+        pallets: shipment.pallets,
+        grossWeight: shipment.weight,
+        isStackable: false,
+        isReefer: false,
+        accessorial: []
+      };
+    }).filter(Boolean) as RFQRow[];
+  };
+  
+  const convertManualFormToRFQ = (): RFQRow => {
+    return {
+      ...manualFormData,
+      accessorial: []
+    };
+  };
+  
+  const prepareRFQData = (): RFQRow[] => {
+    switch (inputSource) {
+      case 'csv':
+        return rfqData;
+      case 'manual':
+        return [convertManualFormToRFQ()];
+      case 'history':
+        return convertHistoricalShipmentsToRFQs();
+      case 'past-rfq':
+        return pastRFQData;
+      default:
+        return [];
+    }
+  };
+  
+  const getSelectedCarriers = () => {
+    if (carrierMode === 'single') {
+      // For single carrier mode, create an object with just the selected carrier
+      if (!selectedSingleCarrier) return {};
+      
+      return { [selectedSingleCarrier]: true };
+    } else {
+      // For multiple carrier mode, use the carrier management selection
+      return carrierManagement.selectedCarriers;
+    }
+  };
+  
+  const getCustomersForProcessing = (): string[] => {
+    switch (customerMode) {
+      case 'single':
+        return selectedCustomer ? [selectedCustomer] : [];
+      case 'all':
+        return []; // Empty array means all customers
+      case 'specific':
+        return specificCustomers;
+      default:
+        return selectedCustomer ? [selectedCustomer] : [];
+    }
+  };
+  
+  const processRFQs = async () => {
+    const data = prepareRFQData();
+    
+    if (data.length === 0) {
+      setFormError('No RFQ data to process');
+      return;
+    }
+    
+    // Validate data
+    if (inputSource === 'manual') {
+      const errors = validateManualForm();
+      if (errors.length > 0) {
+        setFormError(errors.join(', '));
+        return;
+      }
+    }
+    
+    const selectedCarriers = getSelectedCarriers();
+    const customers = getCustomersForProcessing();
+    
+    // If comparing with past RFQ, we need to do special processing
+    if (compareWithPastRFQ && inputSource === 'past-rfq') {
+      // TODO: Implement comparison logic
+      console.log('Comparing with past RFQ...');
+    } else {
+      // Standard processing
+      await rfqProcessor.processMultipleRFQs(data, {
+        selectedCarriers,
+        pricingSettings,
+        selectedCustomer: customers[0] || '' // Use first customer or empty string
+      });
+    }
+  };
+  
+  const handlePriceUpdate = (resultIndex: number, quoteId: number, newPrice: number) => {
+    rfqProcessor.updateQuotePricing(
+      resultIndex, 
+      quoteId, 
+      newPrice, 
+      { 
+        pricingSettings, 
+        selectedCustomer 
+      }
+    );
+  };
+  
+  const exportResults = () => {
+    if (rfqProcessor.results.length === 0) return;
 
-  const renderBasicInfo = () => (
-    <div className="space-y-6">
-      {/* Smart Routing Control */}
-      <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-6">
-        <div className="flex items-center space-x-3 mb-4">
-          <Target className="h-5 w-5 text-blue-600" />
-          <h3 className="text-lg font-semibold text-blue-900">Smart Routing Control</h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-blue-50 transition-colors">
-              <input
-                type="radio"
-                name="isReefer"
-                checked={!rfq.isReefer}
-                onChange={() => handleInputChange('isReefer', false)}
-                className="h-4 w-4 text-blue-600"
-              />
-              <div>
-                <div className="font-medium text-gray-900">Project44 Networks</div>
-                <div className="text-sm text-gray-600">Standard LTL & Volume LTL carriers</div>
-              </div>
-            </label>
-          </div>
-          <div>
-            <label className="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-green-50 transition-colors">
-              <input
-                type="radio"
-                name="isReefer"
-                checked={rfq.isReefer}
-                onChange={() => handleInputChange('isReefer', true)}
-                className="h-4 w-4 text-green-600"
-              />
-              <div>
-                <div className="font-medium text-gray-900">FreshX Reefer Network</div>
-                <div className="text-sm text-gray-600">Temperature-controlled specialists</div>
-              </div>
-            </label>
-          </div>
-        </div>
-      </div>
+    const exportData = rfqProcessor.results.flatMap(result => {
+      const smartResult = result as any;
+      
+      return result.quotes.map(quote => {
+        const quoteWithPricing = quote as QuoteWithPricing;
+        const quoteWithMode = quote as any;
+        
+        return {
+          'RFQ Number': result.rowIndex + 1,
+          'Routing Decision': smartResult.quotingDecision?.replace('project44-', '').toUpperCase() || 'STANDARD',
+          'Quote Type': quoteWithMode.quoteModeLabel || 'Standard LTL',
+          'Routing Reason': smartResult.quotingReason || 'Standard LTL processing',
+          'Origin ZIP': result.originalData.fromZip,
+          'Destination ZIP': result.originalData.toZip,
+          'Pallets': result.originalData.pallets,
+          'Weight (lbs)': result.originalData.grossWeight,
+          'Is Reefer': result.originalData.isReefer ? 'TRUE' : 'FALSE',
+          'Temperature': result.originalData.temperature || 'AMBIENT',
+          'Pickup Date': result.originalData.fromDate,
+          'Carrier Name': quote.carrier.name,
+          'Carrier SCAC': quote.carrier.scac || '',
+          'Carrier MC': quote.carrier.mcNumber || '',
+          'Service Level': quote.serviceLevel?.description || quote.serviceLevel?.code || '',
+          'Transit Days': quote.transitDays || '',
+          'Carrier Rate': quoteWithPricing.carrierTotalRate || 0,
+          'Customer Price': quoteWithPricing.customerPrice || 0,
+          'Profit Margin': quoteWithPricing.profit || 0,
+          'Profit %': quoteWithPricing.carrierTotalRate > 0 ? 
+            ((quoteWithPricing.profit / quoteWithPricing.carrierTotalRate) * 100).toFixed(1) + '%' : '0%',
+          'Processing Status': result.status.toUpperCase(),
+          'Error Message': result.error || ''
+        };
+      });
+    });
 
-      {/* Core Shipment Details */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <Calendar className="inline h-4 w-4 mr-1" />
-            Pickup Date *
-          </label>
-          <input
-            type="date"
-            value={rfq.fromDate}
-            onChange={(e) => handleInputChange('fromDate', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <MapPin className="inline h-4 w-4 mr-1" />
-            Origin ZIP *
-          </label>
-          <input
-            type="text"
-            value={rfq.fromZip}
-            onChange={(e) => handleInputChange('fromZip', e.target.value)}
-            placeholder="60607"
-            maxLength={5}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <MapPin className="inline h-4 w-4 mr-1" />
-            Destination ZIP *
-          </label>
-          <input
-            type="text"
-            value={rfq.toZip}
-            onChange={(e) => handleInputChange('toZip', e.target.value)}
-            placeholder="30033"
-            maxLength={5}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <Package className="inline h-4 w-4 mr-1" />
-            Pallets *
-          </label>
-          <input
-            type="number"
-            value={rfq.pallets}
-            onChange={(e) => handleInputChange('pallets', parseInt(e.target.value) || 1)}
-            min="1"
-            max="100"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <Weight className="inline h-4 w-4 mr-1" />
-            Total Weight (lbs) *
-          </label>
-          <input
-            type="number"
-            value={rfq.grossWeight}
-            onChange={(e) => handleInputChange('grossWeight', parseInt(e.target.value) || 1000)}
-            min="1"
-            max="100000"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required
-          />
-          {rfq.lineItems && rfq.lineItems.length > 0 && (
-            <div className="text-xs text-gray-500 mt-1">
-              Auto-calculated from line items: {rfq.lineItems.reduce((sum, item) => sum + item.totalWeight, 0)} lbs
-            </div>
-          )}
-        </div>
-
-        <div>
-          <label className="flex items-center space-x-2 mt-6">
-            <input
-              type="checkbox"
-              checked={rfq.isStackable}
-              onChange={(e) => handleInputChange('isStackable', e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <span className="text-sm font-medium text-gray-700">Stackable</span>
-          </label>
-        </div>
-      </div>
-
-      {/* Temperature & Commodity (for reefer shipments) */}
-      {rfq.isReefer && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-green-900 mb-4">
-            <Thermometer className="inline h-5 w-5 mr-2" />
-            Reefer Requirements
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Temperature</label>
-              <select
-                value={rfq.temperature || 'AMBIENT'}
-                onChange={(e) => handleInputChange('temperature', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              >
-                {TEMPERATURE_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Commodity</label>
-              <select
-                value={rfq.commodity || ''}
-                onChange={(e) => handleInputChange('commodity', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              >
-                <option value="">Select commodity...</option>
-                {COMMODITY_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="flex items-center space-x-2 mt-6">
-                <input
-                  type="checkbox"
-                  checked={rfq.isFoodGrade || false}
-                  onChange={(e) => handleInputChange('isFoodGrade', e.target.checked)}
-                  className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
-                />
-                <span className="text-sm font-medium text-gray-700">Food Grade</span>
-              </label>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Freight Classification */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Freight Class</label>
-          <select
-            value={rfq.freightClass || '70'}
-            onChange={(e) => handleInputChange('freightClass', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            {FREIGHT_CLASS_OPTIONS.map(option => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">NMFC Code</label>
-          <input
-            type="text"
-            value={rfq.nmfcCode || ''}
-            onChange={(e) => handleInputChange('nmfcCode', e.target.value)}
-            placeholder="123456"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Package Type</label>
-          <select
-            value={rfq.packageType || 'PLT'}
-            onChange={(e) => handleInputChange('packageType', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            {PACKAGE_TYPE_OPTIONS.map(option => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Total Packages</label>
-          <input
-            type="number"
-            value={rfq.totalPackages || rfq.pallets}
-            onChange={(e) => handleInputChange('totalPackages', parseInt(e.target.value) || 1)}
-            min="1"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-      </div>
-
-      {/* Commodity Description */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          <FileText className="inline h-4 w-4 mr-1" />
-          Commodity Description
-        </label>
-        <textarea
-          value={rfq.commodityDescription || ''}
-          onChange={(e) => handleInputChange('commodityDescription', e.target.value)}
-          placeholder="Describe the goods being shipped..."
-          rows={3}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
-      </div>
-
-      {/* Value & Insurance */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <DollarSign className="inline h-4 w-4 mr-1" />
-            Total Value ($)
-          </label>
-          <input
-            type="number"
-            value={rfq.totalValue || ''}
-            onChange={(e) => handleInputChange('totalValue', parseFloat(e.target.value) || undefined)}
-            min="0"
-            step="0.01"
-            placeholder="5000.00"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <Shield className="inline h-4 w-4 mr-1" />
-            Insurance Amount ($)
-          </label>
-          <input
-            type="number"
-            value={rfq.insuranceAmount || ''}
-            onChange={(e) => handleInputChange('insuranceAmount', parseFloat(e.target.value) || undefined)}
-            min="0"
-            step="0.01"
-            placeholder="1000.00"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderLineItems = () => (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900">
-            <Layers className="inline h-5 w-5 mr-2" />
-            Line Items
-          </h3>
-          <p className="text-sm text-gray-600">Define individual items with specific dimensions and properties</p>
-        </div>
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Smart Quoting Results');
+    
+    // Set column widths for better readability
+    const colWidths = [
+      { wch: 12 }, // RFQ Number
+      { wch: 15 }, // Routing Decision
+      { wch: 15 }, // Quote Type
+      { wch: 40 }, // Routing Reason
+      { wch: 12 }, // Origin ZIP
+      { wch: 12 }, // Destination ZIP
+      { wch: 10 }, // Pallets
+      { wch: 12 }, // Weight
+      { wch: 10 }, // Is Reefer
+      { wch: 12 }, // Temperature
+      { wch: 12 }, // Pickup Date
+      { wch: 25 }, // Carrier Name
+      { wch: 12 }, // Carrier SCAC
+      { wch: 12 }, // Carrier MC
+      { wch: 20 }, // Service Level
+      { wch: 12 }, // Transit Days
+      { wch: 15 }, // Carrier Rate
+      { wch: 15 }, // Customer Price
+      { wch: 15 }, // Profit Margin
+      { wch: 10 }, // Profit %
+      { wch: 15 }, // Processing Status
+      { wch: 30 }  // Error Message
+    ];
+    
+    ws['!cols'] = colWidths;
+    
+    const fileName = `freight-quotes-${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+  
+  // Render input source selection
+  const renderInputSourceSelection = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Input Source</h3>
+      
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <button
-          onClick={addLineItem}
-          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          onClick={() => setInputSource('csv')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            inputSource === 'csv' 
+              ? 'border-blue-500 bg-blue-50' 
+              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+          }`}
         >
-          <Plus className="h-4 w-4" />
-          <span>Add Item</span>
+          <Upload className={`h-8 w-8 mb-2 ${inputSource === 'csv' ? 'text-blue-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${inputSource === 'csv' ? 'text-blue-700' : 'text-gray-700'}`}>
+            Upload CSV/Excel
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Import from file</span>
+        </button>
+        
+        <button
+          onClick={() => setInputSource('manual')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            inputSource === 'manual' 
+              ? 'border-green-500 bg-green-50' 
+              : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
+          }`}
+        >
+          <Plus className={`h-8 w-8 mb-2 ${inputSource === 'manual' ? 'text-green-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${inputSource === 'manual' ? 'text-green-700' : 'text-gray-700'}`}>
+            Manual Entry
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Create single RFQ</span>
+        </button>
+        
+        <button
+          onClick={() => setInputSource('history')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            inputSource === 'history' 
+              ? 'border-purple-500 bg-purple-50' 
+              : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50'
+          }`}
+        >
+          <History className={`h-8 w-8 mb-2 ${inputSource === 'history' ? 'text-purple-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${inputSource === 'history' ? 'text-purple-700' : 'text-gray-700'}`}>
+            Shipment History
+          </span>
+          <span className="text-xs text-gray-500 mt-1">From database</span>
+        </button>
+        
+        <button
+          onClick={() => setInputSource('past-rfq')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            inputSource === 'past-rfq' 
+              ? 'border-orange-500 bg-orange-50' 
+              : 'border-gray-200 hover:border-orange-300 hover:bg-orange-50'
+          }`}
+        >
+          <FileText className={`h-8 w-8 mb-2 ${inputSource === 'past-rfq' ? 'text-orange-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${inputSource === 'past-rfq' ? 'text-orange-700' : 'text-gray-700'}`}>
+            Past RFQ Batch
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Reuse previous RFQs</span>
         </button>
       </div>
-
-      {rfq.lineItems && rfq.lineItems.length > 0 ? (
-        <div className="space-y-4">
-          {rfq.lineItems.map((item, index) => (
-            <div key={item.id} className="bg-gray-50 border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h4 className="text-md font-semibold text-gray-900">Item {index + 1}</h4>
-                <button
-                  onClick={() => removeLineItem(index)}
-                  className="text-red-600 hover:text-red-700 transition-colors"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div className="md:col-span-2 lg:col-span-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Description *</label>
-                  <input
-                    type="text"
-                    value={item.description || ''}
-                    onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
-                    placeholder="Electronics Equipment"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Weight (lbs) *</label>
-                  <input
-                    type="number"
-                    value={item.totalWeight}
-                    onChange={(e) => handleLineItemChange(index, 'totalWeight', parseFloat(e.target.value) || 0)}
-                    min="0"
-                    step="0.1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Freight Class *</label>
-                  <select
-                    value={item.freightClass}
-                    onChange={(e) => handleLineItemChange(index, 'freightClass', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  >
-                    {FREIGHT_CLASS_OPTIONS.map(option => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Length (in) *</label>
-                  <input
-                    type="number"
-                    value={item.packageLength}
-                    onChange={(e) => handleLineItemChange(index, 'packageLength', parseFloat(e.target.value) || 0)}
-                    min="0"
-                    step="0.1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Width (in) *</label>
-                  <input
-                    type="number"
-                    value={item.packageWidth}
-                    onChange={(e) => handleLineItemChange(index, 'packageWidth', parseFloat(e.target.value) || 0)}
-                    min="0"
-                    step="0.1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Height (in) *</label>
-                  <input
-                    type="number"
-                    value={item.packageHeight}
-                    onChange={(e) => handleLineItemChange(index, 'packageHeight', parseFloat(e.target.value) || 0)}
-                    min="0"
-                    step="0.1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Package Type</label>
-                  <select
-                    value={item.packageType || 'PLT'}
-                    onChange={(e) => handleLineItemChange(index, 'packageType', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    {PACKAGE_TYPE_OPTIONS.map(option => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Packages</label>
-                  <input
-                    type="number"
-                    value={item.totalPackages || 1}
-                    onChange={(e) => handleLineItemChange(index, 'totalPackages', parseInt(e.target.value) || 1)}
-                    min="1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Value ($)</label>
-                  <input
-                    type="number"
-                    value={item.totalValue || ''}
-                    onChange={(e) => handleLineItemChange(index, 'totalValue', parseFloat(e.target.value) || undefined)}
-                    min="0"
-                    step="0.01"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div className="flex items-center space-x-4 mt-6">
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={item.stackable || false}
-                      onChange={(e) => handleLineItemChange(index, 'stackable', e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <span className="text-sm font-medium text-gray-700">Stackable</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="text-center py-8 bg-gray-50 border border-gray-200 rounded-lg">
-          <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No Line Items</h3>
-          <p className="text-gray-600 mb-4">Add line items to specify individual item dimensions and properties</p>
-          <button
-            onClick={addLineItem}
-            className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Add First Item</span>
-          </button>
+    </div>
+  );
+  
+  // Render carrier mode selection
+  const renderCarrierModeSelection = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Carrier Selection Mode</h3>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <button
+          onClick={() => setCarrierMode('single')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            carrierMode === 'single' 
+              ? 'border-blue-500 bg-blue-50' 
+              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+          }`}
+        >
+          <Truck className={`h-8 w-8 mb-2 ${carrierMode === 'single' ? 'text-blue-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${carrierMode === 'single' ? 'text-blue-700' : 'text-gray-700'}`}>
+            Single Carrier
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Quote with one carrier</span>
+        </button>
+        
+        <button
+          onClick={() => setCarrierMode('multiple')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            carrierMode === 'multiple' 
+              ? 'border-green-500 bg-green-50' 
+              : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
+          }`}
+        >
+          <Users className={`h-8 w-8 mb-2 ${carrierMode === 'multiple' ? 'text-green-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${carrierMode === 'multiple' ? 'text-green-700' : 'text-gray-700'}`}>
+            Multiple Carriers
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Compare across carriers</span>
+        </button>
+      </div>
+    </div>
+  );
+  
+  // Render customer mode selection
+  const renderCustomerModeSelection = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Customer Selection Mode</h3>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <button
+          onClick={() => setCustomerMode('single')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            customerMode === 'single' 
+              ? 'border-blue-500 bg-blue-50' 
+              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+          }`}
+        >
+          <Building2 className={`h-8 w-8 mb-2 ${customerMode === 'single' ? 'text-blue-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${customerMode === 'single' ? 'text-blue-700' : 'text-gray-700'}`}>
+            Single Customer
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Apply one customer's margins</span>
+        </button>
+        
+        <button
+          onClick={() => setCustomerMode('all')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            customerMode === 'all' 
+              ? 'border-green-500 bg-green-50' 
+              : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
+          }`}
+        >
+          <Users className={`h-8 w-8 mb-2 ${customerMode === 'all' ? 'text-green-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${customerMode === 'all' ? 'text-green-700' : 'text-gray-700'}`}>
+            All Customers
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Analyze entire customer base</span>
+        </button>
+        
+        <button
+          onClick={() => setCustomerMode('specific')}
+          className={`flex flex-col items-center p-4 rounded-lg border-2 transition-all ${
+            customerMode === 'specific' 
+              ? 'border-purple-500 bg-purple-50' 
+              : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50'
+          }`}
+        >
+          <Filter className={`h-8 w-8 mb-2 ${customerMode === 'specific' ? 'text-purple-500' : 'text-gray-500'}`} />
+          <span className={`font-medium ${customerMode === 'specific' ? 'text-purple-700' : 'text-gray-700'}`}>
+            Specific Customers
+          </span>
+          <span className="text-xs text-gray-500 mt-1">Select multiple customers</span>
+        </button>
+      </div>
+      
+      {inputSource === 'past-rfq' && (
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={compareWithPastRFQ}
+              onChange={(e) => setCompareWithPastRFQ(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm font-medium text-gray-700">
+              Compare with past RFQ to determine new customer margins
+            </span>
+          </label>
+          <p className="text-xs text-gray-500 mt-1 ml-6">
+            This will calculate new margins needed to maintain the same revenue as the past RFQ
+          </p>
         </div>
       )}
     </div>
   );
-
-  const renderAddresses = () => (
-    <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">
-        <MapPin className="inline h-5 w-5 mr-2" />
-        Address Information
-      </h3>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Origin Address */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h4 className="text-md font-semibold text-blue-900 mb-4">Origin Address</h4>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Address Lines</label>
-              <textarea
-                value={rfq.originAddressLines?.join('\n') || ''}
-                onChange={(e) => handleInputChange('originAddressLines', e.target.value.split('\n').filter(Boolean))}
-                placeholder="123 Main Street&#10;Suite 100"
-                rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">City</label>
-                <input
-                  type="text"
-                  value={rfq.originCity || ''}
-                  onChange={(e) => handleInputChange('originCity', e.target.value)}
-                  placeholder="Chicago"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">State</label>
-                <input
-                  type="text"
-                  value={rfq.originState || ''}
-                  onChange={(e) => handleInputChange('originState', e.target.value)}
-                  placeholder="IL"
-                  maxLength={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Country</label>
-              <select
-                value={rfq.originCountry || 'US'}
-                onChange={(e) => handleInputChange('originCountry', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                {COUNTRY_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </div>
+  
+  // Render CSV upload input
+  const renderCSVUpload = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Upload RFQ Data</h3>
+      
+      <FileUpload
+        onFileSelect={handleFileSelect}
+        error={fileError}
+        isProcessing={rfqProcessor.processingStatus.isProcessing}
+      />
+      
+      {rfqData.length > 0 && (
+        <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="flex items-center space-x-2 text-green-800">
+            <CheckCircle className="h-5 w-5" />
+            <span className="font-medium">
+              {rfqData.length} RFQ{rfqData.length !== 1 ? 's' : ''} loaded successfully
+            </span>
           </div>
+          <p className="text-sm text-green-700 mt-1 ml-7">
+            Ready for processing with smart routing
+          </p>
         </div>
-
-        {/* Destination Address */}
-        <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-          <h4 className="text-md font-semibold text-green-900 mb-4">Destination Address</h4>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Address Lines</label>
-              <textarea
-                value={rfq.destinationAddressLines?.join('\n') || ''}
-                onChange={(e) => handleInputChange('destinationAddressLines', e.target.value.split('\n').filter(Boolean))}
-                placeholder="456 Oak Avenue&#10;Building B"
-                rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">City</label>
-                <input
-                  type="text"
-                  value={rfq.destinationCity || ''}
-                  onChange={(e) => handleInputChange('destinationCity', e.target.value)}
-                  placeholder="Atlanta"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">State</label>
-                <input
-                  type="text"
-                  value={rfq.destinationState || ''}
-                  onChange={(e) => handleInputChange('destinationState', e.target.value)}
-                  placeholder="GA"
-                  maxLength={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Country</label>
-              <select
-                value={rfq.destinationCountry || 'US'}
-                onChange={(e) => handleInputChange('destinationCountry', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              >
-                {COUNTRY_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
-
-  const renderContacts = () => (
-    <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">
-        <User className="inline h-5 w-5 mr-2" />
-        Contact Information
-      </h3>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Pickup Contact */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h4 className="text-md font-semibold text-blue-900 mb-4">Pickup Contact</h4>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Building2 className="inline h-4 w-4 mr-1" />
-                Company Name
-              </label>
-              <input
-                type="text"
-                value={rfq.pickupCompanyName || ''}
-                onChange={(e) => handleInputChange('pickupCompanyName', e.target.value)}
-                placeholder="Shipper Company Inc"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <User className="inline h-4 w-4 mr-1" />
-                Contact Name
-              </label>
-              <input
-                type="text"
-                value={rfq.pickupContactName || ''}
-                onChange={(e) => handleInputChange('pickupContactName', e.target.value)}
-                placeholder="John Smith"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Phone className="inline h-4 w-4 mr-1" />
-                Phone Number
-              </label>
-              <input
-                type="tel"
-                value={rfq.pickupContactPhone || ''}
-                onChange={(e) => handleInputChange('pickupContactPhone', e.target.value)}
-                placeholder="555-123-4567"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Mail className="inline h-4 w-4 mr-1" />
-                Email Address
-              </label>
-              <input
-                type="email"
-                value={rfq.pickupContactEmail || ''}
-                onChange={(e) => handleInputChange('pickupContactEmail', e.target.value)}
-                placeholder="john@company.com"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Delivery Contact */}
-        <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-          <h4 className="text-md font-semibold text-green-900 mb-4">Delivery Contact</h4>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Building2 className="inline h-4 w-4 mr-1" />
-                Company Name
-              </label>
-              <input
-                type="text"
-                value={rfq.deliveryCompanyName || ''}
-                onChange={(e) => handleInputChange('deliveryCompanyName', e.target.value)}
-                placeholder="Receiver Company Inc"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <User className="inline h-4 w-4 mr-1" />
-                Contact Name
-              </label>
-              <input
-                type="text"
-                value={rfq.deliveryContactName || ''}
-                onChange={(e) => handleInputChange('deliveryContactName', e.target.value)}
-                placeholder="Jane Doe"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Phone className="inline h-4 w-4 mr-1" />
-                Phone Number
-              </label>
-              <input
-                type="tel"
-                value={rfq.deliveryContactPhone || ''}
-                onChange={(e) => handleInputChange('deliveryContactPhone', e.target.value)}
-                placeholder="555-987-6543"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Mail className="inline h-4 w-4 mr-1" />
-                Email Address
-              </label>
-              <input
-                type="email"
-                value={rfq.deliveryContactEmail || ''}
-                onChange={(e) => handleInputChange('deliveryContactEmail', e.target.value)}
-                placeholder="jane@receiver.com"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderHazmat = () => (
-    <div className="space-y-6">
-      <div className="flex items-center space-x-3">
-        <AlertTriangle className="h-5 w-5 text-orange-600" />
-        <h3 className="text-lg font-semibold text-gray-900">Hazardous Materials</h3>
-      </div>
-
-      <div className="bg-orange-50 border border-orange-200 rounded-lg p-6">
-        <div className="flex items-center space-x-2 mb-4">
+  
+  // Render manual RFQ form
+  const renderManualRFQForm = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Create Manual RFQ</h3>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Pickup Date</label>
           <input
-            type="checkbox"
-            checked={rfq.hazmat || false}
-            onChange={(e) => handleInputChange('hazmat', e.target.checked)}
-            className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+            type="date"
+            value={manualFormData.fromDate}
+            onChange={(e) => handleManualFormChange('fromDate', e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
           />
-          <label className="text-sm font-medium text-gray-700">This shipment contains hazardous materials</label>
         </div>
-
-        {rfq.hazmat && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Hazard Class</label>
-                <input
-                  type="text"
-                  value={rfq.hazmatClass || ''}
-                  onChange={(e) => handleInputChange('hazmatClass', e.target.value)}
-                  placeholder="9"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">UN ID Number</label>
-                <input
-                  type="text"
-                  value={rfq.hazmatIdNumber || ''}
-                  onChange={(e) => handleInputChange('hazmatIdNumber', e.target.value)}
-                  placeholder="UN1234"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Pallets</label>
+          <input
+            type="number"
+            min="1"
+            max="100"
+            value={manualFormData.pallets}
+            onChange={(e) => handleManualFormChange('pallets', parseInt(e.target.value) || 1)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Origin ZIP</label>
+          <input
+            type="text"
+            value={manualFormData.fromZip}
+            onChange={(e) => handleManualFormChange('fromZip', e.target.value)}
+            placeholder="60607"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Destination ZIP</label>
+          <input
+            type="text"
+            value={manualFormData.toZip}
+            onChange={(e) => handleManualFormChange('toZip', e.target.value)}
+            placeholder="30033"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Gross Weight (lbs)</label>
+          <input
+            type="number"
+            min="1"
+            max="100000"
+            value={manualFormData.grossWeight}
+            onChange={(e) => handleManualFormChange('grossWeight', parseInt(e.target.value) || 1000)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Freight Class</label>
+          <input
+            type="text"
+            value={manualFormData.freightClass || ''}
+            onChange={(e) => handleManualFormChange('freightClass', e.target.value)}
+            placeholder="70"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+      
+      <div className="mt-4 space-y-3">
+        <div className="flex items-center space-x-4">
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={manualFormData.isStackable}
+              onChange={(e) => handleManualFormChange('isStackable', e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">Stackable</span>
+          </label>
+          
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={manualFormData.isReefer}
+              onChange={(e) => handleManualFormChange('isReefer', e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">Reefer (Route to FreshX)</span>
+          </label>
+        </div>
+        
+        {manualFormData.isReefer && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Packing Group</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
               <select
-                value={rfq.hazmatPackingGroup || 'III'}
-                onChange={(e) => handleInputChange('hazmatPackingGroup', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                value={manualFormData.temperature}
+                onChange={(e) => handleManualFormChange('temperature', e.target.value as any)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
               >
-                {HAZMAT_PACKING_GROUPS.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
+                <option value="AMBIENT">Ambient</option>
+                <option value="CHILLED">Chilled</option>
+                <option value="FROZEN">Frozen</option>
               </select>
             </div>
-
+            
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Proper Shipping Name</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Commodity</label>
               <input
                 type="text"
-                value={rfq.hazmatProperShippingName || ''}
-                onChange={(e) => handleInputChange('hazmatProperShippingName', e.target.value)}
-                placeholder="Dangerous Goods, N.O.S."
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                value={manualFormData.commodity || ''}
+                onChange={(e) => handleManualFormChange('commodity', e.target.value)}
+                placeholder="FOODSTUFFS"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
               />
-            </div>
-
-            {/* Emergency Contact */}
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <h4 className="text-md font-semibold text-red-900 mb-3">Emergency Contact</h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
-                  <input
-                    type="text"
-                    value={rfq.emergencyContactName || ''}
-                    onChange={(e) => handleInputChange('emergencyContactName', e.target.value)}
-                    placeholder="Emergency Contact"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
-                  <input
-                    type="tel"
-                    value={rfq.emergencyContactPhone || ''}
-                    onChange={(e) => handleInputChange('emergencyContactPhone', e.target.value)}
-                    placeholder="555-HELP-911"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Company</label>
-                  <input
-                    type="text"
-                    value={rfq.emergencyContactCompany || ''}
-                    onChange={(e) => handleInputChange('emergencyContactCompany', e.target.value)}
-                    placeholder="Emergency Response Corp"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
             </div>
           </div>
         )}
       </div>
-    </div>
-  );
-
-  const renderTiming = () => (
-    <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">
-        <Clock className="inline h-5 w-5 mr-2" />
-        Timing & Delivery Windows
-      </h3>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Pickup Window */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h4 className="text-md font-semibold text-blue-900 mb-4">Pickup Window</h4>
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
-                <input
-                  type="time"
-                  value={rfq.pickupStartTime || ''}
-                  onChange={(e) => handleInputChange('pickupStartTime', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
-                <input
-                  type="time"
-                  value={rfq.pickupEndTime || ''}
-                  onChange={(e) => handleInputChange('pickupEndTime', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Delivery Window */}
-        <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-          <h4 className="text-md font-semibold text-green-900 mb-4">Delivery Window</h4>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Delivery Date</label>
-              <input
-                type="date"
-                value={rfq.deliveryDate || ''}
-                onChange={(e) => handleInputChange('deliveryDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
-                <input
-                  type="time"
-                  value={rfq.deliveryStartTime || ''}
-                  onChange={(e) => handleInputChange('deliveryStartTime', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
-                <input
-                  type="time"
-                  value={rfq.deliveryEndTime || ''}
-                  onChange={(e) => handleInputChange('deliveryEndTime', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderApiSettings = () => (
-    <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">
-        <Settings className="inline h-5 w-5 mr-2" />
-        API Configuration
-      </h3>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Payment & Direction */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <CreditCard className="inline h-4 w-4 mr-1" />
-            Payment Terms
-          </label>
-          <select
-            value={rfq.paymentTerms || 'PREPAID'}
-            onChange={(e) => handleInputChange('paymentTerms', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+      
+      {/* Line Items */}
+      <div className="mt-4">
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-sm font-medium text-gray-700">Line Items (Optional)</h4>
+          <button
+            onClick={addLineItem}
+            className="flex items-center space-x-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
           >
-            {PAYMENT_TERMS_OPTIONS.map(option => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
+            <Plus className="h-3 w-3" />
+            <span>Add Item</span>
+          </button>
         </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Direction</label>
-          <select
-            value={rfq.direction || 'SHIPPER'}
-            onChange={(e) => handleInputChange('direction', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            {DIRECTION_OPTIONS.map(option => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <Globe className="inline h-4 w-4 mr-1" />
-            Currency
-          </label>
-          <select
-            value={rfq.preferredCurrency || 'USD'}
-            onChange={(e) => handleInputChange('preferredCurrency', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            {CURRENCY_OPTIONS.map(option => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Units */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <Ruler className="inline h-4 w-4 mr-1" />
-            Length Unit
-          </label>
-          <select
-            value={rfq.lengthUnit || 'IN'}
-            onChange={(e) => handleInputChange('lengthUnit', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="IN">Inches</option>
-            <option value="CM">Centimeters</option>
-            <option value="FT">Feet</option>
-            <option value="M">Meters</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <Weight className="inline h-4 w-4 mr-1" />
-            Weight Unit
-          </label>
-          <select
-            value={rfq.weightUnit || 'LB'}
-            onChange={(e) => handleInputChange('weightUnit', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="LB">Pounds</option>
-            <option value="KG">Kilograms</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">System of Measurement</label>
-          <select
-            value={rfq.preferredSystemOfMeasurement || 'IMPERIAL'}
-            onChange={(e) => handleInputChange('preferredSystemOfMeasurement', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="IMPERIAL">Imperial</option>
-            <option value="METRIC">Metric</option>
-          </select>
-        </div>
-
-        {/* API Timeout */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">API Timeout (seconds)</label>
-          <input
-            type="number"
-            value={rfq.apiTimeout || 30}
-            onChange={(e) => handleInputChange('apiTimeout', parseInt(e.target.value) || 30)}
-            min="10"
-            max="120"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        {/* Linear Feet (for VLTL) */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Total Linear Feet</label>
-          <input
-            type="number"
-            value={rfq.totalLinearFeet || ''}
-            onChange={(e) => handleInputChange('totalLinearFeet', parseInt(e.target.value) || undefined)}
-            min="0"
-            placeholder="Auto-calculated"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-          <div className="text-xs text-gray-500 mt-1">Leave blank for auto-calculation</div>
-        </div>
-      </div>
-
-      {/* API Configuration Checkboxes */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
-        <h4 className="text-md font-semibold text-gray-900 mb-4">API Configuration Options</h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={rfq.allowUnacceptedAccessorials ?? true}
-              onChange={(e) => handleInputChange('allowUnacceptedAccessorials', e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <span className="text-sm text-gray-700">Allow Unaccepted Accessorials</span>
-          </label>
-
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={rfq.fetchAllGuaranteed ?? true}
-              onChange={(e) => handleInputChange('fetchAllGuaranteed', e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <span className="text-sm text-gray-700">Fetch All Guaranteed</span>
-          </label>
-
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={rfq.fetchAllInsideDelivery ?? true}
-              onChange={(e) => handleInputChange('fetchAllInsideDelivery', e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <span className="text-sm text-gray-700">Fetch All Inside Delivery</span>
-          </label>
-
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={rfq.fetchAllServiceLevels ?? true}
-              onChange={(e) => handleInputChange('fetchAllServiceLevels', e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <span className="text-sm text-gray-700">Fetch All Service Levels</span>
-          </label>
-
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={rfq.enableUnitConversion ?? true}
-              onChange={(e) => handleInputChange('enableUnitConversion', e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <span className="text-sm text-gray-700">Enable Unit Conversion</span>
-          </label>
-
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={rfq.fallBackToDefaultAccountGroup ?? true}
-              onChange={(e) => handleInputChange('fallBackToDefaultAccountGroup', e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <span className="text-sm text-gray-700">Fallback to Default Account Group</span>
-          </label>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderAccessorials = () => (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900">
-            <Truck className="inline h-5 w-5 mr-2" />
-            Accessorial Services
-          </h3>
-          <p className="text-sm text-gray-600">Select additional services required for this shipment</p>
-        </div>
-        <div className="text-sm text-gray-500">
-          {Object.values(selectedAccessorials).filter(Boolean).length} selected
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {PROJECT44_ACCESSORIALS.map((accessorial) => (
-          <label
-            key={accessorial.code}
-            className="flex items-start space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
-          >
-            <input
-              type="checkbox"
-              checked={selectedAccessorials[accessorial.code] || false}
-              onChange={(e) => setSelectedAccessorials(prev => ({
-                ...prev,
-                [accessorial.code]: e.target.checked
-              }))}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-0.5"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-gray-900">{accessorial.code}</div>
-              <div className="text-xs text-gray-600">{accessorial.label}</div>
-            </div>
-          </label>
-        ))}
-      </div>
-
-      {Object.values(selectedAccessorials).filter(Boolean).length > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h4 className="text-sm font-semibold text-blue-900 mb-2">Selected Accessorials:</h4>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(selectedAccessorials)
-              .filter(([_, selected]) => selected)
-              .map(([code, _]) => {
-                const accessorial = PROJECT44_ACCESSORIALS.find(a => a.code === code);
-                return (
-                  <span
-                    key={code}
-                    className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+        
+        {manualFormData.lineItems.length === 0 ? (
+          <p className="text-xs text-gray-500">
+            No line items added. The system will use default dimensions based on pallets and weight.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {manualFormData.lineItems.map((item, index) => (
+              <div key={item.id} className="border border-gray-200 rounded p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-gray-700">Item {index + 1}</span>
+                  <button
+                    onClick={() => removeLineItem(index)}
+                    className="text-red-600 hover:text-red-700"
                   >
-                    {code}
-                  </span>
-                );
-              })}
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="col-span-2">
+                    <input
+                      type="text"
+                      value={item.description}
+                      onChange={(e) => updateLineItem(index, { description: e.target.value })}
+                      placeholder="Description"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                    />
+                  </div>
+                  
+                  <div>
+                    <input
+                      type="number"
+                      value={item.totalWeight}
+                      onChange={(e) => updateLineItem(index, { totalWeight: parseInt(e.target.value) || 0 })}
+                      placeholder="Weight (lbs)"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                    />
+                  </div>
+                  
+                  <div>
+                    <input
+                      type="text"
+                      value={item.freightClass}
+                      onChange={(e) => updateLineItem(index, { freightClass: e.target.value })}
+                      placeholder="Freight Class"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                    />
+                  </div>
+                  
+                  <div>
+                    <input
+                      type="number"
+                      value={item.packageLength}
+                      onChange={(e) => updateLineItem(index, { packageLength: parseInt(e.target.value) || 0 })}
+                      placeholder="Length (in)"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                    />
+                  </div>
+                  
+                  <div>
+                    <input
+                      type="number"
+                      value={item.packageWidth}
+                      onChange={(e) => updateLineItem(index, { packageWidth: parseInt(e.target.value) || 0 })}
+                      placeholder="Width (in)"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                    />
+                  </div>
+                  
+                  <div>
+                    <input
+                      type="number"
+                      value={item.packageHeight}
+                      onChange={(e) => updateLineItem(index, { packageHeight: parseInt(e.target.value) || 0 })}
+                      placeholder="Height (in)"
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="flex items-center space-x-1">
+                      <input
+                        type="checkbox"
+                        checked={item.stackable}
+                        onChange={(e) => updateLineItem(index, { stackable: e.target.checked })}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-3 w-3"
+                      />
+                      <span className="text-xs text-gray-700">Stackable</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      
+      {formError && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center space-x-2 text-red-700">
+            <AlertCircle className="h-4 w-4" />
+            <span className="text-sm">{formError}</span>
           </div>
         </div>
       )}
     </div>
   );
-
-  const sections = [
-    { id: 'basic', label: 'Basic Info', icon: Package },
-    { id: 'items', label: 'Line Items', icon: Layers },
-    { id: 'addresses', label: 'Addresses', icon: MapPin },
-    { id: 'contacts', label: 'Contacts', icon: User },
-    { id: 'hazmat', label: 'Hazmat', icon: AlertTriangle },
-    { id: 'timing', label: 'Timing', icon: Clock },
-    { id: 'api', label: 'API Settings', icon: Settings },
-    { id: 'accessorials', label: 'Accessorials', icon: Truck }
-  ];
-
+  
+  // Render historical shipments selection
+  const renderHistoricalShipments = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Historical Shipments</h3>
+      
+      {/* Filters */}
+      <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Customer</label>
+            <input
+              type="text"
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              placeholder="Filter by customer..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+            <input
+              type="date"
+              value={dateRangeFilter.start}
+              onChange={(e) => setDateRangeFilter(prev => ({ ...prev, start: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+            <input
+              type="date"
+              value={dateRangeFilter.end}
+              onChange={(e) => setDateRangeFilter(prev => ({ ...prev, end: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Carrier</label>
+            <input
+              type="text"
+              value={carrierFilter}
+              onChange={(e) => setCarrierFilter(e.target.value)}
+              placeholder="Filter by carrier..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+        
+        <div className="flex justify-end mt-3">
+          <button
+            onClick={() => {
+              setCustomerFilter('');
+              setDateRangeFilter({ start: '', end: '' });
+              setCarrierFilter('');
+            }}
+            className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+          >
+            Clear Filters
+          </button>
+        </div>
+      </div>
+      
+      {/* Shipments Table */}
+      <div className="overflow-x-auto border border-gray-200 rounded-lg">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedHistoricalShipments.length === historicalShipments.length && historicalShipments.length > 0}
+                    onChange={(e) => handleSelectAllHistoricalShipments(e.target.checked)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Select</span>
+                </label>
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Route</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Carrier</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rate</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {historicalShipments.map((shipment) => (
+              <tr key={shipment.id} className="hover:bg-gray-50">
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={selectedHistoricalShipments.includes(shipment.id)}
+                    onChange={(e) => handleHistoricalShipmentSelect(shipment.id, e.target.checked)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">{shipment.shipment_date}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900">{shipment.customer_name}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                  <div className="flex items-center space-x-1">
+                    <MapPin className="h-3 w-3 text-gray-400" />
+                    <span>{shipment.origin_zip} → {shipment.destination_zip}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                  <div className="flex items-center space-x-1">
+                    <Package className="h-3 w-3 text-gray-400" />
+                    <span>{shipment.pallets} pallets, {shipment.weight.toLocaleString()} lbs</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">{shipment.carrier_name || '—'}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                  {shipment.quoted_rate ? `$${shipment.quoted_rate.toLocaleString()}` : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      
+      {historicalShipments.length === 0 && (
+        <div className="text-center py-8 text-gray-500">
+          <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+          <p>No historical shipments found matching your filters</p>
+        </div>
+      )}
+      
+      {selectedHistoricalShipments.length > 0 && (
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center space-x-2 text-blue-800">
+            <CheckCircle className="h-4 w-4" />
+            <span className="font-medium">
+              {selectedHistoricalShipments.length} shipment{selectedHistoricalShipments.length !== 1 ? 's' : ''} selected
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+  
+  // Render past RFQ batches selection
+  const renderPastRFQBatches = () => (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Past RFQ Batch</h3>
+      
+      {/* Filters */}
+      <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Customer</label>
+            <input
+              type="text"
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              placeholder="Filter by customer..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+            <input
+              type="date"
+              value={dateRangeFilter.start}
+              onChange={(e) => setDateRangeFilter(prev => ({ ...prev, start: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+            <input
+              type="date"
+              value={dateRangeFilter.end}
+              onChange={(e) => setDateRangeFilter(prev => ({ ...prev, end: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+        
+        <div className="flex justify-end mt-3">
+          <button
+            onClick={() => {
+              setCustomerFilter('');
+              setDateRangeFilter({ start: '', end: '' });
+            }}
+            className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+          >
+            Clear Filters
+          </button>
+        </div>
+      </div>
+      
+      {/* RFQ Batches */}
+      <div className="space-y-3">
+        {pastRFQBatches.map((batch) => (
+          <div 
+            key={batch.id}
+            onClick={() => handlePastRFQBatchSelect(batch.id)}
+            className={`p-4 border rounded-lg cursor-pointer transition-all ${
+              selectedPastRFQBatch === batch.id
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-medium text-gray-900">{batch.batch_name}</h4>
+                <div className="text-sm text-gray-600 mt-1">
+                  {batch.customer_name && (
+                    <div className="flex items-center space-x-1">
+                      <Building2 className="h-3 w-3" />
+                      <span>{batch.customer_name}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center space-x-1 mt-1">
+                    <Calendar className="h-3 w-3" />
+                    <span>{new Date(batch.created_at).toLocaleDateString()}</span>
+                    <span className="mx-1">•</span>
+                    <Package className="h-3 w-3" />
+                    <span>{batch.shipment_count} shipments</span>
+                  </div>
+                </div>
+              </div>
+              
+              {selectedPastRFQBatch === batch.id && (
+                <CheckCircle className="h-5 w-5 text-blue-500" />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      {pastRFQBatches.length === 0 && (
+        <div className="text-center py-8 text-gray-500">
+          <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+          <p>No past RFQ batches found matching your filters</p>
+        </div>
+      )}
+      
+      {selectedPastRFQBatch && pastRFQData.length > 0 && (
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center space-x-2 text-blue-800">
+            <CheckCircle className="h-4 w-4" />
+            <span className="font-medium">
+              {pastRFQData.length} RFQ{pastRFQData.length !== 1 ? 's' : ''} loaded from selected batch
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+  
+  // Render carrier selection
+  const renderCarrierSelection = () => {
+    if (carrierMode === 'single') {
+      // Single carrier dropdown
+      return (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Carrier</h3>
+          
+          <div className="relative">
+            <select
+              value={selectedSingleCarrier}
+              onChange={(e) => setSelectedSingleCarrier(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 appearance-none"
+            >
+              <option value="">Select a carrier...</option>
+              {carrierManagement.carrierGroups.flatMap(group => 
+                group.carriers.map(carrier => (
+                  <option key={carrier.id} value={carrier.id}>
+                    {carrier.name} {carrier.scac ? `(${carrier.scac})` : ''}
+                  </option>
+                ))
+              )}
+            </select>
+            <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+              <Truck className="h-5 w-5 text-gray-400" />
+            </div>
+          </div>
+          
+          {!carrierManagement.carriersLoaded && (
+            <button
+              onClick={carrierManagement.loadCarriers}
+              disabled={carrierManagement.isLoadingCarriers}
+              className="mt-4 w-full flex items-center justify-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+            >
+              {carrierManagement.isLoadingCarriers ? (
+                <>
+                  <Loader className="h-4 w-4 animate-spin" />
+                  <span>Loading Carriers...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4" />
+                  <span>Load Carriers</span>
+                </>
+              )}
+            </button>
+          )}
+          
+          {selectedSingleCarrier && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center space-x-2 text-blue-800">
+                <CheckCircle className="h-4 w-4" />
+                <span className="font-medium">
+                  Carrier selected: {carrierManagement.carrierGroups.flatMap(g => g.carriers).find(c => c.id === selectedSingleCarrier)?.name}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    } else {
+      // Multiple carrier selection
+      return (
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h3 className="text-lg font-semibold text-gray-900">Select Multiple Carriers</h3>
+          </div>
+          
+          <div className="p-6">
+            {!carrierManagement.carriersLoaded && !carrierManagement.isLoadingCarriers && (
+              <button
+                onClick={carrierManagement.loadCarriers}
+                className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Truck className="h-5 w-5" />
+                <span>Load Carrier Network</span>
+              </button>
+            )}
+            
+            {(carrierManagement.carriersLoaded || carrierManagement.isLoadingCarriers) && (
+              <CarrierSelection
+                carrierGroups={carrierManagement.carrierGroups}
+                selectedCarriers={carrierManagement.selectedCarriers}
+                onToggleCarrier={carrierManagement.handleCarrierToggle}
+                onSelectAll={carrierManagement.handleSelectAll}
+                onSelectAllInGroup={carrierManagement.handleSelectAllInGroup}
+                isLoading={carrierManagement.isLoadingCarriers}
+              />
+            )}
+          </div>
+        </div>
+      );
+    }
+  };
+  
+  // Render customer selection
+  const renderCustomerSelection = () => {
+    if (customerMode === 'single') {
+      // Single customer selection
+      return (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Customer</h3>
+          
+          <CustomerSelection
+            selectedCustomer={selectedCustomer}
+            onCustomerChange={updateSelectedCustomer}
+          />
+        </div>
+      );
+    } else if (customerMode === 'specific') {
+      // Specific customers selection
+      return (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Specific Customers</h3>
+          
+          <div className="mb-4">
+            <div className="flex items-center space-x-2 mb-2">
+              <Search className="h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search customers..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            
+            <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-lg">
+              {/* This would be populated with customer checkboxes */}
+              <div className="p-4 text-center text-gray-500">
+                <p>Customer selection will be implemented here</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex justify-between">
+            <button className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+              Clear All
+            </button>
+            <button className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+              Select All
+            </button>
+          </div>
+        </div>
+      );
+    } else {
+      // All customers (no UI needed)
+      return (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">All Customers Selected</h3>
+          
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center space-x-2 text-blue-800">
+              <Users className="h-5 w-5" />
+              <div>
+                <p className="font-medium">Processing for all customers</p>
+                <p className="text-sm mt-1">
+                  The system will analyze all customers in the database and apply appropriate margins
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+  };
+  
+  // Render pricing settings
+  const renderPricingSettings = () => (
+    <div className="bg-white rounded-lg shadow-md overflow-hidden">
+      <PricingSettingsComponent
+        settings={pricingSettings}
+        onSettingsChange={updatePricingSettings}
+        selectedCustomer={selectedCustomer}
+        onCustomerChange={updateSelectedCustomer}
+      />
+    </div>
+  );
+  
+  // Render process button
+  const renderProcessButton = () => {
+    const isReadyToProcess = () => {
+      switch (inputSource) {
+        case 'csv':
+          return rfqData.length > 0;
+        case 'manual':
+          return manualFormData.fromZip && manualFormData.toZip;
+        case 'history':
+          return selectedHistoricalShipments.length > 0;
+        case 'past-rfq':
+          return pastRFQData.length > 0;
+        default:
+          return false;
+      }
+    };
+    
+    const getButtonText = () => {
+      if (rfqProcessor.processingStatus.isProcessing) {
+        return 'Processing...';
+      }
+      
+      const inputText = {
+        'csv': 'File',
+        'manual': 'Manual RFQ',
+        'history': 'Historical Shipments',
+        'past-rfq': 'Past RFQ Batch'
+      }[inputSource];
+      
+      return `Process ${inputText}`;
+    };
+    
+    return (
+      <div className="bg-white rounded-lg shadow-md p-6 text-center">
+        <button
+          onClick={processRFQs}
+          disabled={!isReadyToProcess() || rfqProcessor.processingStatus.isProcessing}
+          className={`inline-flex items-center space-x-3 px-8 py-4 font-semibold rounded-xl transition-all duration-200 text-lg shadow-lg ${
+            !isReadyToProcess() || rfqProcessor.processingStatus.isProcessing
+              ? 'bg-gray-400 cursor-not-allowed text-white'
+              : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white hover:shadow-xl'
+          }`}
+        >
+          {rfqProcessor.processingStatus.isProcessing ? (
+            <>
+              <Loader className="h-6 w-6 animate-spin" />
+              <span>Processing...</span>
+            </>
+          ) : (
+            <>
+              <Zap className="h-6 w-6" />
+              <span>{getButtonText()}</span>
+            </>
+          )}
+        </button>
+        
+        <p className="mt-3 text-sm text-gray-500">
+          {rfqProcessor.processingStatus.isProcessing
+            ? `Processing ${rfqProcessor.processingStatus.currentStep} of ${rfqProcessor.processingStatus.totalSteps}`
+            : 'Smart routing will automatically classify each shipment'}
+        </p>
+      </div>
+    );
+  };
+  
+  // Render results
+  const renderResults = () => {
+    if (rfqProcessor.results.length === 0) {
+      return null;
+    }
+    
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-xl font-semibold text-gray-900">Processing Results</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {rfqProcessor.results.length} RFQ{rfqProcessor.results.length !== 1 ? 's' : ''} processed with smart routing
+              </p>
+            </div>
+            
+            <button
+              onClick={exportResults}
+              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export Results</span>
+            </button>
+          </div>
+        </div>
+        
+        <ResultsTable
+          results={rfqProcessor.results}
+          onExport={exportResults}
+          onPriceUpdate={handlePriceUpdate}
+        />
+      </div>
+    );
+  };
+  
+  // Render comparison results (for past RFQ comparison)
+  const renderComparisonResults = () => {
+    if (!compareWithPastRFQ || inputSource !== 'past-rfq') {
+      return null;
+    }
+    
+    // This would show the comparison between past and current RFQs
+    return (
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Margin Impact Analysis</h3>
+        
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Original Revenue</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">New Cost</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Required Margin</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Change</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Impact</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              <tr className="hover:bg-gray-50">
+                <td className="px-6 py-4 text-sm font-medium text-gray-900">Sample Customer</td>
+                <td className="px-6 py-4 text-sm text-gray-900">$5,000</td>
+                <td className="px-6 py-4 text-sm text-gray-900">$4,200</td>
+                <td className="px-6 py-4 text-sm text-gray-900">16.0%</td>
+                <td className="px-6 py-4 text-sm">
+                  <div className="flex items-center space-x-1 text-green-600">
+                    <TrendingUp className="h-4 w-4" />
+                    <span>+1.0%</span>
+                  </div>
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-600">Modest margin improvement</td>
+              </tr>
+              <tr className="hover:bg-gray-50">
+                <td className="px-6 py-4 text-sm font-medium text-gray-900">Another Customer</td>
+                <td className="px-6 py-4 text-sm text-gray-900">$8,500</td>
+                <td className="px-6 py-4 text-sm text-gray-900">$7,500</td>
+                <td className="px-6 py-4 text-sm text-gray-900">11.8%</td>
+                <td className="px-6 py-4 text-sm">
+                  <div className="flex items-center space-x-1 text-red-600">
+                    <TrendingDown className="h-4 w-4" />
+                    <span>-3.2%</span>
+                  </div>
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-600">Margin compression - review pricing</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+  
   return (
     <div className="space-y-8">
       {/* Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-3 rounded-xl shadow-lg">
+            <Zap className="h-6 w-6 text-white" />
+          </div>
           <div>
-            <h2 className="text-2xl font-semibold text-gray-900 flex items-center space-x-3">
-              <Zap className="h-6 w-6 text-blue-600" />
-              <span>Unified RFQ Tool</span>
-            </h2>
-            <p className="text-gray-600 mt-1">Build comprehensive RFQs with all template options</p>
-          </div>
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={exportToTemplate}
-              className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              <Download className="h-4 w-4" />
-              <span>Download Template</span>
-            </button>
-            <button
-              onClick={processRFQ}
-              disabled={rfqProcessor.processingStatus.isProcessing}
-              className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
-            >
-              {rfqProcessor.processingStatus.isProcessing ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  <span>Processing...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="h-4 w-4" />
-                  <span>Process RFQ</span>
-                </>
-              )}
-            </button>
+            <h1 className="text-2xl font-bold text-gray-900">Unified Multi-Mode RFQ Tool</h1>
+            <p className="text-sm text-gray-600">
+              Comprehensive freight quoting across multiple modes, carriers, and customers
+            </p>
           </div>
         </div>
       </div>
-
-      {/* Section Navigation */}
-      <div className="bg-white rounded-lg shadow-md overflow-hidden">
-        <div className="border-b border-gray-200">
-          <nav className="flex space-x-8 px-6">
-            {sections.map((section) => {
-              const Icon = section.icon;
-              return (
-                <button
-                  key={section.id}
-                  onClick={() => setActiveSection(section.id as any)}
-                  className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                    activeSection === section.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{section.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="p-6">
-          {activeSection === 'basic' && renderBasicInfo()}
-          {activeSection === 'items' && renderLineItems()}
-          {activeSection === 'addresses' && renderAddresses()}
-          {activeSection === 'contacts' && renderContacts()}
-          {activeSection === 'hazmat' && renderHazmat()}
-          {activeSection === 'timing' && renderTiming()}
-          {activeSection === 'api' && renderApiSettings()}
-          {activeSection === 'accessorials' && renderAccessorials()}
-        </div>
+      
+      {/* Configuration Section */}
+      <div className="space-y-6">
+        {/* Step 1: Input Source */}
+        {renderInputSourceSelection()}
+        
+        {/* Step 2: Input-specific UI */}
+        {inputSource === 'csv' && renderCSVUpload()}
+        {inputSource === 'manual' && renderManualRFQForm()}
+        {inputSource === 'history' && renderHistoricalShipments()}
+        {inputSource === 'past-rfq' && renderPastRFQBatches()}
+        
+        {/* Step 3: Carrier Mode */}
+        {renderCarrierModeSelection()}
+        
+        {/* Step 4: Carrier Selection */}
+        {renderCarrierSelection()}
+        
+        {/* Step 5: Customer Mode */}
+        {renderCustomerModeSelection()}
+        
+        {/* Step 6: Customer Selection */}
+        {renderCustomerSelection()}
+        
+        {/* Step 7: Pricing Settings */}
+        {renderPricingSettings()}
+        
+        {/* Step 8: Process Button */}
+        {renderProcessButton()}
       </div>
-
-      {/* Pricing Settings */}
-      <PricingSettingsComponent
-        settings={pricingSettings}
-        onSettingsChange={setPricingSettings}
-        selectedCustomer={selectedCustomer}
-        onCustomerChange={setSelectedCustomer}
-        showAsCard={true}
-      />
-
-      {/* Processing Status */}
-      {(rfqProcessor.processingStatus.isProcessing || rfqProcessor.results.length > 0) && (
-        <ProcessingStatus
-          total={1}
-          completed={rfqProcessor.processingStatus.isProcessing ? 0 : 1}
-          success={rfqProcessor.results.filter(r => r.status === 'success').length}
-          errors={rfqProcessor.results.filter(r => r.status === 'error').length}
-          isProcessing={rfqProcessor.processingStatus.isProcessing}
-          currentCarrier={rfqProcessor.processingStatus.currentItem}
-        />
-      )}
-
-      {/* Results */}
-      {rfqProcessor.results.length > 0 && (
-        <ResultsTable
-          results={rfqProcessor.results}
-          onExport={() => {}}
-          onPriceUpdate={(resultIndex, quoteId, newPrice) => 
-            rfqProcessor.updateQuotePricing(resultIndex, quoteId, newPrice, { pricingSettings, selectedCustomer })
-          }
-        />
-      )}
+      
+      {/* Results Section */}
+      {renderResults()}
+      
+      {/* Comparison Results (for past RFQ comparison) */}
+      {renderComparisonResults()}
     </div>
   );
 };
