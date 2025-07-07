@@ -2,49 +2,40 @@ import React, { useState, useEffect } from 'react';
 import { 
   Calculator, 
   TrendingUp, 
-  TrendingDown, 
   Users, 
+  Building2, 
+  DollarSign, 
   Target, 
   AlertTriangle, 
   CheckCircle, 
-  BarChart3, 
-  DollarSign, 
-  Truck, 
-  Award, 
-  Clock, 
-  MapPin, 
-  Package, 
-  RefreshCw, 
-  Download, 
-  Eye, 
-  Plus, 
-  Minus, 
-  ArrowUp, 
-  ArrowDown, 
-  Activity, 
-  Zap, 
-  Shield, 
-  Star, 
-  Building2, 
-  Globe, 
-  Layers, 
-  Database,
-  Loader,
+  Loader, 
+  RefreshCw,
+  BarChart3,
+  Calendar,
+  Clock,
+  Award,
+  Zap,
+  Brain,
+  Truck,
+  Plus,
   Search,
   Filter,
-  ChevronDown,
-  ChevronUp,
+  Download,
+  Play,
+  Pause,
+  Settings,
   Info,
-  Lightbulb,
-  Brain,
-  Gauge
+  TrendingDown,
+  Star,
+  Shield,
+  Activity
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
-import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { formatCurrency } from '../utils/pricingCalculator';
+import { Project44APIClient } from '../utils/apiClient';
+import { RFQRow } from '../types';
 
-// Interfaces for real data structures
-interface ShipmentData {
+interface Shipment {
   "Invoice #": number;
   "Customer"?: string;
   "Branch"?: string;
@@ -59,34 +50,18 @@ interface ShipmentData {
   "State_1"?: string;
   "Zip_1"?: string;
   "Sales Rep"?: string;
-  "Account Rep"?: string;
-  "Dispatch Rep"?: string;
-  "Quote Created By"?: string;
-  "Line Items"?: number;
-  "Tot Packages"?: number;
-  "Tot Weight"?: string;
-  "Max Freight Class"?: string;
-  "Max Length"?: string;
-  "Max Width"?: string;
-  "Max Height"?: string;
-  "Tot Linear Ft"?: string;
-  "Is VLTL"?: string;
-  "Commodities"?: string;
-  "Accessorials"?: string;
   "Booked Carrier"?: string;
   "Quoted Carrier"?: string;
-  "Service Level"?: string;
   "Revenue"?: string;
   "Carrier Quote"?: string;
   "Carrier Expense"?: string;
-  "Other Expense"?: string;
   "Profit"?: string;
-  "Revenue w/o Accessorials"?: string;
-  "Expense w/o Accessorials"?: string;
+  "Tot Packages"?: number;
+  "Tot Weight"?: string;
   "SCAC"?: string;
 }
 
-interface CustomerCarrierData {
+interface CustomerCarrier {
   "MarkupId": number;
   "CarrierId"?: number;
   "CustomerID"?: number;
@@ -97,51 +72,43 @@ interface CustomerCarrierData {
   "Percentage"?: string;
 }
 
-interface CarrierMetrics {
+interface CarrierScorecard {
   carrierName: string;
-  scac?: string;
+  scac: string;
   totalShipments: number;
   totalRevenue: number;
   totalProfit: number;
   avgMargin: number;
-  onTimePerformance: number;
-  avgTransitDays: number;
-  totalWeight: number;
+  onTimePickup: number;
+  onTimeDelivery: number;
+  overallScore: number;
+  grade: string;
+  riskLevel: 'Low' | 'Medium' | 'High';
+  opportunities: string[];
   avgWeight: number;
-  riskScore: number;
-  opportunityScore: number;
-  trendDirection: 'up' | 'down' | 'stable';
-  lastShipmentDate?: string;
-  topCustomers: string[];
-  topLanes: string[];
-  serviceTypes: string[];
-  performanceGrade: 'A' | 'B' | 'C' | 'D' | 'F';
-  recommendations: string[];
+  avgRevenue: number;
 }
 
 interface ForecastData {
-  carrierName: string;
-  currentMargin: number;
+  period: string;
+  predictedRevenue: number;
   predictedMargin: number;
-  confidenceLevel: number;
-  trendFactors: string[];
-  revenueImpact: number;
-  recommendation: 'increase' | 'maintain' | 'decrease';
-  reasoning: string;
+  confidence: number;
+  trend: 'up' | 'down' | 'stable';
+  factors: string[];
 }
 
-interface NegotiationAnalysis {
-  carrierName: string;
+interface NegotiationResult {
+  customer: string;
+  carrier: string;
+  scac: string;
   currentMargin: number;
-  proposedMargin: number;
-  marketBenchmark: number;
-  volumeImpact: number;
-  revenueImpact: number;
-  competitivePosition: 'strong' | 'moderate' | 'weak';
-  negotiationPower: number;
-  riskFactors: string[];
-  opportunities: string[];
-  recommendation: string;
+  shipmentCount: number;
+  totalRevenue: number;
+  avgQuotePrice: number;
+  potentialSavings: number;
+  recommendedMargin: number;
+  rfqResults: any[];
 }
 
 export const MarginAnalysisTools: React.FC = () => {
@@ -150,38 +117,23 @@ export const MarginAnalysisTools: React.FC = () => {
   const [error, setError] = useState<string>('');
   
   // Data state
-  const [shipments, setShipments] = useState<ShipmentData[]>([]);
-  const [customerCarriers, setCustomerCarriers] = useState<CustomerCarrierData[]>([]);
-  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
-  const [carrierMetrics, setCarrierMetrics] = useState<CarrierMetrics[]>([]);
-  const [forecasts, setForecasts] = useState<ForecastData[]>([]);
+  const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [customerCarriers, setCustomerCarriers] = useState<CustomerCarrier[]>([]);
+  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, stage: '' });
   
-  // Loading states
-  const [loadingShipments, setLoadingShipments] = useState(false);
-  const [loadingCarriers, setLoadingCarriers] = useState(false);
-  const [loadingP44Data, setLoadingP44Data] = useState(false);
+  // Analysis results
+  const [carrierScorecards, setCarrierScorecards] = useState<CarrierScorecard[]>([]);
+  const [forecastData, setForecastData] = useState<ForecastData[]>([]);
+  const [negotiationResults, setNegotiationResults] = useState<NegotiationResult[]>([]);
   
-  // Progress tracking
-  const [shipmentProgress, setShipmentProgress] = useState({ loaded: 0, total: 0 });
-  const [carrierProgress, setCarrierProgress] = useState({ loaded: 0, total: 0 });
+  // Filters and settings
+  const [selectedCarrier, setSelectedCarrier] = useState('');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [selectedCustomer, setSelectedCustomer] = useState('');
   
   // Negotiation analysis state
-  const [negotiationMode, setNegotiationMode] = useState<'preliminary' | 'comparison'>('preliminary');
-  const [selectedCarrierForNegotiation, setSelectedCarrierForNegotiation] = useState<string>('');
-  const [proposedMargin, setProposedMargin] = useState<number>(0);
-  const [beforeMargin, setBeforeMargin] = useState<number>(0);
-  const [afterMargin, setAfterMargin] = useState<number>(0);
-  const [negotiationAnalysis, setNegotiationAnalysis] = useState<NegotiationAnalysis | null>(null);
-  
-  // New carrier analysis state
-  const [selectedP44Group, setSelectedP44Group] = useState<string>('');
-  const [selectedNewCarrier, setSelectedNewCarrier] = useState<string>('');
-  const [newCarrierAnalysis, setNewCarrierAnalysis] = useState<any>(null);
-  
-  // Filters
-  const [customerFilter, setCustomerFilter] = useState<string>('');
-  const [carrierFilter, setCarrierFilter] = useState<string>('');
-  const [dateFilter, setDateFilter] = useState({ start: '', end: '' });
+  const [isRunningNegotiation, setIsRunningNegotiation] = useState(false);
+  const [negotiationProgress, setNegotiationProgress] = useState({ current: 0, total: 0 });
 
   useEffect(() => {
     loadAllData();
@@ -192,1337 +144,935 @@ export const MarginAnalysisTools: React.FC = () => {
     setError('');
     
     try {
-      console.log('🔄 Starting comprehensive data load...');
-      
-      // Load all data in parallel
       await Promise.all([
         loadShipmentsInBatches(),
-        loadCustomerCarriersInBatches(),
-        loadP44CarrierGroups()
+        loadCustomerCarriersInBatches()
       ]);
       
-      console.log('✅ All data loaded successfully');
+      // Calculate scorecards after data is loaded
+      calculateCarrierScorecards();
+      generateForecasts();
+      
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load data';
-      setError(errorMsg);
-      console.error('❌ Data loading failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
       setLoading(false);
     }
   };
 
   const loadShipmentsInBatches = async () => {
-    setLoadingShipments(true);
-    setShipmentProgress({ loaded: 0, total: 0 });
+    console.log('🔍 Loading all shipments in batches...');
+    let allShipments: Shipment[] = [];
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
     
-    try {
-      console.log('📦 Loading shipments in batches...');
-      
-      // First, get total count
-      const { count, error: countError } = await supabase
+    setLoadingProgress({ current: 0, total: 0, stage: 'Loading shipments...' });
+    
+    while (hasMore) {
+      const { data, error } = await supabase
         .from('Shipments')
-        .select('*', { count: 'exact', head: true });
+        .select('*')
+        .range(from, from + batchSize - 1);
       
-      if (countError) throw countError;
-      
-      const totalRecords = count || 0;
-      setShipmentProgress({ loaded: 0, total: totalRecords });
-      console.log(`📊 Total shipments to load: ${totalRecords}`);
-      
-      const batchSize = 1000;
-      const allShipments: ShipmentData[] = [];
-      let from = 0;
-      
-      while (from < totalRecords) {
-        console.log(`📦 Loading shipments batch: ${from + 1} to ${Math.min(from + batchSize, totalRecords)}`);
-        
-        const { data, error } = await supabase
-          .from('Shipments')
-          .select('*')
-          .range(from, from + batchSize - 1)
-          .order('"Scheduled Pickup Date"', { ascending: false });
-        
-        if (error) throw error;
-        
-        if (data && data.length > 0) {
-          allShipments.push(...data);
-          setShipmentProgress({ loaded: allShipments.length, total: totalRecords });
-          console.log(`✅ Loaded ${data.length} shipments (total: ${allShipments.length}/${totalRecords})`);
-        }
-        
-        from += batchSize;
-        
-        // Small delay to prevent overwhelming the database
-        await new Promise(resolve => setTimeout(resolve, 100));
+      if (error) {
+        throw error;
       }
       
-      setShipments(allShipments);
-      console.log(`✅ Completed loading ${allShipments.length} shipments`);
-      
-    } catch (err) {
-      console.error('❌ Failed to load shipments:', err);
-      throw err;
-    } finally {
-      setLoadingShipments(false);
+      if (data && data.length > 0) {
+        allShipments = [...allShipments, ...data];
+        from += batchSize;
+        hasMore = data.length === batchSize;
+        
+        setLoadingProgress({ 
+          current: allShipments.length, 
+          total: allShipments.length + (hasMore ? batchSize : 0), 
+          stage: `Loading shipments... ${allShipments.length} loaded` 
+        });
+        
+        console.log(`📦 Loaded batch: ${data.length} shipments (total: ${allShipments.length})`);
+      } else {
+        hasMore = false;
+      }
     }
+    
+    setShipments(allShipments);
+    console.log(`✅ Loaded ${allShipments.length} total shipments`);
   };
 
   const loadCustomerCarriersInBatches = async () => {
-    setLoadingCarriers(true);
-    setCarrierProgress({ loaded: 0, total: 0 });
+    console.log('🔍 Loading all customer carriers in batches...');
+    let allCarriers: CustomerCarrier[] = [];
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
     
-    try {
-      console.log('🚛 Loading customer carriers in batches...');
-      
-      // First, get total count
-      const { count, error: countError } = await supabase
+    setLoadingProgress({ current: 0, total: 0, stage: 'Loading customer carriers...' });
+    
+    while (hasMore) {
+      const { data, error } = await supabase
         .from('CustomerCarriers')
-        .select('*', { count: 'exact', head: true });
+        .select('*')
+        .range(from, from + batchSize - 1);
       
-      if (countError) throw countError;
+      if (error) {
+        throw error;
+      }
       
-      const totalRecords = count || 0;
-      setCarrierProgress({ loaded: 0, total: totalRecords });
-      console.log(`📊 Total customer carriers to load: ${totalRecords}`);
-      
-      const batchSize = 1000;
-      const allCarriers: CustomerCarrierData[] = [];
-      let from = 0;
-      
-      while (from < totalRecords) {
-        console.log(`🚛 Loading carriers batch: ${from + 1} to ${Math.min(from + batchSize, totalRecords)}`);
-        
-        const { data, error } = await supabase
-          .from('CustomerCarriers')
-          .select('*')
-          .range(from, from + batchSize - 1)
-          .order('"MarkupId"', { ascending: true });
-        
-        if (error) throw error;
-        
-        if (data && data.length > 0) {
-          allCarriers.push(...data);
-          setCarrierProgress({ loaded: allCarriers.length, total: totalRecords });
-          console.log(`✅ Loaded ${data.length} carriers (total: ${allCarriers.length}/${totalRecords})`);
-        }
-        
+      if (data && data.length > 0) {
+        allCarriers = [...allCarriers, ...data];
         from += batchSize;
+        hasMore = data.length === batchSize;
         
-        // Small delay to prevent overwhelming the database
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      
-      setCustomerCarriers(allCarriers);
-      console.log(`✅ Completed loading ${allCarriers.length} customer carriers`);
-      
-    } catch (err) {
-      console.error('❌ Failed to load customer carriers:', err);
-      throw err;
-    } finally {
-      setLoadingCarriers(false);
-    }
-  };
-
-  const loadP44CarrierGroups = async () => {
-    setLoadingP44Data(true);
-    
-    try {
-      console.log('🌐 Loading Project44 carrier groups...');
-      
-      // This would need a Project44 client instance
-      // For now, we'll create a placeholder that would be replaced with real API call
-      const mockGroups: CarrierGroup[] = [
-        {
-          groupCode: 'DEFAULT',
-          groupName: 'Default Carrier Group',
-          carriers: []
-        }
-      ];
-      
-      setCarrierGroups(mockGroups);
-      console.log(`✅ Loaded ${mockGroups.length} carrier groups from Project44`);
-      
-    } catch (err) {
-      console.error('❌ Failed to load P44 carrier groups:', err);
-      throw err;
-    } finally {
-      setLoadingP44Data(false);
-    }
-  };
-
-  // Calculate carrier metrics from real data
-  const calculateCarrierMetrics = (): CarrierMetrics[] => {
-    console.log('📊 Calculating carrier metrics from real data...');
-    
-    const carrierMap = new Map<string, {
-      shipments: ShipmentData[];
-      margins: CustomerCarrierData[];
-    }>();
-    
-    // Group shipments by carrier
-    shipments.forEach(shipment => {
-      const carrierName = shipment["Booked Carrier"] || shipment["Quoted Carrier"];
-      if (!carrierName) return;
-      
-      if (!carrierMap.has(carrierName)) {
-        carrierMap.set(carrierName, { shipments: [], margins: [] });
-      }
-      carrierMap.get(carrierName)!.shipments.push(shipment);
-    });
-    
-    // Add margin data
-    customerCarriers.forEach(margin => {
-      const carrierCode = margin["P44CarrierCode"];
-      if (!carrierCode) return;
-      
-      // Try to match by carrier code or name
-      for (const [carrierName, data] of carrierMap.entries()) {
-        if (carrierName.includes(carrierCode) || carrierCode.includes(carrierName)) {
-          data.margins.push(margin);
-          break;
-        }
-      }
-    });
-    
-    const metrics: CarrierMetrics[] = [];
-    
-    carrierMap.forEach((data, carrierName) => {
-      const { shipments: carrierShipments, margins } = data;
-      
-      if (carrierShipments.length === 0) return;
-      
-      // Calculate metrics from real data
-      const totalRevenue = carrierShipments.reduce((sum, s) => {
-        const revenue = parseFloat(s["Revenue"] || '0');
-        return sum + (isNaN(revenue) ? 0 : revenue);
-      }, 0);
-      
-      const totalProfit = carrierShipments.reduce((sum, s) => {
-        const profit = parseFloat(s["Profit"] || '0');
-        return sum + (isNaN(profit) ? 0 : profit);
-      }, 0);
-      
-      const totalWeight = carrierShipments.reduce((sum, s) => {
-        const weight = parseFloat(s["Tot Weight"] || '0');
-        return sum + (isNaN(weight) ? 0 : weight);
-      }, 0);
-      
-      const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
-      
-      // Calculate on-time performance
-      const onTimeShipments = carrierShipments.filter(s => {
-        const scheduled = s["Scheduled Delivery Date"];
-        const actual = s["Actual Delivery Date"];
-        if (!scheduled || !actual) return true; // Assume on-time if no data
-        return new Date(actual) <= new Date(scheduled);
-      }).length;
-      
-      const onTimePerformance = carrierShipments.length > 0 ? 
-        (onTimeShipments / carrierShipments.length) * 100 : 0;
-      
-      // Calculate risk and opportunity scores
-      const riskScore = calculateRiskScore(carrierShipments, margins, avgMargin, onTimePerformance);
-      const opportunityScore = calculateOpportunityScore(carrierShipments, margins, avgMargin, totalRevenue);
-      
-      // Determine trend direction
-      const recentShipments = carrierShipments
-        .filter(s => s["Scheduled Pickup Date"])
-        .sort((a, b) => new Date(b["Scheduled Pickup Date"]!).getTime() - new Date(a["Scheduled Pickup Date"]!).getTime())
-        .slice(0, Math.min(10, Math.floor(carrierShipments.length / 2)));
-      
-      const olderShipments = carrierShipments
-        .filter(s => s["Scheduled Pickup Date"])
-        .sort((a, b) => new Date(a["Scheduled Pickup Date"]!).getTime() - new Date(b["Scheduled Pickup Date"]!).getTime())
-        .slice(0, Math.min(10, Math.floor(carrierShipments.length / 2)));
-      
-      const recentAvgMargin = calculateAvgMargin(recentShipments);
-      const olderAvgMargin = calculateAvgMargin(olderShipments);
-      
-      let trendDirection: 'up' | 'down' | 'stable' = 'stable';
-      if (recentAvgMargin > olderAvgMargin + 1) trendDirection = 'up';
-      else if (recentAvgMargin < olderAvgMargin - 1) trendDirection = 'down';
-      
-      // Get top customers and lanes
-      const customerCounts = new Map<string, number>();
-      const laneCounts = new Map<string, number>();
-      
-      carrierShipments.forEach(s => {
-        if (s["Customer"]) {
-          customerCounts.set(s["Customer"], (customerCounts.get(s["Customer"]) || 0) + 1);
-        }
+        setLoadingProgress({ 
+          current: allCarriers.length, 
+          total: allCarriers.length + (hasMore ? batchSize : 0), 
+          stage: `Loading customer carriers... ${allCarriers.length} loaded` 
+        });
         
-        const lane = `${s["Zip"]} → ${s["Zip_1"]}`;
-        if (s["Zip"] && s["Zip_1"]) {
-          laneCounts.set(lane, (laneCounts.get(lane) || 0) + 1);
-        }
-      });
-      
-      const topCustomers = Array.from(customerCounts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([customer]) => customer);
-      
-      const topLanes = Array.from(laneCounts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([lane]) => lane);
-      
-      // Service types
-      const serviceTypes = [...new Set(carrierShipments
-        .map(s => s["Service Level"])
-        .filter(Boolean)
-      )].slice(0, 3);
-      
-      // Performance grade
-      const performanceGrade = calculatePerformanceGrade(avgMargin, onTimePerformance, riskScore);
-      
-      // Generate recommendations
-      const recommendations = generateRecommendations(
-        avgMargin, onTimePerformance, riskScore, opportunityScore, trendDirection, totalRevenue
-      );
-      
-      metrics.push({
-        carrierName,
-        scac: carrierShipments[0]["SCAC"],
-        totalShipments: carrierShipments.length,
-        totalRevenue,
-        totalProfit,
-        avgMargin,
-        onTimePerformance,
-        avgTransitDays: 0, // Would need to calculate from actual vs scheduled dates
-        totalWeight,
-        avgWeight: totalWeight / carrierShipments.length,
-        riskScore,
-        opportunityScore,
-        trendDirection,
-        lastShipmentDate: carrierShipments[0]["Scheduled Pickup Date"],
-        topCustomers,
-        topLanes,
-        serviceTypes,
-        performanceGrade,
-        recommendations
-      });
-    });
+        console.log(`🚛 Loaded batch: ${data.length} customer carriers (total: ${allCarriers.length})`);
+      } else {
+        hasMore = false;
+      }
+    }
     
-    // Sort by total revenue descending
-    metrics.sort((a, b) => b.totalRevenue - a.totalRevenue);
-    
-    console.log(`✅ Calculated metrics for ${metrics.length} carriers`);
-    return metrics;
+    setCustomerCarriers(allCarriers);
+    console.log(`✅ Loaded ${allCarriers.length} total customer carriers`);
   };
 
-  // Helper functions for calculations
   const parseNumeric = (value: string | null | undefined): number => {
     if (!value) return 0;
     const cleaned = value.toString().replace(/[^\d.-]/g, '');
     return parseFloat(cleaned) || 0;
   };
 
-  const calculateAvgMargin = (shipments: ShipmentData[]): number => {
-    if (shipments.length === 0) return 0;
-    
-    const totalRevenue = shipments.reduce((sum, s) => sum + parseNumeric(s["Revenue"]), 0);
-    const totalProfit = shipments.reduce((sum, s) => sum + parseNumeric(s["Profit"]), 0);
-    
-    return totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+  const isBusinessDay = (date: Date): boolean => {
+    const day = date.getDay();
+    return day !== 0 && day !== 6; // Not Sunday (0) or Saturday (6)
   };
 
-  const calculateRiskScore = (
-    shipments: ShipmentData[], 
-    margins: CustomerCarrierData[], 
-    avgMargin: number, 
-    onTimePerformance: number
-  ): number => {
-    let riskScore = 0;
+  const addBusinessDays = (date: Date, days: number): Date => {
+    const result = new Date(date);
+    let addedDays = 0;
     
-    // Low margin risk
-    if (avgMargin < 10) riskScore += 30;
-    else if (avgMargin < 15) riskScore += 15;
+    while (addedDays < days) {
+      result.setDate(result.getDate() + 1);
+      if (isBusinessDay(result)) {
+        addedDays++;
+      }
+    }
     
-    // Performance risk
-    if (onTimePerformance < 85) riskScore += 25;
-    else if (onTimePerformance < 95) riskScore += 10;
+    return result;
+  };
+
+  const calculateOnTimePerformance = (scheduled: string, actual: string): boolean => {
+    if (!scheduled || !actual) return false;
     
-    // Volume concentration risk
-    const customerCounts = new Map<string, number>();
-    shipments.forEach(s => {
-      if (s["Customer"]) {
-        customerCounts.set(s["Customer"], (customerCounts.get(s["Customer"]) || 0) + 1);
+    const scheduledDate = new Date(scheduled);
+    const actualDate = new Date(actual);
+    const allowedDate = addBusinessDays(scheduledDate, 1); // 1 business day buffer
+    
+    return actualDate <= allowedDate;
+  };
+
+  const calculateCarrierScorecards = () => {
+    console.log('📊 Calculating carrier scorecards from real data...');
+    
+    const carrierMap = new Map<string, {
+      shipments: Shipment[];
+      totalRevenue: number;
+      totalProfit: number;
+      onTimePickups: number;
+      onTimeDeliveries: number;
+      totalWeight: number;
+    }>();
+
+    // Group shipments by carrier
+    shipments.forEach(shipment => {
+      const carrierName = shipment["Booked Carrier"] || shipment["Quoted Carrier"];
+      if (!carrierName) return;
+
+      if (!carrierMap.has(carrierName)) {
+        carrierMap.set(carrierName, {
+          shipments: [],
+          totalRevenue: 0,
+          totalProfit: 0,
+          onTimePickups: 0,
+          onTimeDeliveries: 0,
+          totalWeight: 0
+        });
+      }
+
+      const carrier = carrierMap.get(carrierName)!;
+      carrier.shipments.push(shipment);
+      
+      // Calculate real revenue and profit
+      const revenue = parseNumeric(shipment["Revenue"]);
+      const profit = parseNumeric(shipment["Profit"]);
+      const weight = parseNumeric(shipment["Tot Weight"]);
+      
+      carrier.totalRevenue += revenue;
+      carrier.totalProfit += profit;
+      carrier.totalWeight += weight;
+
+      // Calculate on-time performance with business day buffer
+      if (shipment["Scheduled Pickup Date"] && shipment["Actual Pickup Date"]) {
+        if (calculateOnTimePerformance(shipment["Scheduled Pickup Date"], shipment["Actual Pickup Date"])) {
+          carrier.onTimePickups++;
+        }
+      }
+
+      if (shipment["Scheduled Delivery Date"] && shipment["Actual Delivery Date"]) {
+        if (calculateOnTimePerformance(shipment["Scheduled Delivery Date"], shipment["Actual Delivery Date"])) {
+          carrier.onTimeDeliveries++;
+        }
       }
     });
-    
-    const maxCustomerShipments = Math.max(...Array.from(customerCounts.values()));
-    const concentrationRatio = maxCustomerShipments / shipments.length;
-    
-    if (concentrationRatio > 0.5) riskScore += 20;
-    else if (concentrationRatio > 0.3) riskScore += 10;
-    
-    // Limited margin configurations risk
-    if (margins.length === 0) riskScore += 15;
-    else if (margins.length < 3) riskScore += 5;
-    
-    return Math.min(riskScore, 100);
-  };
 
-  const calculateOpportunityScore = (
-    shipments: ShipmentData[], 
-    margins: CustomerCarrierData[], 
-    avgMargin: number, 
-    totalRevenue: number
-  ): number => {
-    let opportunityScore = 0;
-    
-    // High volume opportunity
-    if (totalRevenue > 100000) opportunityScore += 25;
-    else if (totalRevenue > 50000) opportunityScore += 15;
-    
-    // Margin improvement opportunity
-    if (avgMargin < 15) opportunityScore += 20;
-    else if (avgMargin < 20) opportunityScore += 10;
-    
-    // Growth opportunity (recent shipments vs older)
-    const recentCount = shipments.filter(s => {
-      const date = new Date(s["Scheduled Pickup Date"] || '');
-      const threeMonthsAgo = new Date();
-      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-      return date > threeMonthsAgo;
-    }).length;
-    
-    const growthRate = (recentCount / shipments.length) * 4; // Annualized
-    if (growthRate > 1.2) opportunityScore += 20;
-    else if (growthRate > 1.1) opportunityScore += 10;
-    
-    // Diversification opportunity
-    const uniqueCustomers = new Set(shipments.map(s => s["Customer"]).filter(Boolean)).size;
-    if (uniqueCustomers > 5) opportunityScore += 15;
-    else if (uniqueCustomers > 2) opportunityScore += 10;
-    
-    // Margin configuration opportunity
-    if (margins.length === 0) opportunityScore += 20; // No configurations = opportunity to add
-    
-    return Math.min(opportunityScore, 100);
-  };
+    // Calculate scorecards
+    const scorecards: CarrierScorecard[] = Array.from(carrierMap.entries()).map(([carrierName, data]) => {
+      const totalShipments = data.shipments.length;
+      const avgMargin = data.totalRevenue > 0 ? (data.totalProfit / data.totalRevenue) * 100 : 0;
+      const avgRevenue = totalShipments > 0 ? data.totalRevenue / totalShipments : 0;
+      const avgWeight = totalShipments > 0 ? data.totalWeight / totalShipments : 0;
 
-  const calculatePerformanceGrade = (
-    avgMargin: number, 
-    onTimePerformance: number, 
-    riskScore: number
-  ): 'A' | 'B' | 'C' | 'D' | 'F' => {
-    let score = 0;
-    
-    // Margin scoring (40% weight)
-    if (avgMargin >= 20) score += 40;
-    else if (avgMargin >= 15) score += 32;
-    else if (avgMargin >= 10) score += 24;
-    else if (avgMargin >= 5) score += 16;
-    else score += 8;
-    
-    // Performance scoring (35% weight)
-    if (onTimePerformance >= 98) score += 35;
-    else if (onTimePerformance >= 95) score += 30;
-    else if (onTimePerformance >= 90) score += 25;
-    else if (onTimePerformance >= 85) score += 20;
-    else score += 10;
-    
-    // Risk scoring (25% weight) - lower risk = higher score
-    if (riskScore <= 10) score += 25;
-    else if (riskScore <= 25) score += 20;
-    else if (riskScore <= 40) score += 15;
-    else if (riskScore <= 60) score += 10;
-    else score += 5;
-    
-    if (score >= 85) return 'A';
-    if (score >= 75) return 'B';
-    if (score >= 65) return 'C';
-    if (score >= 55) return 'D';
-    return 'F';
-  };
+      // Calculate on-time percentages
+      const pickupShipments = data.shipments.filter(s => s["Scheduled Pickup Date"] && s["Actual Pickup Date"]).length;
+      const deliveryShipments = data.shipments.filter(s => s["Scheduled Delivery Date"] && s["Actual Delivery Date"]).length;
+      
+      const onTimePickup = pickupShipments > 0 ? (data.onTimePickups / pickupShipments) * 100 : 0;
+      const onTimeDelivery = deliveryShipments > 0 ? (data.onTimeDeliveries / deliveryShipments) * 100 : 0;
 
-  const generateRecommendations = (
-    avgMargin: number,
-    onTimePerformance: number,
-    riskScore: number,
-    opportunityScore: number,
-    trendDirection: 'up' | 'down' | 'stable',
-    totalRevenue: number
-  ): string[] => {
-    const recommendations: string[] = [];
-    
-    if (avgMargin < 15) {
-      recommendations.push('Consider increasing margin rates - currently below target');
-    }
-    
-    if (onTimePerformance < 95) {
-      recommendations.push('Monitor delivery performance - implement service level agreements');
-    }
-    
-    if (riskScore > 40) {
-      recommendations.push('High risk carrier - consider diversification or enhanced monitoring');
-    }
-    
-    if (opportunityScore > 60) {
-      recommendations.push('High opportunity carrier - consider expanding relationship');
-    }
-    
-    if (trendDirection === 'down') {
-      recommendations.push('Declining performance trend - schedule carrier review meeting');
-    }
-    
-    if (totalRevenue > 100000 && avgMargin < 18) {
-      recommendations.push('High volume carrier with low margin - priority for rate negotiation');
-    }
-    
-    if (recommendations.length === 0) {
-      recommendations.push('Performing well - maintain current relationship and monitor trends');
-    }
-    
-    return recommendations;
-  };
+      // Calculate overall score (weighted average)
+      const marginScore = Math.min(avgMargin * 2, 100); // Cap at 100
+      const pickupScore = onTimePickup;
+      const deliveryScore = onTimeDelivery;
+      const volumeScore = Math.min((totalShipments / 10) * 10, 100); // 10+ shipments = 100 points
 
-  // Generate forecasts based on real data trends
-  const generateForecasts = (): ForecastData[] => {
-    const metrics = calculateCarrierMetrics();
-    
-    return metrics.slice(0, 10).map(metric => {
-      // Analyze trends and predict future margins
-      const trendFactor = metric.trendDirection === 'up' ? 1.05 : 
-                         metric.trendDirection === 'down' ? 0.95 : 1.0;
-      
-      const performanceFactor = metric.onTimePerformance > 95 ? 1.02 : 
-                               metric.onTimePerformance < 85 ? 0.98 : 1.0;
-      
-      const volumeFactor = metric.totalRevenue > 100000 ? 1.03 : 
-                          metric.totalRevenue < 25000 ? 0.97 : 1.0;
-      
-      const predictedMargin = metric.avgMargin * trendFactor * performanceFactor * volumeFactor;
-      
-      const confidenceLevel = Math.min(95, 60 + 
-        (metric.totalShipments > 50 ? 15 : 0) +
-        (metric.onTimePerformance > 95 ? 10 : 0) +
-        (metric.riskScore < 30 ? 10 : 0)
-      );
-      
-      const trendFactors: string[] = [];
-      if (metric.trendDirection !== 'stable') {
-        trendFactors.push(`${metric.trendDirection === 'up' ? 'Improving' : 'Declining'} performance trend`);
-      }
-      if (metric.onTimePerformance > 95) {
-        trendFactors.push('Excellent on-time performance');
-      } else if (metric.onTimePerformance < 85) {
-        trendFactors.push('Poor on-time performance');
-      }
-      if (metric.totalRevenue > 100000) {
-        trendFactors.push('High volume relationship');
-      }
-      if (metric.riskScore > 40) {
-        trendFactors.push('Elevated risk factors');
-      }
-      
-      const revenueImpact = (predictedMargin - metric.avgMargin) * metric.totalRevenue / 100;
-      
-      let recommendation: 'increase' | 'maintain' | 'decrease' = 'maintain';
-      if (predictedMargin > metric.avgMargin + 1) recommendation = 'increase';
-      else if (predictedMargin < metric.avgMargin - 1) recommendation = 'decrease';
-      
-      const reasoning = `Based on ${metric.totalShipments} shipments, ${metric.onTimePerformance.toFixed(1)}% on-time performance, and ${metric.trendDirection} trend. ${
-        recommendation === 'increase' ? 'Strong performance indicates margin increase potential.' :
-        recommendation === 'decrease' ? 'Performance concerns suggest margin pressure.' :
-        'Stable performance supports maintaining current margins.'
-      }`;
-      
+      const overallScore = (marginScore * 0.4 + pickupScore * 0.25 + deliveryScore * 0.25 + volumeScore * 0.1);
+
+      // Determine grade
+      let grade = 'F';
+      if (overallScore >= 90) grade = 'A';
+      else if (overallScore >= 80) grade = 'B';
+      else if (overallScore >= 70) grade = 'C';
+      else if (overallScore >= 60) grade = 'D';
+
+      // Determine risk level
+      let riskLevel: 'Low' | 'Medium' | 'High' = 'Low';
+      if (onTimePickup < 80 || onTimeDelivery < 80 || avgMargin < 10) riskLevel = 'High';
+      else if (onTimePickup < 90 || onTimeDelivery < 90 || avgMargin < 15) riskLevel = 'Medium';
+
+      // Generate opportunities
+      const opportunities: string[] = [];
+      if (avgMargin < 15) opportunities.push('Negotiate better margins');
+      if (onTimePickup < 90) opportunities.push('Improve pickup reliability');
+      if (onTimeDelivery < 90) opportunities.push('Improve delivery performance');
+      if (totalShipments < 10) opportunities.push('Increase volume for better rates');
+
+      // Get SCAC from shipments
+      const scac = data.shipments.find(s => s.SCAC)?.SCAC || '';
+
       return {
-        carrierName: metric.carrierName,
-        currentMargin: metric.avgMargin,
-        predictedMargin,
-        confidenceLevel,
-        trendFactors,
-        revenueImpact,
-        recommendation,
-        reasoning
+        carrierName,
+        scac,
+        totalShipments,
+        totalRevenue: data.totalRevenue,
+        totalProfit: data.totalProfit,
+        avgMargin,
+        onTimePickup,
+        onTimeDelivery,
+        overallScore,
+        grade,
+        riskLevel,
+        opportunities,
+        avgWeight,
+        avgRevenue
       };
     });
+
+    // Sort by overall score
+    scorecards.sort((a, b) => b.overallScore - a.overallScore);
+    setCarrierScorecards(scorecards);
+    
+    console.log(`✅ Calculated ${scorecards.length} carrier scorecards`);
   };
 
-  // Negotiation analysis functions
-  const analyzeNegotiation = async () => {
-    if (!selectedCarrierForNegotiation) return;
+  const generateForecasts = () => {
+    console.log('🔮 Generating AI forecasts from real data...');
     
-    const carrierMetrics = calculateCarrierMetrics();
-    const metric = carrierMetrics.find(m => m.carrierName === selectedCarrierForNegotiation);
-    
-    if (!metric) return;
-    
-    const currentMargin = negotiationMode === 'preliminary' ? metric.avgMargin : beforeMargin;
-    const targetMargin = negotiationMode === 'preliminary' ? proposedMargin : afterMargin;
-    
-    // Calculate market benchmark (average of similar carriers)
-    const similarCarriers = carrierMetrics.filter(m => 
-      Math.abs(m.totalRevenue - metric.totalRevenue) < metric.totalRevenue * 0.5
-    );
-    const marketBenchmark = similarCarriers.reduce((sum, m) => sum + m.avgMargin, 0) / similarCarriers.length;
-    
-    const volumeImpact = metric.totalShipments;
-    const revenueImpact = (targetMargin - currentMargin) * metric.totalRevenue / 100;
-    
-    let competitivePosition: 'strong' | 'moderate' | 'weak' = 'moderate';
-    if (metric.onTimePerformance > 95 && metric.riskScore < 30) competitivePosition = 'strong';
-    else if (metric.onTimePerformance < 85 || metric.riskScore > 60) competitivePosition = 'weak';
-    
-    const negotiationPower = Math.min(100, 
-      (metric.onTimePerformance - 80) * 2 +
-      (100 - metric.riskScore) * 0.5 +
-      (metric.totalRevenue > 100000 ? 20 : 0) +
-      (metric.opportunityScore > 60 ? 15 : 0)
-    );
-    
-    const riskFactors: string[] = [];
-    const opportunities: string[] = [];
-    
-    if (targetMargin > marketBenchmark + 2) {
-      riskFactors.push('Proposed margin significantly above market benchmark');
+    if (shipments.length === 0) {
+      setForecastData([]);
+      return;
     }
-    if (metric.onTimePerformance < 90) {
-      riskFactors.push('Below-average delivery performance');
-    }
-    if (metric.riskScore > 50) {
-      riskFactors.push('High risk profile may limit negotiation leverage');
-    }
-    
-    if (metric.totalRevenue > 100000) {
-      opportunities.push('High volume relationship provides negotiation leverage');
-    }
-    if (metric.onTimePerformance > 95) {
-      opportunities.push('Excellent performance supports margin increase');
-    }
-    if (targetMargin < marketBenchmark) {
-      opportunities.push('Below-market margin provides competitive advantage');
-    }
-    
-    let recommendation = '';
-    if (negotiationMode === 'preliminary') {
-      if (targetMargin <= marketBenchmark && competitivePosition === 'strong') {
-        recommendation = 'Proceed with negotiation - strong position and reasonable target';
-      } else if (targetMargin > marketBenchmark + 3) {
-        recommendation = 'Consider lowering target margin - may be too aggressive';
-      } else {
-        recommendation = 'Proceed with caution - monitor carrier response carefully';
-      }
-    } else {
-      const improvement = targetMargin - currentMargin;
-      if (improvement > 0) {
-        recommendation = `Successful negotiation - achieved ${improvement.toFixed(1)}% margin increase`;
-      } else if (improvement < 0) {
-        recommendation = `Margin decreased by ${Math.abs(improvement).toFixed(1)}% - analyze impact`;
-      } else {
-        recommendation = 'No change in margin - consider future optimization opportunities';
-      }
-    }
-    
-    setNegotiationAnalysis({
-      carrierName: selectedCarrierForNegotiation,
-      currentMargin,
-      proposedMargin: targetMargin,
-      marketBenchmark,
-      volumeImpact,
-      revenueImpact,
-      competitivePosition,
-      negotiationPower,
-      riskFactors,
-      opportunities,
-      recommendation
-    });
-  };
 
-  // New carrier analysis
-  const analyzeNewCarrier = async () => {
-    if (!selectedNewCarrier || !selectedP44Group) return;
+    // Group shipments by month for trend analysis
+    const monthlyData = new Map<string, { revenue: number; profit: number; count: number }>();
     
-    // This would integrate with P44 API to get carrier details
-    // For now, we'll create a comprehensive analysis framework
-    
-    const existingMetrics = calculateCarrierMetrics();
-    const avgMarketMargin = existingMetrics.reduce((sum, m) => sum + m.avgMargin, 0) / existingMetrics.length;
-    
-    // Analyze similar carriers for benchmarking
-    const similarCarriers = existingMetrics.filter(m => 
-      m.serviceTypes.some(service => service.includes('LTL')) // Example similarity criteria
-    );
-    
-    const recommendedMargin = similarCarriers.length > 0 ?
-      similarCarriers.reduce((sum, m) => sum + m.avgMargin, 0) / similarCarriers.length :
-      avgMarketMargin;
-    
-    const analysis = {
-      carrierName: selectedNewCarrier,
-      groupCode: selectedP44Group,
-      recommendedMargin: recommendedMargin,
-      marketPosition: 'To be determined through initial shipments',
-      serviceCapabilities: ['LTL', 'Standard Service'], // Would come from P44 API
-      geographicCoverage: 'National', // Would come from P44 API
-      competitorComparison: similarCarriers.slice(0, 3).map(c => ({
-        name: c.carrierName,
-        margin: c.avgMargin,
-        performance: c.onTimePerformance
-      })),
-      onboardingComplexity: 'Medium',
-      riskAssessment: 'New carrier - limited performance history',
-      recommendations: [
-        `Start with ${recommendedMargin.toFixed(1)}% margin based on market analysis`,
-        'Implement enhanced monitoring for first 90 days',
-        'Establish clear performance metrics and SLAs',
-        'Consider trial period with limited volume'
-      ]
-    };
-    
-    setNewCarrierAnalysis(analysis);
-  };
-
-  // Update metrics when data changes
-  useEffect(() => {
-    if (shipments.length > 0) {
-      const metrics = calculateCarrierMetrics();
-      setCarrierMetrics(metrics);
+    shipments.forEach(shipment => {
+      const date = shipment["Scheduled Pickup Date"];
+      if (!date) return;
       
-      const forecasts = generateForecasts();
-      setForecasts(forecasts);
-    }
-  }, [shipments, customerCarriers]);
+      const month = date.substring(0, 7); // YYYY-MM format
+      const revenue = parseNumeric(shipment["Revenue"]);
+      const profit = parseNumeric(shipment["Profit"]);
+      
+      if (!monthlyData.has(month)) {
+        monthlyData.set(month, { revenue: 0, profit: 0, count: 0 });
+      }
+      
+      const data = monthlyData.get(month)!;
+      data.revenue += revenue;
+      data.profit += profit;
+      data.count++;
+    });
 
-  const renderLoadingProgress = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center space-x-3 mb-4">
-          <Loader className="h-6 w-6 text-blue-500 animate-spin" />
-          <h3 className="text-lg font-semibold text-gray-900">Loading Data in Batches</h3>
-        </div>
+    // Sort months and calculate trends
+    const sortedMonths = Array.from(monthlyData.entries()).sort(([a], [b]) => a.localeCompare(b));
+    
+    if (sortedMonths.length < 3) {
+      setForecastData([]);
+      return;
+    }
+
+    // Calculate growth rates
+    const revenueGrowthRates: number[] = [];
+    const marginTrends: number[] = [];
+    
+    for (let i = 1; i < sortedMonths.length; i++) {
+      const prev = sortedMonths[i - 1][1];
+      const curr = sortedMonths[i][1];
+      
+      if (prev.revenue > 0) {
+        const revenueGrowth = ((curr.revenue - prev.revenue) / prev.revenue) * 100;
+        revenueGrowthRates.push(revenueGrowth);
+      }
+      
+      const prevMargin = prev.revenue > 0 ? (prev.profit / prev.revenue) * 100 : 0;
+      const currMargin = curr.revenue > 0 ? (curr.profit / curr.revenue) * 100 : 0;
+      marginTrends.push(currMargin - prevMargin);
+    }
+
+    // Calculate average growth rates
+    const avgRevenueGrowth = revenueGrowthRates.length > 0 
+      ? revenueGrowthRates.reduce((sum, rate) => sum + rate, 0) / revenueGrowthRates.length 
+      : 0;
+    
+    const avgMarginTrend = marginTrends.length > 0
+      ? marginTrends.reduce((sum, trend) => sum + trend, 0) / marginTrends.length
+      : 0;
+
+    // Get latest month data
+    const latestMonth = sortedMonths[sortedMonths.length - 1][1];
+    const currentMargin = latestMonth.revenue > 0 ? (latestMonth.profit / latestMonth.revenue) * 100 : 0;
+
+    // Generate forecasts for next 6 months
+    const forecasts: ForecastData[] = [];
+    const baseRevenue = latestMonth.revenue;
+    
+    for (let i = 1; i <= 6; i++) {
+      const monthsAhead = i;
+      const growthFactor = Math.pow(1 + (avgRevenueGrowth / 100), monthsAhead);
+      const predictedRevenue = baseRevenue * growthFactor;
+      const predictedMargin = Math.max(0, currentMargin + (avgMarginTrend * monthsAhead));
+      
+      // Calculate confidence based on data consistency
+      const revenueVariance = revenueGrowthRates.length > 0 
+        ? Math.sqrt(revenueGrowthRates.reduce((sum, rate) => sum + Math.pow(rate - avgRevenueGrowth, 2), 0) / revenueGrowthRates.length)
+        : 100;
+      
+      const confidence = Math.max(20, Math.min(95, 100 - (revenueVariance / 2) - (monthsAhead * 5)));
+      
+      // Determine trend
+      let trend: 'up' | 'down' | 'stable' = 'stable';
+      if (avgRevenueGrowth > 2) trend = 'up';
+      else if (avgRevenueGrowth < -2) trend = 'down';
+      
+      // Generate factors
+      const factors: string[] = [];
+      if (avgRevenueGrowth > 0) factors.push('Positive revenue growth trend');
+      if (avgMarginTrend > 0) factors.push('Improving margin efficiency');
+      if (sortedMonths.length >= 6) factors.push('Sufficient historical data');
+      if (confidence > 70) factors.push('High data consistency');
+      
+      const currentDate = new Date();
+      currentDate.setMonth(currentDate.getMonth() + i);
+      const period = currentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+      
+      forecasts.push({
+        period,
+        predictedRevenue,
+        predictedMargin,
+        confidence,
+        trend,
+        factors
+      });
+    }
+    
+    setForecastData(forecasts);
+    console.log(`✅ Generated ${forecasts.length} forecast periods`);
+  };
+
+  const runNegotiationAnalysis = async () => {
+    if (!dateRange.start || !dateRange.end) {
+      setError('Please select a date range for negotiation analysis');
+      return;
+    }
+
+    setIsRunningNegotiation(true);
+    setError('');
+    setNegotiationResults([]);
+    
+    try {
+      console.log('🔍 Starting negotiation analysis...');
+      
+      // Get unique carriers from CustomerCarriers table
+      const uniqueCarriers = [...new Set(customerCarriers
+        .filter(cc => cc.P44CarrierCode)
+        .map(cc => cc.P44CarrierCode!)
+      )];
+      
+      console.log(`📋 Found ${uniqueCarriers.length} unique carriers in CustomerCarriers table`);
+      
+      // Filter shipments by date range
+      const filteredShipments = shipments.filter(shipment => {
+        const pickupDate = shipment["Scheduled Pickup Date"];
+        if (!pickupDate) return false;
+        return pickupDate >= dateRange.start && pickupDate <= dateRange.end;
+      });
+      
+      console.log(`📦 Found ${filteredShipments.length} shipments in date range`);
+      
+      // Group by customer and carrier
+      const customerCarrierGroups = new Map<string, {
+        customer: string;
+        carrier: string;
+        scac: string;
+        shipments: Shipment[];
+        currentMargin: number;
+      }>();
+      
+      filteredShipments.forEach(shipment => {
+        const customer = shipment["Customer"];
+        const carrier = shipment["Booked Carrier"] || shipment["Quoted Carrier"];
+        const scac = shipment["SCAC"] || '';
         
-        <div className="space-y-4">
-          {/* Shipments Progress */}
-          <div>
-            <div className="flex justify-between text-sm text-gray-600 mb-2">
-              <span>Shipments</span>
-              <span>{shipmentProgress.loaded.toLocaleString()} / {shipmentProgress.total.toLocaleString()}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div 
-                className="bg-blue-500 h-2 rounded-full transition-all duration-300" 
-                style={{ 
-                  width: `${shipmentProgress.total > 0 ? (shipmentProgress.loaded / shipmentProgress.total) * 100 : 0}%` 
-                }}
-              />
-            </div>
-            {loadingShipments && (
-              <div className="text-xs text-blue-600 mt-1">Loading shipments in batches of 1,000...</div>
-            )}
-          </div>
-          
-          {/* Customer Carriers Progress */}
-          <div>
-            <div className="flex justify-between text-sm text-gray-600 mb-2">
-              <span>Customer Carriers</span>
-              <span>{carrierProgress.loaded.toLocaleString()} / {carrierProgress.total.toLocaleString()}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div 
-                className="bg-green-500 h-2 rounded-full transition-all duration-300" 
-                style={{ 
-                  width: `${carrierProgress.total > 0 ? (carrierProgress.loaded / carrierProgress.total) * 100 : 0}%` 
-                }}
-              />
-            </div>
-            {loadingCarriers && (
-              <div className="text-xs text-green-600 mt-1">Loading carriers in batches of 1,000...</div>
-            )}
-          </div>
-          
-          {/* P44 Data Progress */}
-          <div>
-            <div className="flex justify-between text-sm text-gray-600 mb-2">
-              <span>Project44 Carrier Groups</span>
-              <span>{loadingP44Data ? 'Loading...' : 'Complete'}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div 
-                className="bg-purple-500 h-2 rounded-full transition-all duration-300" 
-                style={{ width: loadingP44Data ? '50%' : '100%' }}
-              />
-            </div>
-            {loadingP44Data && (
-              <div className="text-xs text-purple-600 mt-1">Loading Project44 data...</div>
-            )}
-          </div>
-        </div>
+        if (!customer || !carrier) return;
         
-        <div className="mt-4 text-sm text-gray-600">
-          <div className="flex items-center space-x-2">
-            <Database className="h-4 w-4" />
-            <span>
-              Total Records: {(shipmentProgress.total + carrierProgress.total).toLocaleString()}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+        // Find current margin from CustomerCarriers
+        const marginConfig = customerCarriers.find(cc => 
+          cc.InternalName === customer && 
+          (cc.P44CarrierCode === carrier || cc.P44CarrierCode === scac)
+        );
+        
+        const currentMargin = marginConfig ? parseFloat(marginConfig.Percentage || '0') : 0;
+        
+        const key = `${customer}-${carrier}`;
+        if (!customerCarrierGroups.has(key)) {
+          customerCarrierGroups.set(key, {
+            customer,
+            carrier,
+            scac,
+            shipments: [],
+            currentMargin
+          });
+        }
+        
+        customerCarrierGroups.get(key)!.shipments.push(shipment);
+      });
+      
+      console.log(`🎯 Found ${customerCarrierGroups.size} customer-carrier combinations`);
+      
+      // Create RFQs and run analysis
+      const results: NegotiationResult[] = [];
+      let processed = 0;
+      
+      setNegotiationProgress({ current: 0, total: customerCarrierGroups.size });
+      
+      for (const [key, group] of customerCarrierGroups) {
+        try {
+          // Calculate current performance
+          const totalRevenue = group.shipments.reduce((sum, s) => sum + parseNumeric(s["Revenue"]), 0);
+          const avgQuotePrice = totalRevenue / group.shipments.length;
+          
+          // For now, we'll calculate potential savings based on margin optimization
+          // In a real implementation, you would run RFQs through Project44 API
+          const potentialSavings = totalRevenue * 0.05; // Assume 5% potential savings
+          const recommendedMargin = Math.max(group.currentMargin * 1.1, 15); // 10% increase or 15% minimum
+          
+          results.push({
+            customer: group.customer,
+            carrier: group.carrier,
+            scac: group.scac,
+            currentMargin: group.currentMargin,
+            shipmentCount: group.shipments.length,
+            totalRevenue,
+            avgQuotePrice,
+            potentialSavings,
+            recommendedMargin,
+            rfqResults: [] // Would contain actual RFQ results from Project44
+          });
+          
+          processed++;
+          setNegotiationProgress({ current: processed, total: customerCarrierGroups.size });
+          
+        } catch (error) {
+          console.error(`❌ Error processing ${key}:`, error);
+        }
+      }
+      
+      // Sort by potential savings
+      results.sort((a, b) => b.potentialSavings - a.potentialSavings);
+      
+      setNegotiationResults(results);
+      console.log(`✅ Completed negotiation analysis: ${results.length} results`);
+      
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to run negotiation analysis');
+      console.error('❌ Negotiation analysis failed:', error);
+    } finally {
+      setIsRunningNegotiation(false);
+    }
+  };
 
   const renderCarrierScorecard = () => (
     <div className="space-y-6">
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Carriers</p>
-              <p className="text-2xl font-bold text-gray-900">{carrierMetrics.length}</p>
-            </div>
-            <Truck className="h-8 w-8 text-blue-500" />
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Avg Margin</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {carrierMetrics.length > 0 ? 
-                  (carrierMetrics.reduce((sum, m) => sum + m.avgMargin, 0) / carrierMetrics.length).toFixed(1) : 0
-                }%
-              </p>
-            </div>
-            <TrendingUp className="h-8 w-8 text-green-500" />
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {formatCurrency(carrierMetrics.reduce((sum, m) => sum + m.totalRevenue, 0))}
-              </p>
-            </div>
-            <DollarSign className="h-8 w-8 text-yellow-500" />
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Avg Performance</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {carrierMetrics.length > 0 ? 
-                  (carrierMetrics.reduce((sum, m) => sum + m.onTimePerformance, 0) / carrierMetrics.length).toFixed(1) : 0
-                }%
-              </p>
-            </div>
-            <Award className="h-8 w-8 text-purple-500" />
-          </div>
-        </div>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900">Carrier Performance Scorecard</h3>
+        <button
+          onClick={calculateCarrierScorecards}
+          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          <RefreshCw className="h-4 w-4" />
+          <span>Refresh</span>
+        </button>
       </div>
-      
-      {/* Carrier Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {carrierMetrics.slice(0, 10).map((metric, index) => (
-          <div key={metric.carrierName} className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <div className={`p-2 rounded-lg ${
-                  metric.performanceGrade === 'A' ? 'bg-green-100' :
-                  metric.performanceGrade === 'B' ? 'bg-blue-100' :
-                  metric.performanceGrade === 'C' ? 'bg-yellow-100' :
-                  metric.performanceGrade === 'D' ? 'bg-orange-100' : 'bg-red-100'
-                }`}>
-                  <Truck className={`h-5 w-5 ${
-                    metric.performanceGrade === 'A' ? 'text-green-600' :
-                    metric.performanceGrade === 'B' ? 'text-blue-600' :
-                    metric.performanceGrade === 'C' ? 'text-yellow-600' :
-                    metric.performanceGrade === 'D' ? 'text-orange-600' : 'text-red-600'
-                  }`} />
+
+      {carrierScorecards.length === 0 ? (
+        <div className="text-center py-8 text-gray-500">
+          <BarChart3 className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+          <p>No carrier data available. Load shipment data to generate scorecards.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {carrierScorecards.map((scorecard, index) => (
+            <div key={scorecard.carrierName} className="bg-white rounded-lg shadow-md p-6 border">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-900">{scorecard.carrierName}</h4>
+                  {scorecard.scac && (
+                    <p className="text-sm text-gray-600">SCAC: {scorecard.scac}</p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <div className={`text-2xl font-bold ${
+                    scorecard.grade === 'A' ? 'text-green-600' :
+                    scorecard.grade === 'B' ? 'text-blue-600' :
+                    scorecard.grade === 'C' ? 'text-yellow-600' :
+                    scorecard.grade === 'D' ? 'text-orange-600' : 'text-red-600'
+                  }`}>
+                    {scorecard.grade}
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    {scorecard.overallScore.toFixed(1)} Score
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <div className="text-sm text-gray-600">Total Revenue</div>
+                  <div className="text-lg font-bold text-green-600">
+                    {formatCurrency(scorecard.totalRevenue)}
+                  </div>
                 </div>
                 <div>
-                  <h4 className="font-semibold text-gray-900">{metric.carrierName}</h4>
-                  <p className="text-sm text-gray-600">
-                    Grade: {metric.performanceGrade} • {metric.totalShipments} shipments
-                  </p>
+                  <div className="text-sm text-gray-600">Total Profit</div>
+                  <div className="text-lg font-bold text-green-600">
+                    {formatCurrency(scorecard.totalProfit)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Avg Margin</div>
+                  <div className="text-lg font-bold text-blue-600">
+                    {scorecard.avgMargin.toFixed(1)}%
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Shipments</div>
+                  <div className="text-lg font-bold text-gray-900">
+                    {scorecard.totalShipments}
+                  </div>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-lg font-bold text-green-600">
-                  {metric.avgMargin.toFixed(1)}%
+
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between text-sm">
+                    <span>On-Time Pickup</span>
+                    <span>{scorecard.onTimePickup.toFixed(1)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className={`h-2 rounded-full ${
+                        scorecard.onTimePickup >= 90 ? 'bg-green-500' :
+                        scorecard.onTimePickup >= 80 ? 'bg-yellow-500' : 'bg-red-500'
+                      }`}
+                      style={{ width: `${Math.min(scorecard.onTimePickup, 100)}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="text-sm text-gray-500">Margin</div>
+
+                <div>
+                  <div className="flex justify-between text-sm">
+                    <span>On-Time Delivery</span>
+                    <span>{scorecard.onTimeDelivery.toFixed(1)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className={`h-2 rounded-full ${
+                        scorecard.onTimeDelivery >= 90 ? 'bg-green-500' :
+                        scorecard.onTimeDelivery >= 80 ? 'bg-yellow-500' : 'bg-red-500'
+                      }`}
+                      style={{ width: `${Math.min(scorecard.onTimeDelivery, 100)}%` }}
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <p className="text-sm text-gray-600">Revenue</p>
-                <p className="font-bold">{formatCurrency(metric.totalRevenue)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">On-Time</p>
-                <p className="font-bold">{metric.onTimePerformance.toFixed(1)}%</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Risk Score</p>
-                <p className={`font-bold ${
-                  metric.riskScore < 30 ? 'text-green-600' :
-                  metric.riskScore < 60 ? 'text-yellow-600' : 'text-red-600'
+
+              <div className="mt-4">
+                <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                  scorecard.riskLevel === 'Low' ? 'bg-green-100 text-green-800' :
+                  scorecard.riskLevel === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                  'bg-red-100 text-red-800'
                 }`}>
-                  {metric.riskScore.toFixed(0)}
-                </p>
+                  {scorecard.riskLevel} Risk
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-gray-600">Opportunity</p>
-                <p className={`font-bold ${
-                  metric.opportunityScore > 60 ? 'text-green-600' :
-                  metric.opportunityScore > 30 ? 'text-yellow-600' : 'text-gray-600'
-                }`}>
-                  {metric.opportunityScore.toFixed(0)}
-                </p>
-              </div>
+
+              {scorecard.opportunities.length > 0 && (
+                <div className="mt-4">
+                  <div className="text-sm font-medium text-gray-700 mb-2">Opportunities:</div>
+                  <ul className="text-sm text-gray-600 space-y-1">
+                    {scorecard.opportunities.map((opp, i) => (
+                      <li key={i} className="flex items-center space-x-2">
+                        <Target className="h-3 w-3 text-blue-500" />
+                        <span>{opp}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
-            
-            <div className="border-t pt-4">
-              <p className="text-sm font-medium text-gray-700 mb-2">Top Recommendations:</p>
-              <ul className="text-xs text-gray-600 space-y-1">
-                {metric.recommendations.slice(0, 2).map((rec, i) => (
-                  <li key={i} className="flex items-start space-x-1">
-                    <span className="text-blue-500 mt-0.5">•</span>
-                    <span>{rec}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 
   const renderForecasting = () => (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center space-x-3 mb-6">
-          <Brain className="h-6 w-6 text-purple-600" />
-          <h3 className="text-lg font-semibold text-gray-900">AI-Powered Margin Forecasting</h3>
-        </div>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {forecasts.slice(0, 8).map((forecast, index) => (
-            <div key={forecast.carrierName} className="border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="font-semibold text-gray-900">{forecast.carrierName}</h4>
-                <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  forecast.recommendation === 'increase' ? 'bg-green-100 text-green-800' :
-                  forecast.recommendation === 'decrease' ? 'bg-red-100 text-red-800' :
-                  'bg-blue-100 text-blue-800'
-                }`}>
-                  {forecast.recommendation.toUpperCase()}
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4 mb-3">
-                <div>
-                  <p className="text-sm text-gray-600">Current</p>
-                  <p className="font-bold">{forecast.currentMargin.toFixed(1)}%</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Predicted</p>
-                  <p className={`font-bold ${
-                    forecast.predictedMargin > forecast.currentMargin ? 'text-green-600' :
-                    forecast.predictedMargin < forecast.currentMargin ? 'text-red-600' : 'text-gray-900'
-                  }`}>
-                    {forecast.predictedMargin.toFixed(1)}%
-                  </p>
-                </div>
-              </div>
-              
-              <div className="mb-3">
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-600">Confidence</span>
-                  <span className="font-medium">{forecast.confidenceLevel}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-blue-500 h-2 rounded-full" 
-                    style={{ width: `${forecast.confidenceLevel}%` }}
-                  />
-                </div>
-              </div>
-              
-              <div className="mb-3">
-                <p className="text-sm text-gray-600 mb-1">Revenue Impact:</p>
-                <p className={`font-bold ${
-                  forecast.revenueImpact > 0 ? 'text-green-600' : 
-                  forecast.revenueImpact < 0 ? 'text-red-600' : 'text-gray-600'
-                }`}>
-                  {forecast.revenueImpact > 0 ? '+' : ''}{formatCurrency(forecast.revenueImpact)}
-                </p>
-              </div>
-              
-              <div className="text-xs text-gray-600">
-                <p className="font-medium mb-1">Key Factors:</p>
-                <ul className="space-y-1">
-                  {forecast.trendFactors.slice(0, 2).map((factor, i) => (
-                    <li key={i}>• {factor}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          ))}
-        </div>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900">AI-Powered Forecasting</h3>
+        <button
+          onClick={generateForecasts}
+          className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+        >
+          <Brain className="h-4 w-4" />
+          <span>Regenerate</span>
+        </button>
       </div>
+
+      {forecastData.length === 0 ? (
+        <div className="text-center py-8 text-gray-500">
+          <Brain className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+          <p>No forecast data available. Need at least 3 months of shipment data.</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {forecastData.slice(0, 3).map((forecast, index) => (
+              <div key={forecast.period} className="bg-white rounded-lg shadow-md p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-lg font-semibold text-gray-900">{forecast.period}</h4>
+                  <div className={`flex items-center space-x-1 ${
+                    forecast.trend === 'up' ? 'text-green-600' :
+                    forecast.trend === 'down' ? 'text-red-600' : 'text-gray-600'
+                  }`}>
+                    {forecast.trend === 'up' ? <TrendingUp className="h-4 w-4" /> :
+                     forecast.trend === 'down' ? <TrendingDown className="h-4 w-4" /> :
+                     <Activity className="h-4 w-4" />}
+                    <span className="text-sm font-medium">{forecast.trend}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-sm text-gray-600">Predicted Revenue</div>
+                    <div className="text-xl font-bold text-green-600">
+                      {formatCurrency(forecast.predictedRevenue)}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-sm text-gray-600">Predicted Margin</div>
+                    <div className="text-xl font-bold text-blue-600">
+                      {forecast.predictedMargin.toFixed(1)}%
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-sm text-gray-600">Confidence</div>
+                    <div className="flex items-center space-x-2">
+                      <div className="flex-1 bg-gray-200 rounded-full h-2">
+                        <div 
+                          className={`h-2 rounded-full ${
+                            forecast.confidence >= 80 ? 'bg-green-500' :
+                            forecast.confidence >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${forecast.confidence}%` }}
+                        />
+                      </div>
+                      <span className="text-sm font-medium">{forecast.confidence.toFixed(0)}%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <div className="text-sm font-medium text-gray-700 mb-2">Key Factors:</div>
+                  <ul className="text-xs text-gray-600 space-y-1">
+                    {forecast.factors.map((factor, i) => (
+                      <li key={i} className="flex items-center space-x-1">
+                        <div className="w-1 h-1 bg-blue-500 rounded-full" />
+                        <span>{factor}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h4 className="text-lg font-semibold text-gray-900 mb-4">6-Month Forecast Trend</h4>
+            <div className="space-y-4">
+              {forecastData.map((forecast, index) => (
+                <div key={forecast.period} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center space-x-4">
+                    <div className="text-sm font-medium text-gray-900">{forecast.period}</div>
+                    <div className={`flex items-center space-x-1 ${
+                      forecast.trend === 'up' ? 'text-green-600' :
+                      forecast.trend === 'down' ? 'text-red-600' : 'text-gray-600'
+                    }`}>
+                      {forecast.trend === 'up' ? <TrendingUp className="h-3 w-3" /> :
+                       forecast.trend === 'down' ? <TrendingDown className="h-3 w-3" /> :
+                       <Activity className="h-3 w-3" />}
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-6">
+                    <div className="text-right">
+                      <div className="text-sm text-gray-600">Revenue</div>
+                      <div className="text-sm font-bold text-green-600">
+                        {formatCurrency(forecast.predictedRevenue)}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm text-gray-600">Margin</div>
+                      <div className="text-sm font-bold text-blue-600">
+                        {forecast.predictedMargin.toFixed(1)}%
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm text-gray-600">Confidence</div>
+                      <div className="text-sm font-bold text-gray-900">
+                        {forecast.confidence.toFixed(0)}%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
   const renderNegotiationAnalysis = () => (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center space-x-3 mb-6">
-          <Target className="h-6 w-6 text-orange-600" />
-          <h3 className="text-lg font-semibold text-gray-900">Negotiation Analysis</h3>
-        </div>
-        
-        {/* Mode Selection */}
-        <div className="flex space-x-4 mb-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900">Negotiation Analysis</h3>
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <label className="text-sm text-gray-700">Start Date:</label>
+            <input
+              type="date"
+              value={dateRange.start}
+              onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+            />
+          </div>
+          <div className="flex items-center space-x-2">
+            <label className="text-sm text-gray-700">End Date:</label>
+            <input
+              type="date"
+              value={dateRange.end}
+              onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+            />
+          </div>
           <button
-            onClick={() => setNegotiationMode('preliminary')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              negotiationMode === 'preliminary'
-                ? 'bg-orange-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+            onClick={runNegotiationAnalysis}
+            disabled={isRunningNegotiation || !dateRange.start || !dateRange.end}
+            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
           >
-            Preliminary Analysis
-          </button>
-          <button
-            onClick={() => setNegotiationMode('comparison')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              negotiationMode === 'comparison'
-                ? 'bg-orange-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Before/After Comparison
+            {isRunningNegotiation ? (
+              <Loader className="h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
+            <span>Run Analysis</span>
           </button>
         </div>
-        
-        {/* Input Form */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Carrier</label>
-            <select
-              value={selectedCarrierForNegotiation}
-              onChange={(e) => setSelectedCarrierForNegotiation(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-            >
-              <option value="">Select Carrier</option>
-              {carrierMetrics.map(metric => (
-                <option key={metric.carrierName} value={metric.carrierName}>
-                  {metric.carrierName}
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          {negotiationMode === 'preliminary' ? (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Proposed Margin %</label>
-              <input
-                type="number"
-                step="0.1"
-                value={proposedMargin}
-                onChange={(e) => setProposedMargin(parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                placeholder="18.5"
-              />
-            </div>
-          ) : (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Before Margin %</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={beforeMargin}
-                  onChange={(e) => setBeforeMargin(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  placeholder="15.0"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">After Margin %</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={afterMargin}
-                  onChange={(e) => setAfterMargin(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
-                  placeholder="18.5"
-                />
-              </div>
-            </>
-          )}
-          
-          <div className="flex items-end">
-            <button
-              onClick={analyzeNegotiation}
-              disabled={!selectedCarrierForNegotiation}
-              className="w-full px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-400 transition-colors"
-            >
-              Analyze
-            </button>
-          </div>
-        </div>
-        
-        {/* Analysis Results */}
-        {negotiationAnalysis && (
-          <div className="border border-gray-200 rounded-lg p-6">
-            <h4 className="text-lg font-semibold text-gray-900 mb-4">
-              Analysis: {negotiationAnalysis.carrierName}
-            </h4>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-              <div className="bg-blue-50 rounded-lg p-4">
-                <h5 className="font-medium text-blue-900 mb-2">Margin Comparison</h5>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Current:</span>
-                    <span className="font-bold">{negotiationAnalysis.currentMargin.toFixed(1)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Proposed:</span>
-                    <span className="font-bold">{negotiationAnalysis.proposedMargin.toFixed(1)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Market Benchmark:</span>
-                    <span className="font-bold">{negotiationAnalysis.marketBenchmark.toFixed(1)}%</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-green-50 rounded-lg p-4">
-                <h5 className="font-medium text-green-900 mb-2">Financial Impact</h5>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Revenue Impact:</span>
-                    <span className={`font-bold ${
-                      negotiationAnalysis.revenueImpact > 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {negotiationAnalysis.revenueImpact > 0 ? '+' : ''}{formatCurrency(negotiationAnalysis.revenueImpact)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Volume Impact:</span>
-                    <span className="font-bold">{negotiationAnalysis.volumeImpact} shipments</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-purple-50 rounded-lg p-4">
-                <h5 className="font-medium text-purple-900 mb-2">Negotiation Position</h5>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Position:</span>
-                    <span className={`font-bold capitalize ${
-                      negotiationAnalysis.competitivePosition === 'strong' ? 'text-green-600' :
-                      negotiationAnalysis.competitivePosition === 'moderate' ? 'text-yellow-600' : 'text-red-600'
-                    }`}>
-                      {negotiationAnalysis.competitivePosition}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Power Score:</span>
-                    <span className="font-bold">{negotiationAnalysis.negotiationPower.toFixed(0)}/100</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div>
-                <h5 className="font-medium text-red-900 mb-2">Risk Factors</h5>
-                <ul className="text-sm text-red-700 space-y-1">
-                  {negotiationAnalysis.riskFactors.map((risk, i) => (
-                    <li key={i} className="flex items-start space-x-1">
-                      <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                      <span>{risk}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              
-              <div>
-                <h5 className="font-medium text-green-900 mb-2">Opportunities</h5>
-                <ul className="text-sm text-green-700 space-y-1">
-                  {negotiationAnalysis.opportunities.map((opp, i) => (
-                    <li key={i} className="flex items-start space-x-1">
-                      <CheckCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                      <span>{opp}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-            
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h5 className="font-medium text-gray-900 mb-2">Recommendation</h5>
-              <p className="text-sm text-gray-700">{negotiationAnalysis.recommendation}</p>
-            </div>
-          </div>
-        )}
       </div>
+
+      {isRunningNegotiation && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center space-x-3">
+            <Loader className="h-5 w-5 text-blue-600 animate-spin" />
+            <div>
+              <div className="text-sm font-medium text-blue-900">Running Negotiation Analysis...</div>
+              <div className="text-xs text-blue-700">
+                Processing {negotiationProgress.current} of {negotiationProgress.total} customer-carrier combinations
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 w-full bg-blue-200 rounded-full h-2">
+            <div 
+              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${negotiationProgress.total > 0 ? (negotiationProgress.current / negotiationProgress.total) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {negotiationResults.length > 0 && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-lg shadow-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h4 className="text-lg font-semibold text-gray-900">
+                Negotiation Opportunities ({negotiationResults.length} found)
+              </h4>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Carrier</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Margin</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shipments</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Revenue</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Quote</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Potential Savings</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recommended Margin</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {negotiationResults.map((result, index) => (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                        {result.customer}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        <div>
+                          <div className="font-medium">{result.carrier}</div>
+                          {result.scac && (
+                            <div className="text-xs text-gray-500">SCAC: {result.scac}</div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {result.currentMargin.toFixed(1)}%
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {result.shipmentCount}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {formatCurrency(result.totalRevenue)}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {formatCurrency(result.avgQuotePrice)}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-green-600">
+                        {formatCurrency(result.potentialSavings)}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-blue-600">
+                        {result.recommendedMargin.toFixed(1)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {negotiationResults.length === 0 && !isRunningNegotiation && (
+        <div className="text-center py-8 text-gray-500">
+          <Target className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+          <p>Select a date range and run analysis to see negotiation opportunities.</p>
+        </div>
+      )}
     </div>
   );
 
   const renderNewCarrierAnalysis = () => (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center space-x-3 mb-6">
-          <Plus className="h-6 w-6 text-green-600" />
-          <h3 className="text-lg font-semibold text-gray-900">New Carrier Analysis</h3>
-        </div>
-        
-        {/* Input Form */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">P44 Group</label>
-            <select
-              value={selectedP44Group}
-              onChange={(e) => setSelectedP44Group(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
-            >
-              <option value="">Select Group</option>
-              {carrierGroups.map(group => (
-                <option key={group.groupCode} value={group.groupCode}>
-                  {group.groupName}
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">New Carrier</label>
-            <input
-              type="text"
-              value={selectedNewCarrier}
-              onChange={(e) => setSelectedNewCarrier(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
-              placeholder="Enter carrier name"
-            />
-          </div>
-          
-          <div className="flex items-end">
-            <button
-              onClick={analyzeNewCarrier}
-              disabled={!selectedNewCarrier || !selectedP44Group}
-              className="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 transition-colors"
-            >
-              Analyze
-            </button>
-          </div>
-        </div>
-        
-        {/* Analysis Results */}
-        {newCarrierAnalysis && (
-          <div className="border border-gray-200 rounded-lg p-6">
-            <h4 className="text-lg font-semibold text-gray-900 mb-4">
-              New Carrier Analysis: {newCarrierAnalysis.carrierName}
-            </h4>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div className="bg-green-50 rounded-lg p-4">
-                <h5 className="font-medium text-green-900 mb-2">Recommended Setup</h5>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Recommended Margin:</span>
-                    <span className="font-bold">{newCarrierAnalysis.recommendedMargin.toFixed(1)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Group:</span>
-                    <span className="font-bold">{newCarrierAnalysis.groupCode}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Onboarding:</span>
-                    <span className="font-bold">{newCarrierAnalysis.onboardingComplexity}</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-blue-50 rounded-lg p-4">
-                <h5 className="font-medium text-blue-900 mb-2">Market Position</h5>
-                <div className="space-y-2 text-sm">
-                  <div>
-                    <span className="font-medium">Coverage:</span>
-                    <span className="ml-2">{newCarrierAnalysis.geographicCoverage}</span>
-                  </div>
-                  <div>
-                    <span className="font-medium">Services:</span>
-                    <span className="ml-2">{newCarrierAnalysis.serviceCapabilities.join(', ')}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div className="mb-6">
-              <h5 className="font-medium text-gray-900 mb-2">Competitor Comparison</h5>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left">Carrier</th>
-                      <th className="px-4 py-2 text-left">Margin</th>
-                      <th className="px-4 py-2 text-left">Performance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {newCarrierAnalysis.competitorComparison.map((comp: any, i: number) => (
-                      <tr key={i} className="border-t">
-                        <td className="px-4 py-2">{comp.name}</td>
-                        <td className="px-4 py-2">{comp.margin.toFixed(1)}%</td>
-                        <td className="px-4 py-2">{comp.performance.toFixed(1)}%</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h5 className="font-medium text-gray-900 mb-2">Implementation Recommendations</h5>
-              <ul className="text-sm text-gray-700 space-y-1">
-                {newCarrierAnalysis.recommendations.map((rec: string, i: number) => (
-                  <li key={i} className="flex items-start space-x-1">
-                    <Lightbulb className="h-3 w-3 mt-0.5 flex-shrink-0 text-yellow-500" />
-                    <span>{rec}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900">New Carrier Analysis</h3>
+        <button className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+          <Plus className="h-4 w-4" />
+          <span>Add Carrier</span>
+        </button>
+      </div>
+
+      <div className="text-center py-8 text-gray-500">
+        <Building2 className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+        <p>New carrier analysis feature coming soon.</p>
+        <p className="text-sm">Will analyze P44 carrier groups and recommend margins for new carriers.</p>
       </div>
     </div>
   );
 
-  if (loading || loadingShipments || loadingCarriers || loadingP44Data) {
-    return renderLoadingProgress();
-  }
-
-  if (error) {
+  if (loading) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-        <div className="flex items-center space-x-2">
-          <AlertTriangle className="h-5 w-5 text-red-600" />
-          <span className="text-red-800">{error}</span>
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow-md p-8">
+          <div className="flex items-center space-x-3 mb-6">
+            <Loader className="h-6 w-6 text-blue-600 animate-spin" />
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Loading Margin Analysis Data</h2>
+              <p className="text-sm text-gray-600">{loadingProgress.stage}</p>
+            </div>
+          </div>
+          
+          {loadingProgress.total > 0 && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Progress</span>
+                <span>{loadingProgress.current} / {loadingProgress.total}</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${loadingProgress.total > 0 ? (loadingProgress.current / loadingProgress.total) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
-        <button
-          onClick={loadAllData}
-          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-        >
-          Retry Loading
-        </button>
       </div>
     );
   }
@@ -1531,28 +1081,71 @@ export const MarginAnalysisTools: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Calculator className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900">Margin Analysis Tools</h1>
-              <p className="text-sm text-gray-600">
-                Real-time carrier performance analysis with {shipments.length.toLocaleString()} shipments 
-                and {customerCarriers.length.toLocaleString()} margin configurations
-              </p>
-            </div>
+        <div className="flex items-center space-x-3">
+          <div className="bg-purple-600 p-2 rounded-lg">
+            <Calculator className="h-6 w-6 text-white" />
           </div>
-          <button
-            onClick={loadAllData}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <RefreshCw className="h-4 w-4" />
-            <span>Refresh Data</span>
-          </button>
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Margin Analysis Tools</h1>
+            <p className="text-sm text-gray-600">
+              Advanced analytics for carrier performance, forecasting, and negotiation optimization
+            </p>
+          </div>
         </div>
       </div>
+
+      {/* Data Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Total Shipments</p>
+              <p className="text-2xl font-bold text-gray-900">{shipments.length.toLocaleString()}</p>
+            </div>
+            <Truck className="h-8 w-8 text-blue-500" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Customer-Carrier Configs</p>
+              <p className="text-2xl font-bold text-gray-900">{customerCarriers.length.toLocaleString()}</p>
+            </div>
+            <Users className="h-8 w-8 text-green-500" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Carrier Scorecards</p>
+              <p className="text-2xl font-bold text-gray-900">{carrierScorecards.length}</p>
+            </div>
+            <Award className="h-8 w-8 text-yellow-500" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Forecast Periods</p>
+              <p className="text-2xl font-bold text-gray-900">{forecastData.length}</p>
+            </div>
+            <Brain className="h-8 w-8 text-purple-500" />
+          </div>
+        </div>
+      </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+            <span className="text-red-800">{error}</span>
+          </div>
+        </div>
+      )}
 
       {/* Tab Navigation */}
       <div className="border-b border-gray-200">
@@ -1570,7 +1163,7 @@ export const MarginAnalysisTools: React.FC = () => {
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
+                    ? 'border-purple-500 text-purple-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
@@ -1583,10 +1176,12 @@ export const MarginAnalysisTools: React.FC = () => {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'scorecard' && renderCarrierScorecard()}
-      {activeTab === 'forecasting' && renderForecasting()}
-      {activeTab === 'negotiation' && renderNegotiationAnalysis()}
-      {activeTab === 'new-carrier' && renderNewCarrierAnalysis()}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        {activeTab === 'scorecard' && renderCarrierScorecard()}
+        {activeTab === 'forecasting' && renderForecasting()}
+        {activeTab === 'negotiation' && renderNegotiationAnalysis()}
+        {activeTab === 'new-carrier' && renderNewCarrierAnalysis()}
+      </div>
     </div>
   );
 };
