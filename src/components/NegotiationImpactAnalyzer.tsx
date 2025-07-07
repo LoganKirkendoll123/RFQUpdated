@@ -19,9 +19,10 @@ import {
   Building2,
   Truck
 } from 'lucide-react';
-import { Project44APIClient } from '../utils/apiClient';
+import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
+import { RFQRow } from '../types';
 import * as XLSX from 'xlsx';
 
 interface NegotiationAnalyzerProps {
@@ -90,6 +91,10 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
   const [selectedP44Account, setSelectedP44Account] = useState('');
   const [availableAccounts, setAvailableAccounts] = useState<string[]>([]);
   
+  // Carrier selection state
+  const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
+  const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
+  
   const [phase1Results, setPhase1Results] = useState<Phase1Result[]>([]);
   const [phase2Results, setPhase2Results] = useState<Phase2Result[]>([]);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>({
@@ -104,7 +109,27 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
 
   useEffect(() => {
     loadAvailableP44Accounts();
+    if (project44Client) {
+      loadCarriers();
+    }
   }, []);
+
+  const loadCarriers = async () => {
+    if (!project44Client) return;
+    
+    setIsLoadingCarriers(true);
+    try {
+      console.log('🚛 Loading carriers for negotiation analysis...');
+      const groups = await project44Client.getAvailableCarriersByGroup(false, false);
+      setCarrierGroups(groups);
+      console.log(`✅ Loaded ${groups.length} carrier groups for negotiation analysis`);
+    } catch (error) {
+      console.error('❌ Failed to load carriers:', error);
+      setCarrierGroups([]);
+    } finally {
+      setIsLoadingCarriers(false);
+    }
+  };
 
   const loadAvailableP44Accounts = async () => {
     try {
@@ -126,6 +151,44 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
     } catch (err) {
       console.error('❌ Failed to load P44 accounts:', err);
     }
+  };
+
+  // Convert a shipment record to an RFQ format that Project44 API can use
+  const convertShipmentToRFQ = (shipment: ShipmentRecord): RFQRow => {
+    // Parse weight from string format
+    const weightStr = shipment["Tot Weight"] || '0';
+    const weight = parseInt(weightStr.replace(/[^\d]/g, '')) || 1000;
+    
+    // Parse pallets from Tot Packages
+    const pallets = shipment["Tot Packages"] || 1;
+    
+    // Parse freight class
+    const freightClass = shipment["Max Freight Class"] || '70';
+    
+    // Determine if this is VLTL
+    const isVLTL = shipment["Is VLTL"] === 'TRUE';
+    
+    // Parse accessorials if any
+    const accessorialStr = shipment["Accessorials"] || '';
+    const accessorial = accessorialStr.split(/[,;]/).map(a => a.trim()).filter(Boolean);
+    
+    return {
+      fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
+      fromZip: shipment["Zip"] || '60607',
+      toZip: shipment["Zip_1"] || '30033',
+      pallets: typeof pallets === 'number' ? pallets : parseInt(pallets) || 1,
+      grossWeight: weight,
+      isStackable: false,
+      isReefer: false,
+      freightClass,
+      accessorial,
+      originCity: shipment["Origin City"],
+      originState: shipment["State"],
+      destinationCity: shipment["Destination City"],
+      destinationState: shipment["State_1"],
+      // If VLTL, add totalLinearFeet
+      totalLinearFeet: isVLTL ? Math.ceil((typeof pallets === 'number' ? pallets : parseInt(pallets) || 1) * 4 / 12) : undefined
+    };
   };
 
   const runPhase1Analysis = async () => {
@@ -185,13 +248,16 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       console.log(`💰 Found ${margins?.length || 0} customer margins for account ${selectedP44Account}`);
 
       // Create a lookup map for customer margins
-      const marginLookup = new Map<string, number>();
+      const marginLookup = new Map<string, { percentage: number, customerName: string }>();
       margins?.forEach(margin => {
         if (margin.InternalName && margin.Percentage) {
           const customerKey = margin.InternalName.trim().toUpperCase();
           const percentage = parseFloat(margin.Percentage) / 100; // Convert to decimal
-          marginLookup.set(customerKey, percentage);
-          console.log(`📋 Margin for ${margin.InternalName}: ${(percentage * 100).toFixed(1)}%`);
+          marginLookup.set(customerKey, { 
+            percentage, 
+            customerName: margin.InternalName 
+          });
+          console.log(`📋 Margin for ${margin.InternalName}: ${(percentage * 100).toFixed(1)}% (key: ${customerKey})`);
         }
       });
 
@@ -221,13 +287,16 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
         }
 
         const customerKey = customerName.toUpperCase();
+        console.log(`🔍 Looking up margin for customer key: ${customerKey}`);
         
         // Look up customer margin
-        const customerMargin = marginLookup.get(customerKey);
-        if (!customerMargin) {
+        const marginInfo = marginLookup.get(customerKey);
+        if (!marginInfo) {
           console.log(`⚠️ Skipping shipment ${shipment["Invoice #"]} - no margin found for customer: ${customerName}`);
           continue;
         }
+        
+        const customerMargin = marginInfo.percentage;
 
         // Get the cost (carrier quote)
         const carrierQuote = parseFloat(shipment["Carrier Quote"] || '0');
@@ -237,7 +306,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
         }
 
         // Calculate revenue after margin: cost / (1 - margin)
-        const revenueAfterMargin = carrierQuote / (1 - customerMargin);
+        const revenueAfterMargin = carrierQuote / (1 - customerMargin); 
         
         console.log(`💰 Shipment ${shipment["Invoice #"]}: Cost=${formatCurrency(carrierQuote)}, Margin=${(customerMargin * 100).toFixed(1)}%, Revenue=${formatCurrency(revenueAfterMargin)}`);
 
@@ -262,7 +331,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       const phase1Data: Phase1Result[] = Array.from(customerResults.entries()).map(([customerKey, data]) => ({
         customer: customerKey,
         shipmentCount: data.shipmentCount,
-        totalRevenueAfterMargin: data.totalRevenueAfterMargin,
+        totalRevenueAfterMargin: Math.round(data.totalRevenueAfterMargin), // Round to nearest dollar
         avgMargin: (data.totalMargin / data.marginCount) * 100 // Convert back to percentage
       })).sort((a, b) => b.totalRevenueAfterMargin - a.totalRevenueAfterMargin);
 
@@ -309,13 +378,23 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
     try {
       console.log('🚀 Starting Phase 2: Post-Negotiation Analysis & Margin Determination');
       
-      // Get selected carrier IDs
+      // Get selected carrier IDs from the UI
       const selectedCarrierIds = Object.entries(selectedCarriers)
         .filter(([_, selected]) => selected)
         .map(([carrierId, _]) => carrierId);
 
       if (selectedCarrierIds.length === 0) {
-        throw new Error('No carriers selected for Phase 2 analysis');
+        // If no carriers are explicitly selected, use all available carriers from loaded groups
+        if (carrierGroups.length > 0) {
+          carrierGroups.forEach(group => {
+            group.carriers.forEach(carrier => {
+              selectedCarrierIds.push(carrier.id);
+            });
+          });
+          console.log(`🚛 No carriers explicitly selected, using all ${selectedCarrierIds.length} available carriers`);
+        } else {
+          throw new Error('No carriers available for Phase 2 analysis');
+        }
       }
 
       console.log(`🚛 Using ${selectedCarrierIds.length} selected carriers for new cost analysis`);
@@ -327,8 +406,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       const { data: shipments, error: shipmentsError } = await supabase
         .from('Shipments')
         .select('*')
-        .gte('"Scheduled Pickup Date"', dateRange.start)
-        .lte('"Scheduled Pickup Date"', dateRange.end)
+        .gte('"Scheduled Pickup Date"', dateRange.start || '2000-01-01')
+        .lte('"Scheduled Pickup Date"', dateRange.end || '2099-12-31')
         .not('"Customer"', 'is', null);
       
       if (shipmentsError) {
@@ -338,7 +417,9 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       // Filter to only customers from Phase 1
       const phase1Customers = new Set(phase1Results.map(r => r.customer));
       const validShipments = shipments?.filter(s => 
-        s.Customer && phase1Customers.has(s.Customer.trim().toUpperCase())
+        s.Customer && phase1Customers.has(s.Customer.trim().toUpperCase()) &&
+        s["Zip"] && s["Zip_1"] && // Must have origin and destination ZIP
+        s["Tot Weight"] // Must have weight
       ) || [];
 
       setProcessingStatus(prev => ({
@@ -349,12 +430,11 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       let processedCount = 0;
 
       for (const shipment of validShipments) {
-        processedCount++;
-        
         const customerName = shipment.Customer?.trim();
         if (!customerName) continue;
 
         const customerKey = customerName.toUpperCase();
+        processedCount++;
         
         setProcessingStatus(prev => ({
           ...prev,
@@ -363,31 +443,36 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
         }));
 
         try {
-          // Build RFQ from shipment data
-          const rfqData = {
-            fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
-            fromZip: shipment["Zip"] || '60607',
-            toZip: shipment["Zip_1"] || '30033',
-            pallets: shipment["Tot Packages"] || 1,
-            grossWeight: parseInt(shipment["Tot Weight"]?.replace(/[^\d]/g, '') || '1000'),
-            isStackable: false,
-            isReefer: false,
-            accessorial: []
-          };
+          // Convert shipment to RFQ format
+          const rfqData = convertShipmentToRFQ(shipment);
 
           console.log(`📞 Getting new quotes for shipment ${shipment["Invoice #"]} (${customerName})`);
+          console.log(`📦 RFQ details: ${rfqData.fromZip} → ${rfqData.toZip}, ${rfqData.pallets} pallets, ${rfqData.grossWeight} lbs`);
 
           // Determine if this is VLTL
-          const isVLTL = shipment["Is VLTL"] === "TRUE" || rfqData.pallets >= 10 || rfqData.grossWeight >= 15000;
+          const isVLTL = shipment["Is VLTL"] === "TRUE" || 
+                        rfqData.pallets >= 10 || 
+                        rfqData.grossWeight >= 15000;
+          
+          console.log(`🚚 Shipment ${shipment["Invoice #"]} is ${isVLTL ? 'VLTL' : 'Standard LTL'}`);
           
           // Get new quotes from Project44
-          const quotes = await project44Client.getQuotes(
-            rfqData, 
-            selectedCarrierIds, 
-            isVLTL, // isVolumeMode
-            false,  // isFTLMode
-            false   // isReeferMode
-          );
+          let quotes = [];
+          try {
+            console.log(`🔍 Requesting quotes from Project44 for ${isVLTL ? 'VLTL' : 'Standard LTL'} shipment...`);
+            quotes = await project44Client.getQuotes(
+              rfqData, 
+              selectedCarrierIds, 
+              isVLTL, // isVolumeMode
+              false,  // isFTLMode
+              false   // isReeferMode
+            );
+            console.log(`✅ Received ${quotes.length} quotes from Project44`);
+          } catch (quoteError) {
+            console.error(`❌ Failed to get quotes for shipment ${shipment["Invoice #"]}:`, quoteError);
+            console.log(`🔄 Continuing with next shipment...`);
+            continue;
+          }
 
           if (quotes.length > 0) {
             // Use the best (lowest) quote
@@ -398,6 +483,10 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
             });
 
             const newCost = bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts;
+            if (newCost <= 0) {
+              console.log(`⚠️ Invalid cost (${newCost}) for shipment ${shipment["Invoice #"]}, skipping`);
+              continue;
+            }
             
             console.log(`💰 New cost for ${customerName} shipment: ${formatCurrency(newCost)}`);
 
@@ -414,8 +503,8 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           console.error(`❌ Failed to get quotes for shipment ${shipment["Invoice #"]}:`, error);
         }
 
-        // Small delay to avoid overwhelming the API
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Small delay between requests to avoid overwhelming the API
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
       // Step 2.2: Determine New Required Margin PER CUSTOMER
@@ -426,7 +515,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
         const initialRevenue = phase1Result.totalRevenueAfterMargin;
         const newTotalCost = customerNewCosts.get(customerKey) || 0;
 
-        if (newTotalCost > 0) {
+        if (newTotalCost > 0 && initialRevenue > 0) {
           // Calculate new required margin: ((revenue goal) - (new cost)) / (revenue goal)
           const newRequiredMargin = ((initialRevenue - newTotalCost) / initialRevenue) * 100;
           const marginChange = newRequiredMargin - phase1Result.avgMargin;
@@ -571,12 +660,17 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
             />
           </div>
           
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">P44 Account Code</label>
+          <div className="flex items-center space-x-4">
             <select
               value={selectedP44Account}
-              onChange={(e) => setSelectedP44Account(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+              onChange={(e) => {
+                setSelectedP44Account(e.target.value);
+                // Reset results when account changes
+                setPhase1Results([]);
+                setPhase2Results([]);
+                setAnalysisComplete(false);
+              }}
+              className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
             >
               <option value="">Select P44 Account...</option>
               {availableAccounts.map(account => (
@@ -586,6 +680,43 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           </div>
         </div>
       </div>
+      
+      {/* Carrier Status */}
+      {project44Client && (
+        <div className="bg-white rounded-lg shadow-md p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Truck className="h-5 w-5 text-blue-600" />
+              <span className="font-medium text-gray-900">Carrier Status</span>
+            </div>
+            <div className="text-sm text-gray-600">
+              {isLoadingCarriers ? (
+                <div className="flex items-center space-x-2">
+                  <Loader className="h-4 w-4 animate-spin text-blue-500" />
+                  <span>Loading carriers...</span>
+                </div>
+              ) : carrierGroups.length > 0 ? (
+                <span>
+                  {carrierGroups.reduce((total, group) => total + group.carriers.length, 0)} carriers available
+                </span>
+              ) : (
+                <span className="text-orange-600">No carriers loaded</span>
+              )}
+            </div>
+          </div>
+          
+          {carrierGroups.length === 0 && !isLoadingCarriers && (
+            <div className="mt-2">
+              <button
+                onClick={loadCarriers}
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Load Carriers
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Phase Controls */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -609,7 +740,11 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           <button
             onClick={runPhase1Analysis}
             disabled={processingStatus.isRunning || !selectedP44Account}
-            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+            className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+              processingStatus.isRunning || !selectedP44Account
+                ? 'bg-gray-400 cursor-not-allowed text-white'
+                : 'bg-blue-600 text-white hover:bg-blue-700'
+            }`}
           >
             {processingStatus.isRunning && processingStatus.phase === 1 ? (
               <>
@@ -653,7 +788,11 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           <button
             onClick={runPhase2Analysis}
             disabled={processingStatus.isRunning || phase1Results.length === 0 || !project44Client}
-            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+            className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+              processingStatus.isRunning || phase1Results.length === 0 || !project44Client
+                ? 'bg-gray-400 cursor-not-allowed text-white'
+                : 'bg-purple-600 text-white hover:bg-purple-700'
+            }`}
           >
             {processingStatus.isRunning && processingStatus.phase === 2 ? (
               <>
@@ -681,17 +820,30 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       {/* Processing Status */}
       {processingStatus.isRunning && (
         <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center space-x-3 mb-4">
+          <div className="flex items-center justify-between mb-4">
             <Loader className="h-5 w-5 animate-spin text-blue-500" />
-            <h3 className="text-lg font-semibold text-gray-900">
-              Processing Phase {processingStatus.phase}
-            </h3>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Processing Phase {processingStatus.phase}
+              </h3>
+              <p className="text-sm text-gray-600">
+                {processingStatus.phase === 1 
+                  ? 'Analyzing historical shipments and margins' 
+                  : 'Getting current quotes from Project44 API'}
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-lg font-bold text-blue-600">
+                {processingStatus.processedShipments} / {processingStatus.totalShipments}
+              </div>
+              <div className="text-sm text-gray-500">Shipments processed</div>
+            </div>
           </div>
           
           <div className="space-y-3">
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>Current Customer: {processingStatus.currentCustomer}</span>
-              <span>{processingStatus.processedShipments} of {processingStatus.totalShipments}</span>
+            <div className="flex items-center space-x-2 text-sm text-gray-600">
+              <Building2 className="h-4 w-4 text-gray-400" />
+              <span>Current Customer: <span className="font-medium">{processingStatus.currentCustomer}</span></span>
             </div>
             
             <div className="w-full bg-gray-200 rounded-full h-2">
@@ -701,6 +853,12 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
                   width: `${processingStatus.totalShipments > 0 ? (processingStatus.processedShipments / processingStatus.totalShipments) * 100 : 0}%` 
                 }}
               />
+            </div>
+            
+            <div className="text-xs text-gray-500 text-right">
+              {processingStatus.totalShipments > 0 
+                ? ((processingStatus.processedShipments / processingStatus.totalShipments) * 100).toFixed(1) 
+                : 0}% complete
             </div>
           </div>
         </div>
