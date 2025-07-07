@@ -28,7 +28,8 @@ import {
   Search,
   Calendar,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  Download
 } from 'lucide-react';
 import { Project44APIClient, FreshXAPIClient } from '../utils/apiClient';
 import { RFQRow, PricingSettings, ProcessingResult, QuoteWithPricing, LineItemData } from '../types';
