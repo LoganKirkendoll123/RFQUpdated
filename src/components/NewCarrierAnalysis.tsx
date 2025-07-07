@@ -46,7 +46,9 @@ export const NewCarrierAnalysis: React.FC<NewCarrierAnalysisProps> = ({
   const [currentProgress, setCurrentProgress] = useState({ current: 0, total: 0 });
 
   useEffect(() => {
-    loadCarriersAndExisting();
+    if (project44Client) {
+      loadCarriersAndExisting();
+    }
   }, [project44Client]);
 
   const loadCarriersAndExisting = async () => {

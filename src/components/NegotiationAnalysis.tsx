@@ -8,6 +8,7 @@ import { RFQRow, ProcessingResult, QuoteWithPricing } from '../types';
 interface NegotiationAnalysisProps {
   project44Client: Project44APIClient | null;
   dateRange: { start: string; end: string };
+  analysisMode: 'preliminary' | 'comparison';
 }
 
 interface CustomerCarrierPair {
@@ -33,7 +34,8 @@ interface NegotiationResult {
 
 export const NegotiationAnalysis: React.FC<NegotiationAnalysisProps> = ({
   project44Client,
-  dateRange
+  dateRange,
+  analysisMode
 }) => {
   const [customerCarrierPairs, setCustomerCarrierPairs] = useState<CustomerCarrierPair[]>([]);
   const [negotiationResults, setNegotiationResults] = useState<NegotiationResult[]>([]);
@@ -41,10 +43,36 @@ export const NegotiationAnalysis: React.FC<NegotiationAnalysisProps> = ({
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string>('');
   const [currentProgress, setCurrentProgress] = useState({ current: 0, total: 0 });
+  const [p44CarrierCodes, setP44CarrierCodes] = useState<string[]>([]);
 
   useEffect(() => {
-    loadCustomerCarrierPairs();
-  }, [dateRange]);
+    if (dateRange.start && dateRange.end) {
+      loadCustomerCarrierPairs();
+      loadP44CarrierCodes();
+    }
+  }, [dateRange, analysisMode]);
+
+  const loadP44CarrierCodes = async () => {
+    try {
+      console.log('🔍 Loading P44 carrier codes from CustomerCarriers table...');
+      
+      const { data, error } = await supabase
+        .from('CustomerCarriers')
+        .select('P44CarrierCode')
+        .not('P44CarrierCode', 'is', null);
+      
+      if (error) {
+        console.error('❌ Error loading P44 carrier codes:', error);
+        return;
+      }
+      
+      const codes = [...new Set(data.map(d => d.P44CarrierCode).filter(Boolean))];
+      setP44CarrierCodes(codes);
+      console.log(`✅ Loaded ${codes.length} unique P44 carrier codes`);
+    } catch (err) {
+      console.error('❌ Failed to load P44 carrier codes:', err);
+    }
+  };
 
   const loadCustomerCarrierPairs = async () => {
     setLoading(true);
@@ -67,6 +95,7 @@ export const NegotiationAnalysis: React.FC<NegotiationAnalysisProps> = ({
       
       if (!customerCarriers || customerCarriers.length === 0) {
         setCustomerCarrierPairs([]);
+        setError('No customer-carrier pairs found in database');
         return;
       }
       
@@ -281,9 +310,13 @@ export const NegotiationAnalysis: React.FC<NegotiationAnalysisProps> = ({
           <div className="flex items-center space-x-3">
             <Handshake className="h-6 w-6 text-green-600" />
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Negotiation Analysis</h3>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {analysisMode === 'preliminary' ? 'Preliminary Negotiation Analysis' : 'Post-Negotiation Comparison'}
+              </h3>
               <p className="text-sm text-gray-600">
-                Analyze market rates vs current margins for customer-carrier pairs
+                {analysisMode === 'preliminary' 
+                  ? 'Analyze market rates vs current margins for customer-carrier pairs'
+                  : 'Compare pre and post-negotiation rates to measure improvements'}
               </p>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CarrierScorecard } from './CarrierScorecard';
 import { AIForecasting } from './AIForecasting';
 import { NegotiationAnalysis } from './NegotiationAnalysis';
@@ -16,6 +16,7 @@ import {
   Calendar,
   Filter
 } from 'lucide-react';
+import { supabase } from '../utils/supabase';
 
 interface MarginAnalysisToolsProps {
   project44Client?: Project44APIClient | null;
@@ -40,15 +41,15 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = ({
     };
   });
   const [availableCarriers, setAvailableCarriers] = useState<string[]>([]);
+  const [analysisMode, setAnalysisMode] = useState<'preliminary' | 'comparison'>('preliminary');
 
   // Load available carriers from database
   useEffect(() => {
     const loadCarriers = async () => {
       try {
-        const { supabase } = await import('../utils/supabase');
         const { data, error } = await supabase
           .from('Shipments')
-          .select('"Booked Carrier", "Quoted Carrier"')
+          .select('"Booked Carrier", "Quoted Carrier", "SCAC"')
           .not('"Booked Carrier"', 'is', null)
           .limit(100);
         
@@ -57,6 +58,7 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = ({
           data.forEach(row => {
             if (row["Booked Carrier"]) carriers.add(row["Booked Carrier"]);
             if (row["Quoted Carrier"]) carriers.add(row["Quoted Carrier"]);
+            if (row["SCAC"]) carriers.add(row["SCAC"]);
           });
           const carrierList = Array.from(carriers).sort();
           setAvailableCarriers(carrierList);
@@ -139,6 +141,44 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = ({
             />
           </div>
         </div>
+        
+        {/* Analysis Mode Selection (for Negotiation Analysis) */}
+        {activeTab === 'negotiation' && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Analysis Mode
+            </label>
+            <div className="flex space-x-4">
+              <button
+                onClick={() => setAnalysisMode('preliminary')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                  analysisMode === 'preliminary'
+                    ? 'bg-purple-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <Target className="h-4 w-4" />
+                <span>Preliminary Analysis</span>
+              </button>
+              <button
+                onClick={() => setAnalysisMode('comparison')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                  analysisMode === 'comparison'
+                    ? 'bg-green-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <BarChart3 className="h-4 w-4" />
+                <span>Post-Negotiation Comparison</span>
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-gray-600">
+              {analysisMode === 'preliminary' 
+                ? 'Analyze current rates before negotiation to identify opportunities'
+                : 'Compare pre and post-negotiation rates to measure improvements'}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Tab Navigation */}
@@ -187,6 +227,7 @@ export const MarginAnalysisTools: React.FC<MarginAnalysisToolsProps> = ({
           <NegotiationAnalysis 
             project44Client={project44Client}
             dateRange={dateRange}
+            analysisMode={analysisMode}
           />
         )}
         {activeTab === 'discovery' && (
