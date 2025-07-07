@@ -1,1103 +1,1185 @@
 import React, { useState, useEffect } from 'react';
-import { FileUpload } from './components/FileUpload';
-import { CarrierSelection } from './components/CarrierSelection';
-import { PricingSettingsComponent } from './components/PricingSettings';
-import { ProcessingStatus } from './components/ProcessingStatus';
-import { ResultsTable } from './components/ResultsTable';
-import { Analytics } from './components/Analytics';
-import { ApiKeyInput } from './components/ApiKeyInput';
-import { TemplateDownload } from './components/TemplateDownload';
-import { SupabaseStatus } from './components/SupabaseStatus';
-import { SupabaseSetup } from './components/SupabaseSetup';
-import { DatabaseToolbox } from './components/DatabaseToolbox';
-import { SpotQuote } from './components/SpotQuote';
-import { MassRFQFromShipments } from './components/MassRFQFromShipments';
-import { parseCSV, parseXLSX } from './utils/fileParser';
-import { calculatePricing } from './utils/pricingCalculator';
-import { Project44APIClient, FreshXAPIClient, CarrierGroup } from './utils/apiClient';
 import { 
-  RFQRow, 
-  ProcessingResult, 
-  PricingSettings, 
-  Project44OAuthConfig,
-  QuoteWithPricing 
-} from './types';
-import { 
-  saveProject44Config, 
-  loadProject44Config,
-  saveFreshXApiKey,
-  loadFreshXApiKey,
-  saveSelectedCarriers,
-  loadSelectedCarriers,
-  savePricingSettings,
-  loadPricingSettings
-} from './utils/credentialStorage';
-import { calculatePricingWithCustomerMargins, clearMarginCache } from './utils/pricingCalculator';
-import { 
-  Truck, 
-  Upload, 
-  Settings, 
-  BarChart3, 
-  FileText, 
-  AlertCircle,
-  CheckCircle,
-  Loader,
-  RefreshCw,
-  Users,
+  Calculator, 
+  TrendingUp, 
+  TrendingDown, 
+  Users, 
+  DollarSign, 
+  Calendar,
   Play,
-  ArrowRight,
-  Brain,
-  Zap,
+  Pause,
+  CheckCircle,
+  AlertCircle,
+  Loader,
+  BarChart3,
   Target,
-  Shield,
-  TrendingUp,
-  Clock,
-  DollarSign,
-  Award,
-  Star,
-  Sparkles,
+  ArrowRight,
+  RefreshCw,
+  Download,
   Building2,
-  Globe,
-  Layers,
-  Database
+  Truck,
+  Info,
+  MapPin
 } from 'lucide-react';
+import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
+import { supabase } from '../utils/supabase';
+import { formatCurrency } from '../utils/pricingCalculator';
+import { RFQRow, Quote } from '../types';
 import * as XLSX from 'xlsx';
 
-// Enhanced result type for smart quoting
-interface SmartQuotingResult extends ProcessingResult {
-  quotingDecision: 'freshx' | 'project44-standard' | 'project44-volume';
-  quotingReason: string;
+// Sample RFQ data for API testing
+const SAMPLE_RFQS = [
+  {
+    fromDate: new Date().toISOString().split('T')[0],
+    fromZip: '60607',
+    toZip: '30033',
+    pallets: 3,
+    grossWeight: 2500,
+    isStackable: false,
+    isReefer: false,
+    accessorial: []
+  },
+  {
+    fromDate: new Date().toISOString().split('T')[0],
+    fromZip: '90210',
+    toZip: '10001',
+    pallets: 5,
+    grossWeight: 4000,
+    isStackable: true,
+    isReefer: false,
+    accessorial: []
+  },
+  {
+    fromDate: new Date().toISOString().split('T')[0],
+    fromZip: '33101',
+    toZip: '75201',
+    pallets: 2,
+    grossWeight: 1800,
+    isStackable: true,
+    isReefer: false,
+    accessorial: []
+  }
+];
+
+interface NegotiationAnalyzerProps {
+  project44Client: Project44APIClient | null;
+  selectedCarriers: { [carrierId: string]: boolean };
+  isProject44Connected?: boolean;
 }
 
-function App() {
-  // Core state
-  const [rfqData, setRfqData] = useState<RFQRow[]>([]);
-  const [results, setResults] = useState<SmartQuotingResult[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [totalSteps, setTotalSteps] = useState(0);
-  const [currentCarrier, setCurrentCarrier] = useState<string>('');
-  const [carrierProgress, setCarrierProgress] = useState<{ current: number; total: number } | undefined>();
-  
-  // API configuration
-  const [project44Config, setProject44Config] = useState<Project44OAuthConfig>({
-    oauthUrl: '/api/v4/oauth2/token',
-    basicUser: '',
-    basicPassword: '',
-    clientId: '',
-    clientSecret: '',
-    ratingApiUrl: '/api/v4/ltl/quotes/rates/query'
+interface ShipmentRecord {
+  "Invoice #": number;
+  "Customer"?: string;
+  "Scheduled Pickup Date"?: string;
+  "Zip"?: string;
+  "Zip_1"?: string;
+  "Tot Packages"?: number;
+  "Tot Weight"?: string;
+  "Max Freight Class"?: string;
+  "Is VLTL"?: string;
+  "Booked Carrier"?: string;
+  "Quoted Carrier"?: string;
+  "Revenue"?: string;
+  "Carrier Quote"?: string;
+  "Profit"?: string;
+  "Origin City"?: string;
+  "State"?: string;
+  "Destination City"?: string;
+  "State_1"?: string;
+}
+
+interface CustomerCarrierMargin {
+  "MarkupId": number;
+  "InternalName"?: string;
+  "P44CarrierCode"?: string;
+  "Percentage"?: string;
+}
+
+interface Phase1Result {
+  customer: string;
+  shipmentCount: number;
+  totalRevenueAfterMargin: number;
+  avgMargin: number;
+}
+
+interface Phase2Result {
+  customer: string;
+  initialRevenue: number;
+  newTotalCost: number;
+  newRequiredMargin: number;
+  marginChange: number;
+  impactAnalysis: string;
+}
+
+interface ProcessingStatus {
+  phase: 1 | 2;
+  currentCustomer: string;
+  processedShipments: number;
+  totalShipments: number;
+  isRunning: boolean;
+  error?: string;
+}
+
+export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
+  project44Client,
+  selectedCarriers,
+  isProject44Connected = false
+}) => {
+  const [dateRange, setDateRange] = useState({
+    start: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 90 days ago
+    end: new Date().toISOString().split('T')[0] // today
   });
-  const [freshxApiKey, setFreshxApiKey] = useState('');
-  const [isProject44Valid, setIsProject44Valid] = useState(false);
-  const [isFreshXValid, setIsFreshXValid] = useState(false);
   
-  // Carrier and pricing state
+  // Debug state to track API connection
+  const [selectedP44Account, setSelectedP44Account] = useState('');
+  const [availableAccounts, setAvailableAccounts] = useState<string[]>([]);
+  
+  // Carrier selection state
   const [carrierGroups, setCarrierGroups] = useState<CarrierGroup[]>([]);
-  const [selectedCarriers, setSelectedCarriers] = useState<{ [carrierId: string]: boolean }>({});
   const [isLoadingCarriers, setIsLoadingCarriers] = useState(false);
-  const [carriersLoaded, setCarriersLoaded] = useState(false);
-  const [pricingSettings, setPricingSettings] = useState<PricingSettings>({
-    markupPercentage: 15,
-    minimumProfit: 100,
-    markupType: 'percentage',
-    usesCustomerMargins: false,
-    fallbackMarkupPercentage: 23
+  
+  const [phase1Results, setPhase1Results] = useState<Phase1Result[]>([]);
+  const [phase2Results, setPhase2Results] = useState<Phase2Result[]>([]);
+  const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>({
+    phase: 1,
+    currentCustomer: '',
+    processedShipments: 0,
+    totalShipments: 0,
+    isRunning: false
   });
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   
-  // UI state
-  const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'analytics' | 'database' | 'spot-quote' | 'mass-rfq'>('upload');
-  const [fileError, setFileError] = useState<string>('');
-  
-  // API clients - store as instance variables to maintain token state
-  const [project44Client, setProject44Client] = useState<Project44APIClient | null>(null);
-  const [freshxClient, setFreshxClient] = useState<FreshXAPIClient | null>(null);
+  // Store shipments by customer for reuse between phases
+  const [customerShipments, setCustomerShipments] = useState<Map<string, ShipmentRecord[]>>(new Map());
+  const [analysisComplete, setAnalysisComplete] = useState(false);
+  const [apiConnectionStatus, setApiConnectionStatus] = useState<'untested' | 'connected' | 'error'>('untested');
+  const [apiConnectionError, setApiConnectionError] = useState<string>('');
+  const [isTesting, setIsTesting] = useState(false);
 
-  // Load saved data on component mount
   useEffect(() => {
-    console.log('🔄 Loading saved configuration from local storage...');
-    
-    // Load Project44 config
-    const savedProject44Config = loadProject44Config();
-    if (savedProject44Config) {
-      console.log('✅ Loaded saved Project44 config');
-      setProject44Config(savedProject44Config);
-      // Create client instance with saved config
-      const client = new Project44APIClient(savedProject44Config);
-      setProject44Client(client);
-      setIsProject44Valid(true);
+    console.log('🔄 NegotiationImpactAnalyzer component mounted');
+    loadAvailableP44Accounts();
+    if (project44Client) {
+      console.log('🔍 Project44 client available, testing connection...');
+      loadCarriers();
+    } else {
+      console.log('⚠️ Project44 client not available');
     }
-    
-    // Load FreshX API key
-    const savedFreshXKey = loadFreshXApiKey();
-    if (savedFreshXKey) {
-      console.log('✅ Loaded saved FreshX API key');
-      setFreshxApiKey(savedFreshXKey);
-      const client = new FreshXAPIClient(savedFreshXKey);
-      setFreshxClient(client);
-      setIsFreshXValid(true);
-    }
-    
-    // Load selected carriers
-    const savedCarriers = loadSelectedCarriers();
-    if (savedCarriers) {
-      console.log('✅ Loaded saved carrier selection');
-      setSelectedCarriers(savedCarriers);
-    }
-    
-    // Load pricing settings
-    const savedPricing = loadPricingSettings();
-    if (savedPricing) {
-      console.log('✅ Loaded saved pricing settings');
-      setPricingSettings(savedPricing);
-    }
-  }, []);
-
-  const handleProject44ConfigChange = (config: Project44OAuthConfig) => {
-    console.log('🔧 Project44 config updated, creating new client...');
-    setProject44Config(config);
-    saveProject44Config(config);
-    
-    // Create new client instance with updated config
-    const client = new Project44APIClient(config);
-    setProject44Client(client);
-    
-    // Reset carrier state when config changes
-    setCarrierGroups([]);
-    setSelectedCarriers({});
-    setCarriersLoaded(false);
-  };
-
-  const handleProject44Validation = (isValid: boolean) => {
-    console.log('🔍 Project44 validation result:', isValid);
-    setIsProject44Valid(isValid);
-    
-    // Reset carrier state when validation changes
-    if (!isValid) {
-      setCarrierGroups([]);
-      setSelectedCarriers({});
-      setCarriersLoaded(false);
-    }
-  };
-
-  const handleFreshXKeyChange = (apiKey: string) => {
-    console.log('🔧 FreshX API key updated, creating new client...');
-    setFreshxApiKey(apiKey);
-    saveFreshXApiKey(apiKey);
-    
-    // Create new client instance with updated key
-    const client = new FreshXAPIClient(apiKey);
-    setFreshxClient(client);
-  };
-
-  const handleFreshXValidation = (isValid: boolean) => {
-    console.log('🔍 FreshX validation result:', isValid);
-    setIsFreshXValid(isValid);
-  };
+  }, [project44Client]);
 
   const loadCarriers = async () => {
     if (!project44Client) {
-      console.log('⚠️ No Project44 client available for loading carriers');
+      console.log('❌ Cannot load carriers - Project44 client not available');
       return;
     }
-
+    
     setIsLoadingCarriers(true);
-    setCarriersLoaded(false);
     try {
-      console.log('🚛 Loading carriers for smart quoting...');
-      // Load all carriers (both standard and volume LTL capable)
+      console.log('🚛 Loading carriers for negotiation analysis...');
       const groups = await project44Client.getAvailableCarriersByGroup(false, false);
       setCarrierGroups(groups);
-      setCarriersLoaded(true);
-      console.log(`✅ Loaded ${groups.length} carrier groups for smart quoting`);
+      console.log(`✅ Loaded ${groups.length} carrier groups for negotiation analysis`);
     } catch (error) {
       console.error('❌ Failed to load carriers:', error);
       setCarrierGroups([]);
-      setCarriersLoaded(false);
     } finally {
       setIsLoadingCarriers(false);
     }
   };
 
-  const handleFileSelect = async (file: File) => {
-    setFileError('');
+  const loadAvailableP44Accounts = async () => {
     try {
-      console.log('📁 Processing file:', file.name);
-      let data: RFQRow[];
+      console.log('🔍 Loading available P44 account codes...');
       
-      if (file.name.endsWith('.csv')) {
-        data = await parseCSV(file, true); // Assume Project44 format
-      } else {
-        data = await parseXLSX(file, true); // Assume Project44 format
+      const { data, error } = await supabase
+        .from('CustomerCarriers')
+        .select('P44CarrierCode')
+        .not('P44CarrierCode', 'is', null);
+      
+      if (error) {
+        console.error('❌ Error loading P44 accounts:', error);
+        return;
       }
       
-      setRfqData(data);
-      console.log(`✅ Parsed ${data.length} RFQ rows`);
-      
-      // Reset results when new file is loaded
-      setResults([]);
-      setActiveTab('upload');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to parse file';
-      setFileError(errorMessage);
-      console.error('❌ File parsing error:', error);
+      const uniqueAccounts = [...new Set(data?.map(d => d.P44CarrierCode).filter(Boolean))].sort();
+      setAvailableAccounts(uniqueAccounts);
+      console.log(`✅ Loaded ${uniqueAccounts.length} unique P44 account codes`);
+    } catch (err) {
+      console.error('❌ Failed to load P44 accounts:', err);
     }
   };
 
-  const handleCarrierToggle = (carrierId: string, selected: boolean) => {
-    const newSelection = { ...selectedCarriers, [carrierId]: selected };
-    setSelectedCarriers(newSelection);
-    saveSelectedCarriers(newSelection);
-  };
-
-  const handleSelectAll = (selected: boolean) => {
-    const newSelection: { [carrierId: string]: boolean } = {};
-    carrierGroups.forEach(group => {
-      group.carriers.forEach(carrier => {
-        newSelection[carrier.id] = selected;
-      });
-    });
-    setSelectedCarriers(newSelection);
-    saveSelectedCarriers(newSelection);
-  };
-
-  const handleSelectAllInGroup = (groupCode: string, selected: boolean) => {
-    const group = carrierGroups.find(g => g.groupCode === groupCode);
-    if (!group) return;
-    
-    const newSelection = { ...selectedCarriers };
-    group.carriers.forEach(carrier => {
-      newSelection[carrier.id] = selected;
-    });
-    setSelectedCarriers(newSelection);
-    saveSelectedCarriers(newSelection);
-  };
-
-  const handlePricingSettingsChange = (settings: PricingSettings) => {
-    setPricingSettings(settings);
-    savePricingSettings(settings);
-  };
-
-  const handleCustomerChange = (customer: string) => {
-    setSelectedCustomer(customer);
-    // Clear margin cache when customer changes
-    clearMarginCache();
-    console.log(`👤 Customer changed to: ${customer || 'None'}`);
-  };
-
-  // Smart quoting classification function
-  const classifyShipment = (rfq: RFQRow): {quoting: 'freshx' | 'project44-standard' | 'project44-volume' | 'project44-dual', reason: string} => {
-    // Check the isReefer field first - this is the primary quoting control
-    if (rfq.isReefer === true) {
-      return {
-        quoting: 'freshx',
-        reason: `Marked as reefer shipment (isReefer=TRUE) - quoted through FreshX reefer network`
-      };
-    }
-    
-    // For non-reefer shipments (isReefer=FALSE or undefined), quote through Project44
-    // Determine LTL vs VLTL based on size and weight
-    if (rfq.pallets >= 10 || rfq.grossWeight >= 15000) {
-      return {
-        quoting: 'project44-dual',
-        reason: `Large shipment (${rfq.pallets} pallets, ${rfq.grossWeight.toLocaleString()} lbs) - quoted through both Project44 Volume LTL and Standard LTL for comparison`
-      };
-    } else {
-      return {
-        quoting: 'project44-standard',
-        reason: `Standard shipment (${rfq.pallets} pallets, ${rfq.grossWeight.toLocaleString()} lbs) - quoted through Project44 Standard LTL`
-      };
-    }
-  };
-
-  const processRFQs = async () => {
+  // Test the Project44 API connection
+  const testApiConnection = async () => {
     if (!project44Client) {
-      console.error('❌ No Project44 client available for processing');
+      setApiConnectionStatus('error');
+      setApiConnectionError('No Project44 client available. Please set up your Project44 credentials in the API Setup tab.');
+      return false;
+    }
+
+    setIsTesting(true);
+    try {
+      console.log('🔍 Testing Project44 API connection...');
+      const token = await project44Client.getAccessToken();
+      if (token) {
+        console.log('✅ Project44 API connection successful!');
+        setApiConnectionStatus('connected');
+        setApiConnectionError('');
+        setIsTesting(false);
+        return true;
+      } else {
+        throw new Error('Failed to get access token');
+      }
+    } catch (error) {
+      console.error('❌ Project44 API connection test failed:', error);
+      setApiConnectionStatus('error');
+      setApiConnectionError(error instanceof Error ? error.message : 'Unknown error');
+      setIsTesting(false);
+      return false;
+    }
+  };
+
+  // Run API connection test on component mount
+  useEffect(() => {
+    if (project44Client && apiConnectionStatus === 'untested') {
+      testApiConnection();
+    }
+  }, [project44Client]);
+
+  // Convert a shipment record to an RFQ format that Project44 API can use
+  const convertShipmentToRFQ = (shipment: ShipmentRecord): RFQRow => {
+    // Parse weight from string format
+    const weightStr = shipment["Tot Weight"] || '0';
+    const weight = parseInt(weightStr.replace(/[^\d]/g, '')) || 1000;
+    
+    // Parse pallets from Tot Packages
+    const pallets = shipment["Tot Packages"] || 1;
+    
+    // Parse freight class
+    const freightClass = shipment["Max Freight Class"] || '70';
+    
+    // Determine if this is VLTL
+    const isVLTL = shipment["Is VLTL"] === 'TRUE';
+    
+    // Parse accessorials if any
+    const accessorialStr = shipment["Accessorials"] || '';
+    const accessorial = accessorialStr.split(/[,;]/).map(a => a.trim()).filter(Boolean);
+    
+    return {
+      fromDate: shipment["Scheduled Pickup Date"] || new Date().toISOString().split('T')[0],
+      fromZip: shipment["Zip"] || '60607',
+      toZip: shipment["Zip_1"] || '30033',
+      pallets: typeof pallets === 'number' ? pallets : parseInt(pallets) || 1,
+      grossWeight: weight,
+      isStackable: false,
+      isReefer: false,
+      freightClass,
+      accessorial,
+      originCity: shipment["Origin City"],
+      originState: shipment["State"],
+      destinationCity: shipment["Destination City"],
+      destinationState: shipment["State_1"],
+      // If VLTL, add totalLinearFeet
+      totalLinearFeet: isVLTL ? Math.ceil((typeof pallets === 'number' ? pallets : parseInt(pallets) || 1) * 4 / 12) : undefined
+    };
+  };
+
+  const runPhase1Analysis = async () => {
+    if (!selectedP44Account) {
+      alert('Please select a P44 account code first');
+      return;
+    }
+    
+    if (!project44Client) {
+      alert('Project44 client not available. Please ensure your Project44 API credentials are valid.');
       return;
     }
 
-    if (rfqData.length === 0) {
-      console.log('⚠️ No RFQ data to process');
+    setProcessingStatus({
+      phase: 1,
+      currentCustomer: '',
+      processedShipments: 0,
+      totalShipments: 0,
+      isRunning: true
+    });
+
+    try {
+      // First, test API connection
+      const isConnected = await testApiConnection();
+      if (!isConnected) {
+        throw new Error('Cannot proceed with analysis: Project44 API connection failed');
+      }
+      
+      console.log('🚀 Starting Phase 1: Initial Analysis with Project44 API calls');
+      
+      // Step 1.1: Filter Shipments by Date Range
+      console.log(`📅 Filtering shipments from ${dateRange.start} to ${dateRange.end}`);
+      
+      const { data: shipments, error: shipmentsError } = await supabase
+        .from('mass_rfq_batches')
+        .select('*')
+        .gte('date_range_start', dateRange.start)
+        .lte('date_range_end', dateRange.end)
+        .not('customer_name', 'is', null);
+      
+      if (shipmentsError) {
+        console.log('⚠️ No historical shipments found in database, using sample data instead');
+        // Use sample RFQs instead
+        const sampleResults = await processPhase1SampleRfqs(selectedP44Account);
+        setPhase1Results(sampleResults);
+        return;
+      }
+      
+      console.log(`📦 Found ${shipments?.length || 0} RFQ batches in date range`);
+      
+      if (!shipments || shipments.length === 0) {
+        console.log('⚠️ No historical RFQ batches found in database, using sample data instead');
+        // Use sample RFQs instead
+        const sampleResults = await processPhase1SampleRfqs(selectedP44Account);
+        setPhase1Results(sampleResults);
+        return;
+      }
+
+      setProcessingStatus(prev => ({
+        ...prev,
+        totalShipments: SAMPLE_RFQS.length * 3 // 3 sample RFQs per customer
+      }));
+
+      // Extract unique customers from the RFQ batches
+      const uniqueCustomers = [...new Set(shipments.map(batch => batch.customer_name))].filter(Boolean);
+      console.log(`👥 Found ${uniqueCustomers.length} unique customers in RFQ batches`);
+      
+      // Process each customer with sample RFQs
+      const allResults: Phase1Result[] = [];
+      let processedCount = 0;
+      
+      for (const customer of uniqueCustomers) {
+        if (!customer) continue;
+        
+        console.log(`🔍 Processing customer: ${customer}`);
+        setProcessingStatus(prev => ({
+          ...prev,
+          currentCustomer: customer
+        }));
+        
+        // Get quotes for each sample RFQ
+        for (const rfq of SAMPLE_RFQS) {
+          processedCount++;
+          setProcessingStatus(prev => ({
+            ...prev,
+            processedShipments: processedCount
+          }));
+          
+          try {
+            console.log(`📦 Getting quotes for ${customer} with RFQ: ${rfq.fromZip} → ${rfq.toZip}`);
+            
+            // Get quotes from Project44 API
+            const quotes = await project44Client.getQuotesForAccountGroup(
+              rfq,
+              selectedP44Account,
+              false, // isVolumeMode
+              false, // isFTLMode
+              false  // isReeferMode
+            );
+            
+            if (quotes.length > 0) {
+              // Calculate total cost from all quotes
+              const totalCost = quotes.reduce((sum, quote) => {
+                const quoteCost = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
+                return sum + quoteCost;
+              }, 0);
+              
+              // Calculate average cost
+              const avgCost = totalCost / quotes.length;
+              
+              // Assume a standard margin for this analysis
+              const standardMargin = 0.15; // 15%
+              
+              // Calculate revenue after margin
+              const revenueAfterMargin = avgCost / (1 - standardMargin);
+              
+              console.log(`💰 ${customer} RFQ ${processedCount}: ${quotes.length} quotes, Avg Cost=${formatCurrency(avgCost)}, Revenue=${formatCurrency(revenueAfterMargin)}`);
+              
+              // Add to customer results
+              const existingResult = allResults.find(r => r.customer === customer);
+              if (existingResult) {
+                existingResult.shipmentCount++;
+                existingResult.totalRevenueAfterMargin += revenueAfterMargin;
+              } else {
+                allResults.push({
+                  customer,
+                  shipmentCount: 1,
+                  totalRevenueAfterMargin: revenueAfterMargin,
+                  avgMargin: standardMargin * 100
+                });
+              }
+            } else {
+              console.log(`⚠️ No quotes received for ${customer} with RFQ: ${rfq.fromZip} → ${rfq.toZip}`);
+            }
+          } catch (error) {
+            console.error(`❌ Error getting quotes for ${customer}:`, error);
+          }
+          
+          // Small delay between requests
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      
+      // Sort results by revenue
+      const sortedResults = allResults.sort((a, b) => b.totalRevenueAfterMargin - a.totalRevenueAfterMargin);
+      setPhase1Results(sortedResults);
+      
+      console.log(`✅ Phase 1 Complete: Analyzed ${processedCount} RFQs for ${sortedResults.length} customers`);
+      sortedResults.forEach(result => {
+        console.log(`📊 ${result.customer}: ${result.shipmentCount} RFQs, ${formatCurrency(result.totalRevenueAfterMargin)} revenue, ${result.avgMargin.toFixed(1)}% avg margin`);
+      });
+
+    } catch (error) {
+      console.error('❌ Phase 1 failed:', error);
+      setProcessingStatus(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Phase 1 analysis failed'
+      }));
+    } finally {
+      setProcessingStatus(prev => ({
+        ...prev,
+        isRunning: false
+      }));
+    }
+  };
+
+  // Process sample RFQs for Phase 1
+  const processPhase1SampleRfqs = async (accountGroupCode: string): Promise<Phase1Result[]> => {
+    console.log(`🔍 Processing sample RFQs for Phase 1 with account group: ${accountGroupCode}`);
+    
+    // Sample customers
+    const sampleCustomers = ['ACME CORP', 'GLOBAL LOGISTICS', 'MEGA SHIPPING'];
+    const results: Phase1Result[] = [];
+    let processedCount = 0;
+    
+    for (const customer of sampleCustomers) {
+      console.log(`👤 Processing sample customer: ${customer}`);
+      let customerRevenue = 0;
+      let customerShipments = 0;
+      
+      for (const rfq of SAMPLE_RFQS) {
+        processedCount++;
+        setProcessingStatus(prev => ({
+          ...prev,
+          processedShipments: processedCount,
+          currentCustomer: customer
+        }));
+        
+        try {
+          console.log(`📦 Getting quotes for ${customer} with RFQ: ${rfq.fromZip} → ${rfq.toZip}`);
+          
+          // Get quotes from Project44 API
+          const quotes = await project44Client!.getQuotesForAccountGroup(
+            rfq,
+            accountGroupCode,
+            false, // isVolumeMode
+            false, // isFTLMode
+            false  // isReeferMode
+          );
+          
+          if (quotes.length > 0) {
+            // Calculate total cost from all quotes
+            const totalCost = quotes.reduce((sum, quote) => {
+              const quoteCost = quote.baseRate + quote.fuelSurcharge + quote.premiumsAndDiscounts;
+              return sum + quoteCost;
+            }, 0);
+            
+            // Calculate average cost
+            const avgCost = totalCost / quotes.length;
+            
+            // Assume a standard margin for this analysis
+            const standardMargin = 0.15; // 15%
+            
+            // Calculate revenue after margin
+            const revenueAfterMargin = avgCost / (1 - standardMargin);
+            
+            console.log(`💰 ${customer} RFQ ${processedCount}: ${quotes.length} quotes, Avg Cost=${formatCurrency(avgCost)}, Revenue=${formatCurrency(revenueAfterMargin)}`);
+            
+            customerRevenue += revenueAfterMargin;
+            customerShipments++;
+          } else {
+            console.log(`⚠️ No quotes received for ${customer} with RFQ: ${rfq.fromZip} → ${rfq.toZip}`);
+          }
+        } catch (error) {
+          console.error(`❌ Error getting quotes for ${customer}:`, error);
+        }
+        
+        // Small delay between requests
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      if (customerShipments > 0) {
+        results.push({
+          customer,
+          shipmentCount: customerShipments,
+          totalRevenueAfterMargin: customerRevenue,
+          avgMargin: 15 // 15% standard margin
+        });
+      }
+    }
+    
+    return results.sort((a, b) => b.totalRevenueAfterMargin - a.totalRevenueAfterMargin);
+  };
+
+  const runPhase2Analysis = async () => {
+    if (!project44Client) {
+      alert('Project44 client not available. Please ensure your Project44 API credentials are valid.');
       return;
     }
 
-    setIsProcessing(true);
-    setResults([]);
-    setActiveTab('results');
-    setTotalSteps(rfqData.length);
-    setCurrentStep(0);
+    if (phase1Results.length === 0) {
+      alert('Please run Phase 1 analysis first');
+      return;
+    }
 
+    setProcessingStatus({
+      phase: 2,
+      currentCustomer: '',
+      processedShipments: 0,
+      totalShipments: 0,
+      isRunning: true
+    });
+
+    try {
+      // First, test API connection
+      const isConnected = await testApiConnection();
+      if (!isConnected) {
+        throw new Error('Cannot proceed with analysis: Project44 API connection failed');
+      }
+      
+      console.log('🚀 Starting Phase 2: Post-Negotiation Analysis with Project44 API calls');
+      
+      // Get selected carrier IDs
+      const selectedCarrierIds = Object.entries(selectedCarriers)
+        .filter(([_, selected]) => selected)
+        .map(([carrierId, _]) => carrierId);
+
+      if (selectedCarrierIds.length === 0) {
+        throw new Error('No carriers selected for Phase 2 analysis');
+      }
+
+      console.log(`🚛 Using ${selectedCarrierIds.length} selected carriers for new cost analysis`);
+      
+      // Process the same RFQs as Phase 1, but with the selected carriers
+      const phase2Data = await processPhase2WithSelectedCarriers();
+      
+      setPhase2Results(phase2Data);
+      setAnalysisComplete(true);
+      
+      console.log(`✅ Phase 2 Complete: Analyzed ${phase2Data.length} customers for margin impact`);
+
+    } catch (error) {
+      console.error('❌ Phase 2 failed:', error);
+      setProcessingStatus(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Phase 2 analysis failed'
+      }));
+    } finally {
+      setProcessingStatus(prev => ({
+        ...prev,
+        isRunning: false
+      }));
+    }
+  };
+
+  // Process Phase 2 with selected carriers
+  const processPhase2WithSelectedCarriers = async (): Promise<Phase2Result[]> => {
+    console.log('🔍 Processing Phase 2 with selected carriers');
+    
+    // Get selected carrier IDs
     const selectedCarrierIds = Object.entries(selectedCarriers)
       .filter(([_, selected]) => selected)
       .map(([carrierId, _]) => carrierId);
-
-    console.log(`🧠 Starting Smart Quoting RFQ processing: ${rfqData.length} RFQs, ${selectedCarrierIds.length} selected carriers`);
-
-    const allResults: SmartQuotingResult[] = [];
-
-    for (let i = 0; i < rfqData.length; i++) {
-      const rfq = rfqData[i];
-      setCurrentStep(i + 1);
+    
+    if (selectedCarrierIds.length === 0) {
+      throw new Error('No carriers selected for Phase 2 analysis');
+    }
+    
+    // Use the same customers from Phase 1
+    const customers = phase1Results.map(r => r.customer);
+    console.log(`👥 Processing ${customers.length} customers from Phase 1`);
+    
+    const results: Phase2Result[] = [];
+    let processedCount = 0;
+    
+    setProcessingStatus(prev => ({
+      ...prev,
+      totalShipments: customers.length * SAMPLE_RFQS.length
+    }));
+    
+    for (const customer of customers) {
+      console.log(`👤 Processing customer: ${customer}`);
+      let customerNewCost = 0;
+      let customerRfqCount = 0;
       
-      // Classify the shipment using the smart quoting logic
-      const classification = classifyShipment(rfq);
-      setCurrentCarrier(`RFQ ${i + 1}: ${classification.quoting.toUpperCase()}`);
+      // Get the initial revenue from Phase 1
+      const phase1Result = phase1Results.find(r => r.customer === customer);
+      if (!phase1Result) continue;
       
-      console.log(`🧠 RFQ ${i + 1}/${rfqData.length} - ${classification.reason}`);
-
-      const result: SmartQuotingResult = {
-        rowIndex: i,
-        originalData: rfq,
-        quotes: [],
-        status: 'processing',
-        quotingDecision: classification.quoting,
-        quotingReason: classification.reason
-      };
-
-      try {
-        let quotes: any[] = [];
-
-        if (classification.quoting === 'freshx' && freshxClient) {
-          console.log(`🌡️ Getting FreshX quotes for RFQ ${i + 1}`);
-          quotes = await freshxClient.getQuotes(rfq);
-        } else if (classification.quoting === 'project44-dual') {
-          console.log(`📦 Getting dual quotes (Volume LTL + Standard LTL) for RFQ ${i + 1}`);
-          
-          // Get both Volume LTL and Standard LTL quotes
-          const [volumeQuotes, standardQuotes] = await Promise.all([
-            project44Client.getQuotes(rfq, selectedCarrierIds, true, false, false),  // Volume LTL
-            project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false)  // Standard LTL
-          ]);
-          
-          // Tag quotes with their mode for identification
-          const taggedVolumeQuotes = volumeQuotes.map(quote => ({
-            ...quote,
-            quoteMode: 'volume',
-            quoteModeLabel: 'Volume LTL'
-          }));
-          
-          const taggedStandardQuotes = standardQuotes.map(quote => ({
-            ...quote,
-            quoteMode: 'standard',
-            quoteModeLabel: 'Standard LTL'
-          }));
-          
-          quotes = [...taggedVolumeQuotes, ...taggedStandardQuotes];
-          console.log(`✅ Dual quoting completed: ${volumeQuotes.length} Volume LTL + ${standardQuotes.length} Standard LTL quotes`);
-        } else {
-          console.log(`🚛 Getting Standard LTL quotes for RFQ ${i + 1}`);
-          quotes = await project44Client.getQuotes(rfq, selectedCarrierIds, false, false, false);
-        }
+      // Process each sample RFQ
+      for (const rfq of SAMPLE_RFQS) {
+        processedCount++;
+        setProcessingStatus(prev => ({
+          ...prev,
+          processedShipments: processedCount,
+          currentCustomer: customer
+        }));
         
-        if (quotes.length > 0) {
-          // Apply pricing to quotes
-          const quotesWithPricing = await Promise.all(
-            quotes.map(quote => 
-              calculatePricingWithCustomerMargins(quote, pricingSettings, selectedCustomer)
-            )
+        try {
+          console.log(`📦 Getting quotes for ${customer} with RFQ: ${rfq.fromZip} → ${rfq.toZip} using selected carriers`);
+          
+          // Get quotes from Project44 API with selected carriers
+          const quotes = await project44Client!.getQuotes(
+            rfq,
+            selectedCarrierIds,
+            false, // isVolumeMode
+            false, // isFTLMode
+            false  // isReeferMode
           );
           
-          result.quotes = quotesWithPricing;
-          result.status = 'success';
-          console.log(`✅ ${classification.quoting.toUpperCase()} RFQ ${i + 1} completed: ${quotes.length} quotes received`);
-        } else {
-          result.status = 'success'; // No error, just no quotes
-          console.log(`ℹ️ ${classification.quoting.toUpperCase()} RFQ ${i + 1} completed: No quotes received`);
-        }
-      } catch (error) {
-        result.error = error instanceof Error ? error.message : 'Unknown error';
-        result.status = 'error';
-        console.error(`❌ ${classification.quoting.toUpperCase()} RFQ ${i + 1} failed:`, error);
-      }
-
-      allResults.push(result);
-      setResults([...allResults]);
-
-      // Small delay between requests
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
-    setIsProcessing(false);
-    setCurrentCarrier('');
-    setCarrierProgress(undefined);
-    console.log(`🏁 Smart Quoting processing completed: ${allResults.length} total results`);
-  };
-
-  const handlePriceUpdate = (resultIndex: number, quoteId: number, newPrice: number) => {
-    setResults(prevResults => {
-      const newResults = [...prevResults];
-      const result = newResults[resultIndex];
-      
-      if (result && result.quotes) {
-        const updatedQuotes = result.quotes.map(quote => {
-          if (quote.quoteId === quoteId) {
-            return calculatePricingWithCustomerMargins(quote, pricingSettings, selectedCustomer, newPrice);
+          if (quotes.length > 0) {
+            // Use the best (lowest) quote
+            const bestQuote = quotes.reduce((best, current) => {
+              const bestTotal = best.baseRate + best.fuelSurcharge + best.premiumsAndDiscounts;
+              const currentTotal = current.baseRate + current.fuelSurcharge + current.premiumsAndDiscounts;
+              return currentTotal < bestTotal ? current : best;
+            });
+            
+            const newCost = bestQuote.baseRate + bestQuote.fuelSurcharge + bestQuote.premiumsAndDiscounts;
+            console.log(`💰 New cost for ${customer} RFQ: ${formatCurrency(newCost)}`);
+            
+            customerNewCost += newCost;
+            customerRfqCount++;
+          } else {
+            console.log(`⚠️ No quotes received for ${customer} RFQ`);
           }
-          return quote;
+        } catch (error) {
+          console.error(`❌ Error getting quotes for ${customer}:`, error);
+        }
+        
+        // Small delay between requests
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      if (customerRfqCount > 0 && customerNewCost > 0) {
+        // Calculate new required margin
+        const initialRevenue = phase1Result.totalRevenueAfterMargin;
+        const newRequiredMargin = ((initialRevenue - customerNewCost) / initialRevenue) * 100;
+        const marginChange = newRequiredMargin - phase1Result.avgMargin;
+        
+        let impactAnalysis = '';
+        if (marginChange > 5) {
+          impactAnalysis = 'Significant margin improvement opportunity';
+        } else if (marginChange > 0) {
+          impactAnalysis = 'Modest margin improvement';
+        } else if (marginChange > -5) {
+          impactAnalysis = 'Minimal margin impact';
+        } else {
+          impactAnalysis = 'Margin compression - review pricing strategy';
+        }
+        
+        results.push({
+          customer,
+          initialRevenue,
+          newTotalCost: customerNewCost,
+          newRequiredMargin,
+          marginChange,
+          impactAnalysis
         });
         
-        newResults[resultIndex] = {
-          ...result,
-          quotes: updatedQuotes
-        };
+        console.log(`📊 ${customer}: Initial Revenue=${formatCurrency(initialRevenue)}, New Cost=${formatCurrency(customerNewCost)}, New Margin=${newRequiredMargin.toFixed(1)}%, Change=${marginChange > 0 ? '+' : ''}${marginChange.toFixed(1)}%`);
       }
-      
-      return newResults;
-    });
+    }
+    
+    return results.sort((a, b) => b.marginChange - a.marginChange);
   };
 
   const exportResults = () => {
-    if (results.length === 0) return;
+    if (phase1Results.length === 0 && phase2Results.length === 0) {
+      alert('No results to export');
+      return;
+    }
 
-    const exportData = results.flatMap(result => {
-      const smartResult = result as any;
-      
-      return result.quotes.map(quote => {
-        const quoteWithPricing = quote as QuoteWithPricing;
-        const quoteWithMode = quote as any;
-        
-        return {
-          'RFQ Number': result.rowIndex + 1,
-          'Routing Decision': smartResult.quotingDecision?.replace('project44-', '').toUpperCase() || 'STANDARD',
-          'Quote Type': quoteWithMode.quoteModeLabel || 'Standard LTL',
-          'Routing Reason': smartResult.quotingReason || 'Standard LTL processing',
-          'Origin ZIP': result.originalData.fromZip,
-          'Destination ZIP': result.originalData.toZip,
-          'Pallets': result.originalData.pallets,
-          'Weight (lbs)': result.originalData.grossWeight,
-          'Is Reefer': result.originalData.isReefer ? 'TRUE' : 'FALSE',
-          'Temperature': result.originalData.temperature || 'AMBIENT',
-          'Pickup Date': result.originalData.fromDate,
-          'Carrier Name': quote.carrier.name,
-          'Carrier SCAC': quote.carrier.scac || '',
-          'Carrier MC': quote.carrier.mcNumber || '',
-          'Service Level': quote.serviceLevel?.description || quote.serviceLevel?.code || '',
-          'Transit Days': quote.transitDays || '',
-          'Carrier Rate': quoteWithPricing.carrierTotalRate || 0,
-          'Customer Price': quoteWithPricing.customerPrice || 0,
-          'Profit Margin': quoteWithPricing.profit || 0,
-          'Profit %': quoteWithPricing.carrierTotalRate > 0 ? 
-            ((quoteWithPricing.profit / quoteWithPricing.carrierTotalRate) * 100).toFixed(1) + '%' : '0%',
-          'Processing Status': result.status.toUpperCase(),
-          'Error Message': result.error || ''
-        };
-      });
-    });
+    const workbook = XLSX.utils.book_new();
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Smart Quoting Results');
-    
-    // Set column widths for better readability
-    const colWidths = [
-      { wch: 12 }, // RFQ Number
-      { wch: 15 }, // Routing Decision
-      { wch: 15 }, // Quote Type
-      { wch: 40 }, // Routing Reason
-      { wch: 12 }, // Origin ZIP
-      { wch: 12 }, // Destination ZIP
-      { wch: 10 }, // Pallets
-      { wch: 12 }, // Weight
-      { wch: 10 }, // Is Reefer
-      { wch: 12 }, // Temperature
-      { wch: 12 }, // Pickup Date
-      { wch: 25 }, // Carrier Name
-      { wch: 12 }, // Carrier SCAC
-      { wch: 12 }, // Carrier MC
-      { wch: 20 }, // Service Level
-      { wch: 12 }, // Transit Days
-      { wch: 15 }, // Carrier Rate
-      { wch: 15 }, // Customer Price
-      { wch: 15 }, // Profit Margin
-      { wch: 10 }, // Profit %
-      { wch: 15 }, // Processing Status
-      { wch: 30 }  // Error Message
-    ];
-    
-    ws['!cols'] = colWidths;
-    
-    const fileName = `freight-quotes-${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+    // Phase 1 Results
+    if (phase1Results.length > 0) {
+      const phase1Data = phase1Results.map(result => ({
+        'Customer': result.customer,
+        'Shipment Count': result.shipmentCount,
+        'Total Revenue After Margin': result.totalRevenueAfterMargin,
+        'Average Margin %': result.avgMargin.toFixed(2)
+      }));
+
+      const ws1 = XLSX.utils.json_to_sheet(phase1Data);
+      XLSX.utils.book_append_sheet(workbook, ws1, 'Phase 1 - Baseline');
+    }
+
+    // Phase 2 Results
+    if (phase2Results.length > 0) {
+      const phase2Data = phase2Results.map(result => ({
+        'Customer': result.customer,
+        'Initial Revenue Target': result.initialRevenue,
+        'New Total Cost': result.newTotalCost,
+        'New Required Margin %': result.newRequiredMargin.toFixed(2),
+        'Margin Change %': result.marginChange.toFixed(2),
+        'Impact Analysis': result.impactAnalysis
+      }));
+
+      const ws2 = XLSX.utils.json_to_sheet(phase2Data);
+      XLSX.utils.book_append_sheet(workbook, ws2, 'Phase 2 - Impact Analysis');
+    }
+
+    // Summary
+    if (phase2Results.length > 0) {
+      const summaryData = [
+        { 'Metric': 'Total Customers Analyzed', 'Value': phase2Results.length },
+        { 'Metric': 'Customers with Margin Improvement', 'Value': phase2Results.filter(r => r.marginChange > 0).length },
+        { 'Metric': 'Customers with Margin Compression', 'Value': phase2Results.filter(r => r.marginChange < 0).length },
+        { 'Metric': 'Average Margin Change', 'Value': (phase2Results.reduce((sum, r) => sum + r.marginChange, 0) / phase2Results.length).toFixed(2) + '%' },
+        { 'Metric': 'Best Margin Improvement', 'Value': Math.max(...phase2Results.map(r => r.marginChange)).toFixed(2) + '%' },
+        { 'Metric': 'Worst Margin Impact', 'Value': Math.min(...phase2Results.map(r => r.marginChange)).toFixed(2) + '%' }
+      ];
+
+      const ws3 = XLSX.utils.json_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(workbook, ws3, 'Summary');
+    }
+
+    const fileName = `negotiation-impact-analysis-${dateRange.start}-to-${dateRange.end}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
   };
-
-  const exportAnalytics = () => {
-    console.log('📊 Exporting smart quoting analytics...');
-  };
-
-  const getSuccessfulResults = () => results.filter(r => r.status === 'success');
-  const getErrorResults = () => results.filter(r => r.status === 'error');
-
-  // Determine current workflow step
-  const getCurrentWorkflowStep = () => {
-    if (!isProject44Valid) return 1; // Step 1: Enter API Info
-    if (!carriersLoaded) return 2; // Step 2: Load and Select Carriers
-    if (rfqData.length === 0) return 3; // Step 3: Upload Shipment File
-    if (Object.values(selectedCarriers).every(v => !v)) return 2; // Back to Step 2: Select Carriers
-    if (results.length === 0) return 4; // Step 4: Run RFQs
-    if (isProcessing) return 5; // Step 5: Processing
-    if (activeTab === 'results') return 6; // Step 6: Display Results
-    return 7; // Step 7: Display Analysis
-  };
-
-  const currentWorkflowStep = getCurrentWorkflowStep();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      {/* Professional Header */}
-      <header className="bg-white shadow-lg border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-20">
-            <div className="flex items-center space-x-4">
-              <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 p-3 rounded-xl shadow-lg">
-                <DollarSign className="h-8 w-8 text-white" />
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="bg-purple-600 p-2 rounded-lg">
+              <Calculator className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold text-gray-900">Negotiation Impact Analyzer</h1>
+              <p className="text-sm text-gray-600">
+                Two-phase analysis to determine optimal customer margins after carrier negotiations
+              </p>
+            </div>
+          </div>
+          
+          {/* API Connection Status */}
+          <div className={`flex items-center space-x-2 px-3 py-1 rounded-lg ${
+            apiConnectionStatus === 'connected' ? 'bg-green-100 text-green-800' :
+            apiConnectionStatus === 'error' ? 'bg-red-100 text-red-800' :
+            'bg-gray-100 text-gray-800'
+          }`}>
+            {isTesting ? (
+              <Loader className="h-4 w-4 animate-spin" />
+            ) : apiConnectionStatus === 'connected' ? (
+              <CheckCircle className="h-4 w-4" />
+            ) : apiConnectionStatus === 'error' ? (
+              <AlertCircle className="h-4 w-4" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            <span className="text-sm font-medium">
+              {isTesting ? 'Testing API...' :
+               apiConnectionStatus === 'connected' ? 'API Connected' :
+               apiConnectionStatus === 'error' ? 'API Error' :
+               'API Status Unknown'}
+            </span>
+          </div>
+        </div>
+      </div>
+      
+      {/* API Connection Error */}
+      {apiConnectionStatus === 'error' && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start space-x-3">
+            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-lg font-medium text-red-800">Project44 API Connection Error</h3>
+              <p className="mt-1 text-sm text-red-700">{apiConnectionError}</p>
+              <div className="mt-3">
+                <button
+                  onClick={testApiConnection}
+                  disabled={isTesting}
+                  className="inline-flex items-center space-x-2 px-3 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  <span>Retry Connection</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* How It Works */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+        <div className="bg-purple-600 p-2 rounded-lg">
+          <Info className="h-5 w-5 text-white" />
+        </div>
+        <h3 className="text-lg font-medium text-blue-900 mt-4 mb-2">How This Tool Works</h3>
+        <div className="text-sm text-blue-800 space-y-2">
+          <p>This tool uses <strong>direct Project44 API calls</strong> in both phases to analyze the impact of carrier negotiations:</p>
+          <ol className="list-decimal list-inside space-y-1 ml-4">
+            <li><strong>Phase 1:</strong> Establishes baseline costs using the current carrier account</li>
+            <li><strong>Phase 2:</strong> Simulates negotiated rates using your selected carriers</li>
+            <li>Both phases use identical RFQs for a true apples-to-apples comparison</li>
+            <li>The tool calculates how much your margin can improve with the new rates</li>
+          </ol>
+          <p className="mt-2 font-medium">Important: Both phases make real-time API calls to Project44 - no historical costs are used.</p>
+        </div>
+      </div>
+
+      {/* Configuration */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Analysis Configuration</h3>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+            <input
+              type="date"
+              value={dateRange.start}
+              onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+            <input
+              type="date"
+              value={dateRange.end}
+              onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+            />
+          </div>
+          
+          <div className="flex items-center space-x-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">P44 Account Code</label>
+              <div className="flex items-center space-x-2">
+                <select
+                  value={selectedP44Account}
+                  onChange={(e) => setSelectedP44Account(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500"
+                  disabled={!isProject44Connected}
+                >
+                  <option value="">Select P44 Account...</option>
+                  {availableAccounts.map(account => (
+                    <option key={account} value={account}>{account}</option>
+                  ))}
+                </select>
+                {!isProject44Connected && (
+                  <div className="text-sm text-red-600">
+                    <AlertCircle className="h-4 w-4 inline mr-1" />
+                    API not connected
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Carrier Status */}
+      {apiConnectionStatus === 'connected' && (
+        <div className="bg-white rounded-lg shadow-md p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Truck className="h-5 w-5 text-blue-600" />
+              <span className="font-medium text-gray-900">Carrier Status</span>
+            </div>
+            <div className="text-sm text-gray-600">
+              {isLoadingCarriers ? (
+                <div className="flex items-center space-x-2">
+                  <Loader className="h-4 w-4 animate-spin text-blue-500" />
+                  <span>Loading carriers...</span>
+                </div>
+              ) : carrierGroups.length > 0 ? (
+                <span>
+                  {carrierGroups.reduce((total, group) => total + group.carriers.length, 0)} carriers available
+                </span>
+              ) : (
+                <span className="text-orange-600">No carriers loaded</span>
+              )}
+            </div>
+          </div>
+          
+          {carrierGroups.length === 0 && !isLoadingCarriers && (
+            <div className="mt-2">
+              <button
+                onClick={loadCarriers}
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Load Carriers
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Phase Controls */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Phase 1 */}
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className="bg-blue-100 p-2 rounded-lg">
+                <Calendar className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
-                  FreightIQ Pro
-                </h1>
-                <p className="text-sm text-slate-600 font-medium">Enterprise Freight Quoting Platform</p>
+                <h3 className="text-lg font-semibold text-gray-900">Phase 1: Baseline API Analysis</h3>
+                <p className="text-sm text-gray-600">Make API calls to Project44 for baseline rates</p>
               </div>
+            </div>
+            {phase1Results.length > 0 && (
+              <CheckCircle className="h-6 w-6 text-green-500" />
+            )}
+          </div>
+          
+          <button
+            onClick={runPhase1Analysis}
+            disabled={processingStatus.isRunning || !selectedP44Account || !isProject44Connected || apiConnectionStatus !== 'connected'}
+            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+          >
+            {processingStatus.isRunning && processingStatus.phase === 1 ? (
+              <>
+                <Loader className="h-5 w-5 animate-spin" />
+                <span>Making API Calls...</span>
+              </>
+            ) : (
+              <>
+                <Play className="h-5 w-5" />
+                <span>Run Baseline API Analysis</span>
+              </>
+            )}
+          </button>
+          
+          {phase1Results.length > 0 && (
+            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <div className="text-sm text-green-800">
+                ✅ Analyzed {phase1Results.length} customers with {phase1Results.reduce((sum, r) => sum + r.shipmentCount, 0)} total shipments
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Phase 2 */}
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className="bg-purple-100 p-2 rounded-lg">
+                <Truck className="h-5 w-5 text-purple-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Phase 2: Negotiation API Analysis</h3>
+                <p className="text-sm text-gray-600">Make API calls to Project44 with new carrier selection</p>
+              </div>
+            </div>
+            {analysisComplete && (
+              <CheckCircle className="h-6 w-6 text-green-500" />
+            )}
+          </div>
+          
+          <button
+            onClick={runPhase2Analysis}
+            disabled={processingStatus.isRunning || phase1Results.length === 0 || !isProject44Connected || apiConnectionStatus !== 'connected'}
+            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+          >
+            {processingStatus.isRunning && processingStatus.phase === 2 ? (
+              <>
+                <Loader className="h-5 w-5 animate-spin" />
+                <span>Making API Calls...</span>
+              </>
+            ) : (
+              <>
+                <MapPin className="h-5 w-5" />
+                <span>Run Negotiation API Analysis</span>
+              </>
+            )}
+          </button>
+          
+          {phase2Results.length > 0 && (
+            <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+              <div className="text-sm text-purple-800">
+                ✅ Impact analysis complete for {phase2Results.length} customers
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Processing Status */}
+      {processingStatus.isRunning && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <Loader className="h-5 w-5 animate-spin text-blue-500" />
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Processing Phase {processingStatus.phase}
+              </h3>
+              <p className="text-sm text-gray-600">
+                {processingStatus.phase === 1
+                  ? 'Making API calls to Project44 for baseline rates'
+                  : 'Making API calls to Project44 for negotiated rates'}
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-lg font-bold text-blue-600">
+                {processingStatus.processedShipments} / {processingStatus.totalShipments}
+              </div>
+              <div className="text-sm text-gray-500">Shipments processed</div>
+            </div>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="flex items-center space-x-2 text-sm text-gray-600">
+              <Building2 className="h-4 w-4 text-gray-400" />
+              <span>Processing: <span className="font-medium">{processingStatus.currentCustomer || 'Initializing...'}</span></span>
             </div>
             
-            <div className="flex items-center space-x-6">
-              {/* Enterprise Badge */}
-              <div className="flex items-center space-x-3 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl px-4 py-2 border border-emerald-200">
-                <div className="flex items-center space-x-2">
-                  <Shield className="h-4 w-4 text-emerald-600" />
-                  <span className="text-sm font-semibold text-emerald-800">Enterprise Edition</span>
-                </div>
-                <div className="h-4 w-px bg-emerald-300"></div>
-                <div className="flex items-center space-x-1">
-                  <Star className="h-4 w-4 text-amber-500 fill-current" />
-                  <span className="text-xs font-medium text-slate-600">Automated</span>
-                </div>
-              </div>
-              
-              {/* Connection Status */}
-              <div className="flex items-center space-x-4 bg-slate-50 rounded-lg px-4 py-2">
-                <div className="flex items-center space-x-2">
-                  <div className={`w-2.5 h-2.5 rounded-full ${isProject44Valid ? 'bg-emerald-500 shadow-emerald-500/50 shadow-lg' : 'bg-slate-300'}`} />
-                  <span className="text-sm font-medium text-slate-700">Project44</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className={`w-2.5 h-2.5 rounded-full ${isFreshXValid ? 'bg-emerald-500 shadow-emerald-500/50 shadow-lg' : 'bg-slate-300'}`} />
-                  <span className="text-sm font-medium text-slate-700">FreshX</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Smart Quoting Hero Banner */}
-      <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 shadow-xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="bg-white/20 backdrop-blur-sm rounded-xl p-3">
-                <DollarSign className="h-8 w-8 text-white" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-white">Automated Freight Quoting Engine</h2>
-                <p className="text-blue-100 mt-1">
-                  Automatically quotes shipments across optimal networks: <strong>FreshX</strong> for reefer, 
-                  <strong>Project44</strong> for LTL/VLTL based on intelligent classification
-                </p>
-              </div>
-            </div>
-            <div className="hidden lg:flex items-center space-x-6 text-white">
-              <div className="text-center">
-                <div className="text-2xl font-bold">99.9%</div>
-                <div className="text-sm text-blue-100">Uptime</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold">50+</div>
-                <div className="text-sm text-blue-100">Carriers</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold">24/7</div>
-                <div className="text-sm text-blue-100">Support</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Professional Workflow Progress */}
-      <div className="bg-white border-b border-slate-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-slate-900">Workflow Progress</h2>
-            <div className="flex items-center space-x-2 text-sm text-slate-600">
-              <Clock className="h-4 w-4" />
-              <span>Step {currentWorkflowStep} of 7</span>
-            </div>
-          </div>
-          <div className="relative">
-            <div className="flex items-center justify-between">
-              {[
-                { step: 1, label: 'API Setup', icon: Settings, color: 'blue' },
-                { step: 2, label: 'Carrier Network', icon: Users, color: 'indigo' },
-                { step: 3, label: 'Data Upload', icon: Upload, color: 'purple' },
-                { step: 4, label: 'Smart Processing', icon: Brain, color: 'pink' },
-                { step: 5, label: 'Auto Quoting', icon: Zap, color: 'orange' },
-                { step: 6, label: 'Results', icon: Target, color: 'emerald' },
-                { step: 7, label: 'Analytics', icon: BarChart3, color: 'teal' }
-              ].map((item, index) => {
-                const Icon = item.icon;
-                const isCompleted = currentWorkflowStep > item.step;
-                const isCurrent = currentWorkflowStep === item.step;
-                
-                return (
-                  <React.Fragment key={item.step}>
-                    <div className={`flex flex-col items-center space-y-2 ${
-                      isCompleted ? 'opacity-100' :
-                      isCurrent ? 'opacity-100' :
-                      'opacity-40'
-                    }`}>
-                      <div className={`relative flex items-center justify-center w-12 h-12 rounded-xl shadow-lg transition-all duration-300 ${
-                        isCompleted ? `bg-emerald-500 text-white` :
-                        isCurrent ? `bg-${item.color}-500 text-white shadow-${item.color}-500/50` :
-                        'bg-slate-200 text-slate-500'
-                      }`}>
-                        <Icon className="h-6 w-6" />
-                        {isCompleted && (
-                          <div className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center">
-                            <CheckCircle className="h-3 w-3 text-white" />
-                          </div>
-                        )}
-                      </div>
-                      <span className={`text-xs font-medium text-center ${
-                        isCompleted || isCurrent ? 'text-slate-900' : 'text-slate-500'
-                      }`}>
-                        {item.label}
-                      </span>
-                    </div>
-                    {index < 6 && (
-                      <div className={`flex-1 h-0.5 mx-4 transition-all duration-300 ${
-                        isCompleted ? 'bg-emerald-500' : 'bg-slate-200'
-                      }`} />
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Professional Tab Navigation */}
-        <div className="mb-8">
-          <nav className="flex space-x-1 bg-slate-100 rounded-xl p-1">
-            {[
-              { id: 'upload', label: 'Setup & Processing', icon: Upload, badge: rfqData.length },
-              { id: 'spot-quote', label: 'Spot Quote', icon: Zap, badge: null },
-              { id: 'results', label: 'Smart Quotes', icon: Target, badge: results.length },
-              { id: 'analytics', label: 'Business Intelligence', icon: BarChart3 },
-              { id: 'database', label: 'Database Toolbox', icon: Database },
-              { id: 'mass-rfq', label: 'Mass RFQ', icon: Users }
-            ].map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center space-x-3 py-3 px-6 rounded-lg font-medium text-sm transition-all duration-200 ${
-                    activeTab === tab.id
-                      ? 'bg-white text-slate-900 shadow-lg shadow-slate-200/50'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-                  }`}
-                >
-                  <Icon className="h-5 w-5" />
-                  <span>{tab.label}</span>
-                  {tab.badge !== undefined && tab.badge > 0 && (
-                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                      activeTab === tab.id 
-                        ? 'bg-blue-100 text-blue-800' 
-                        : 'bg-slate-200 text-slate-600'
-                    }`}>
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Tab Content */}
-        {activeTab === 'upload' && (
-          <div className="space-y-8">
-            {/* STEP 1: API Configuration */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-4 border-b border-slate-200">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
-                      currentWorkflowStep > 1 ? 'bg-emerald-500 text-white' : 
-                      currentWorkflowStep === 1 ? 'bg-blue-500 text-white' : 'bg-slate-300 text-slate-600'
-                    }`}>
-                      1
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-900">Project44 Integration</h3>
-                      <p className="text-sm text-slate-600">Enterprise LTL & Volume LTL Network</p>
-                    </div>
-                    {isProject44Valid && <CheckCircle className="h-6 w-6 text-emerald-500" />}
-                  </div>
-                </div>
-                <div className="p-6">
-                  <ApiKeyInput
-                    value={project44Config.clientId}
-                    onChange={(clientId) => {
-                      const newConfig = { ...project44Config, clientId };
-                      setProject44Config(newConfig);
-                    }}
-                    onValidation={handleProject44Validation}
-                    onOAuthConfigChange={handleProject44ConfigChange}
-                    isProject44={true}
-                  />
-                </div>
-              </div>
-              
-              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-                <div className="bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-4 border-b border-slate-200">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
-                      isFreshXValid ? 'bg-emerald-500 text-white' : 'bg-slate-300 text-slate-600'
-                    }`}>
-                      1b
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-900">FreshX Integration</h3>
-                      <p className="text-sm text-slate-600">Specialized Reefer Network (Optional)</p>
-                    </div>
-                    {isFreshXValid && <CheckCircle className="h-6 w-6 text-emerald-500" />}
-                  </div>
-                </div>
-                <div className="p-6">
-                  <ApiKeyInput
-                    value={freshxApiKey}
-                    onChange={handleFreshXKeyChange}
-                    onValidation={handleFreshXValidation}
-                    placeholder="Enter your FreshX API key"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Template Download */}
-            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-              <div className="bg-gradient-to-r from-purple-50 to-pink-50 px-6 py-4 border-b border-slate-200">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold bg-purple-500 text-white">
-                    📋
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900">Smart Quoting Template</h3>
-                    <p className="text-sm text-slate-600">Download enterprise-grade Excel template with automated quoting controls</p>
-                  </div>
-                </div>
-              </div>
-              <div className="p-6">
-                <TemplateDownload isProject44={true} />
-              </div>
-            </div>
-
-            {/* STEP 2: Load and Select Carriers */}
-            {isProject44Valid && (
-              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-                <div className="bg-gradient-to-r from-indigo-50 to-blue-50 px-6 py-4 border-b border-slate-200">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
-                      currentWorkflowStep > 2 ? 'bg-emerald-500 text-white' : 
-                      currentWorkflowStep === 2 ? 'bg-indigo-500 text-white' : 'bg-slate-300 text-slate-600'
-                    }`}>
-                      2
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-900">Carrier Network Management</h3>
-                      <p className="text-sm text-slate-600">Configure your preferred carrier network for optimal quoting</p>
-                    </div>
-                    {carriersLoaded && <CheckCircle className="h-6 w-6 text-emerald-500" />}
-                  </div>
-                </div>
-                
-                <div className="p-6">
-                  {!carriersLoaded && !isLoadingCarriers && (
-                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-8">
-                      <div className="text-center">
-                        <div className="bg-blue-500 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                          <Users className="h-8 w-8 text-white" />
-                        </div>
-                        <h3 className="text-xl font-semibold mb-3 text-blue-900">
-                          Initialize Carrier Network
-                        </h3>
-                        <p className="mb-6 text-blue-700 max-w-md mx-auto">
-                          Connect to Project44's enterprise carrier network for LTL and Volume LTL services.
-                        </p>
-                        <button
-                          onClick={loadCarriers}
-                          className="inline-flex items-center space-x-3 px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl"
-                        >
-                          <Users className="h-5 w-5" />
-                          <span>Load Enterprise Carriers</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {(carriersLoaded || isLoadingCarriers) && (
-                    <CarrierSelection
-                      carrierGroups={carrierGroups}
-                      selectedCarriers={selectedCarriers}
-                      onToggleCarrier={handleCarrierToggle}
-                      onSelectAll={handleSelectAll}
-                      onSelectAllInGroup={handleSelectAllInGroup}
-                      isLoading={isLoadingCarriers}
-                    />
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* STEP 3: Upload Shipment File */}
-            {isProject44Valid && carriersLoaded && (
-              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-                <div className="bg-gradient-to-r from-purple-50 to-pink-50 px-6 py-4 border-b border-slate-200">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
-                      currentWorkflowStep > 3 ? 'bg-emerald-500 text-white' : 
-                      currentWorkflowStep === 3 ? 'bg-purple-500 text-white' : 'bg-slate-300 text-slate-600'
-                    }`}>
-                      3
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-900">Smart Data Processing</h3>
-                      <p className="text-sm text-slate-600">Upload your shipment data for automated quoting analysis</p>
-                    </div>
-                    {rfqData.length > 0 && <CheckCircle className="h-6 w-6 text-emerald-500" />}
-                  </div>
-                </div>
-                <div className="p-6">
-                  <FileUpload
-                    onFileSelect={handleFileSelect}
-                    error={fileError}
-                    isProcessing={isProcessing}
-                  />
-                  {rfqData.length > 0 && (
-                    <div className="mt-6 p-6 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl">
-                      <div className="flex items-center space-x-3 text-emerald-800">
-                        <div className="bg-emerald-500 rounded-full p-2">
-                          <CheckCircle className="h-5 w-5 text-white" />
-                        </div>
-                        <div>
-                          <div className="font-semibold text-lg">
-                            {rfqData.length} shipment{rfqData.length !== 1 ? 's' : ''} ready for smart quoting
-                          </div>
-                          <div className="text-sm text-emerald-700 mt-1">
-                            System will automatically classify each shipment: FreshX for reefer, Project44 for LTL/VLTL
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Pricing Settings */}
-            {rfqData.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-                <PricingSettingsComponent
-                  settings={pricingSettings}
-                  onSettingsChange={handlePricingSettingsChange}
-                  selectedCustomer={selectedCustomer}
-                  onCustomerChange={handleCustomerChange}
-                />
-              </div>
-            )}
-
-            {/* STEP 4: Run Smart RFQs Button */}
-            {rfqData.length > 0 && Object.values(selectedCarriers).some(v => v) && (
-              <div className="text-center py-8">
-                <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
-                  <div className="flex items-center justify-center space-x-3 mb-4">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
-                      currentWorkflowStep > 4 ? 'bg-emerald-500 text-white' : 
-                      currentWorkflowStep === 4 ? 'bg-pink-500 text-white' : 'bg-slate-300 text-slate-600'
-                    }`}>
-                      4
-                    </div>
-                    <h3 className="text-xl font-semibold text-slate-900">Execute Smart Quoting</h3>
-                  </div>
-                  <p className="text-slate-600 mb-8 max-w-2xl mx-auto">
-                    Launch automated freight quoting across multiple networks for optimal pricing and service
-                  </p>
-                  <button
-                    onClick={processRFQs}
-                    disabled={isProcessing}
-                    className={`inline-flex items-center space-x-4 px-12 py-6 font-bold rounded-2xl transition-all duration-200 text-xl shadow-2xl ${
-                      isProcessing 
-                        ? 'bg-slate-400 cursor-not-allowed text-white' 
-                        : 'bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 hover:from-pink-600 hover:via-purple-600 hover:to-indigo-600 text-white hover:shadow-3xl transform hover:scale-105'
-                    }`}
-                  >
-                    {isProcessing ? (
-                      <>
-                        <Loader className="h-8 w-8 animate-spin" />
-                        <span>Processing Smart Quotes...</span>
-                      </>
-                    ) : (
-                      <>
-                        <DollarSign className="h-8 w-8" />
-                        <span>Quote {rfqData.length} Shipment{rfqData.length !== 1 ? 's' : ''}</span>
-                        <Sparkles className="h-6 w-6" />
-                      </>
-                    )}
-                  </button>
-                  <p className="mt-4 text-sm text-slate-500">
-                    Automated quoting • Real-time pricing • Enterprise-grade security
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* API Connection Warning */}
-            {!isProject44Valid && (
-              <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-8">
-                <div className="flex items-start space-x-4">
-                  <div className="bg-amber-500 rounded-full p-3">
-                    <AlertCircle className="h-6 w-6 text-white" />
-                  </div>
-                  <div className="text-amber-800">
-                    <h3 className="font-semibold text-lg mb-2">Enterprise Integration Required</h3>
-                    <p className="text-sm leading-relaxed">
-                      Connect your Project44 enterprise account to access the full carrier network. 
-                      You'll need your OAuth credentials from the Project44 developer portal to get started.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'spot-quote' && (
-          <SpotQuote
-            project44Client={project44Client}
-            freshxClient={freshxClient}
-            selectedCarriers={selectedCarriers}
-            pricingSettings={pricingSettings}
-            selectedCustomer={selectedCustomer}
-          />
-        )}
-
-        {activeTab === 'results' && (
-          <div className="space-y-8">
-            {/* STEP 5: Processing Status */}
-            {(isProcessing || results.length > 0) && (
-              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-                <div className="bg-gradient-to-r from-orange-50 to-pink-50 px-6 py-4 border-b border-slate-200">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
-                      !isProcessing && results.length > 0 ? 'bg-emerald-500 text-white' : 
-                      isProcessing ? 'bg-orange-500 text-white' : 'bg-slate-300 text-slate-600'
-                    }`}>
-                      5
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-900">Automated Quoting Engine</h3>
-                      <p className="text-sm text-slate-600">Real-time smart quoting and competitive analysis</p>
-                    </div>
-                    {!isProcessing && results.length > 0 && <CheckCircle className="h-6 w-6 text-emerald-500" />}
-                  </div>
-                </div>
-                <div className="p-6">
-                  <ProcessingStatus
-                    total={totalSteps}
-                    completed={currentStep}
-                    success={getSuccessfulResults().length}
-                    errors={getErrorResults().length}
-                    isProcessing={isProcessing}
-                    currentCarrier={currentCarrier}
-                    carrierProgress={carrierProgress}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* STEP 6: Results Table */}
-            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-4 border-b border-slate-200">
-                <div className="flex items-center space-x-3">
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
-                    results.length > 0 ? 'bg-emerald-500 text-white' : 'bg-slate-300 text-slate-600'
-                  }`}>
-                    6
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900">Smart Quoting Results</h3>
-                    <p className="text-sm text-slate-600">Competitive pricing analysis across all networks</p>
-                  </div>
-                  {results.length > 0 && <CheckCircle className="h-6 w-6 text-emerald-500" />}
-                </div>
-              </div>
-              <div className="p-6">
-                <ResultsTable
-                  results={results}
-                  onExport={exportResults}
-                  onPriceUpdate={handlePriceUpdate}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'analytics' && (
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-            <div className="bg-gradient-to-r from-teal-50 to-cyan-50 px-6 py-4 border-b border-slate-200">
-              <div className="flex items-center space-x-3">
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
-                  results.length > 0 ? 'bg-teal-500 text-white' : 'bg-slate-300 text-slate-600'
-                }`}>
-                  7
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Business Intelligence Dashboard</h3>
-                  <p className="text-sm text-slate-600">Advanced analytics and performance insights</p>
-                </div>
-                {results.length > 0 && <CheckCircle className="h-6 w-6 text-emerald-500" />}
-              </div>
-            </div>
-            <div className="p-6">
-              <Analytics
-                results={getSuccessfulResults()}
-                onExport={exportAnalytics}
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div
+                className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                style={{ 
+                  width: `${processingStatus.totalShipments > 0 ? (processingStatus.processedShipments / processingStatus.totalShipments) * 100 : 0}%` 
+                }}
               />
             </div>
+            
+            <div className="text-xs text-gray-500 text-right">
+              Making API calls to Project44 - 
+              {processingStatus.totalShipments > 0
+                ? ((processingStatus.processedShipments / processingStatus.totalShipments) * 100).toFixed(1) 
+                : 0}% complete
+            </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {activeTab === 'database' && (
-          <DatabaseToolbox />
-        )}
+      {/* Error Display */}
+      {processingStatus.error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="h-5 w-5 text-red-600" />
+            <span className="text-red-800">{processingStatus.error}</span>
+            <button 
+              onClick={() => setProcessingStatus(prev => ({ ...prev, error: undefined }))}
+              className="ml-2 px-2 py-1 text-xs bg-red-100 text-red-800 rounded hover:bg-red-200"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
-        {activeTab === 'mass-rfq' && (
-          <MassRFQFromShipments
-            project44Client={project44Client}
-            freshxClient={freshxClient}
-            selectedCarriers={selectedCarriers}
-            pricingSettings={pricingSettings}
-            selectedCustomer={selectedCustomer}
-          />
-        )}
-      </main>
+      {/* Results */}
+      {(phase1Results.length > 0 || phase2Results.length > 0) && (
+        <div className="space-y-6">
+          {/* Export Button */}
+          <div className="flex justify-end">
+            <button
+              onClick={exportResults}
+              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export Results</span>
+              <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
+                {phase2Results.length} customers
+              </span>
+            </button>
+          </div>
+
+          {/* Phase 1 Results */}
+          {phase1Results.length > 0 && (
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 bg-blue-100">
+                <h3 className="text-lg font-semibold text-blue-900">Phase 1: Baseline API Analysis</h3>
+                <p className="text-sm text-blue-800">Based on Project44 API calls for baseline rates</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shipments</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue Target</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Margin</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {phase1Results.map((result, index) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{result.customer}</td>
+                        <td className="px-6 py-4 text-sm text-gray-900">{result.shipmentCount}</td>
+                        <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(result.totalRevenueAfterMargin)}</td>
+                        <td className="px-6 py-4 text-sm text-gray-900">{result.avgMargin.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Phase 2 Results */}
+          {phase2Results.length > 0 && (
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 bg-purple-100">
+                <h3 className="text-lg font-semibold text-purple-900">Phase 2: Negotiation API Analysis</h3>
+                <p className="text-sm text-purple-800">Based on Project44 API calls with negotiated rates</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue Target</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">New Cost</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Required Margin</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Change</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Impact</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {phase2Results.map((result, index) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{result.customer}</td>
+                        <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(result.initialRevenue)}</td>
+                        <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(result.newTotalCost)}</td>
+                        <td className="px-6 py-4 text-sm text-gray-900">{result.newRequiredMargin.toFixed(1)}%</td>
+                        <td className="px-6 py-4 text-sm">
+                          <div className={`flex items-center space-x-1 ${
+                            result.marginChange > 0 ? 'text-green-600' : 
+                            result.marginChange < 0 ? 'text-red-600' : 'text-gray-600'
+                          }`}>
+                            {result.marginChange > 0 ? (
+                              <TrendingUp className="h-4 w-4" />
+                            ) : result.marginChange < 0 ? (
+                              <TrendingDown className="h-4 w-4" />
+                            ) : null}
+                            <span>{result.marginChange > 0 ? '+' : ''}{result.marginChange.toFixed(1)}%</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{result.impactAnalysis}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
-}
-
-export default App;
+};
