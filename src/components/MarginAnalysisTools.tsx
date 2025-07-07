@@ -831,7 +831,7 @@ export const MarginAnalysisTools: React.FC = () => {
               <CheckCircle className="h-5 w-5 text-green-600" />
               <span className="text-green-800 font-medium">
                 Loaded {shipmentData.length} shipments from {startDate} to {endDate}
-                {selectedCustomer && ` for ${selectedCustomer}`}
+                {selectedCustomer && \` for ${selectedCustomer}`}
               </span>
             </div>
           </div>
