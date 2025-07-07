@@ -3,16 +3,6 @@ import { CarrierSelection } from './components/CarrierSelection';
 import { PricingSettingsComponent } from './components/PricingSettings';
 import { ProcessingStatus } from './components/ProcessingStatus';
 import { ResultsTable } from './components/ResultsTable';
-import { Analytics } from './components/Analytics';
-import { ApiKeyInput } from './components/ApiKeyInput';
-import { TemplateDownload } from './components/TemplateDownload';
-import { FileUpload } from './components/FileUpload';
-import { SupabaseStatus } from './components/SupabaseStatus';
-import { SupabaseSetup } from './components/SupabaseSetup';
-import { DatabaseToolbox } from './components/DatabaseToolbox';
-import { SpotQuote } from './components/SpotQuote';
-import { MassRFQFromShipments } from './components/MassRFQFromShipments';
-import { UnifiedRFQTool } from './components/UnifiedRFQTool';
 import { parseCSV, parseXLSX } from './utils/fileParser';
 import { Project44APIClient, FreshXAPIClient } from './utils/apiClient';
 import { 
@@ -288,7 +278,7 @@ function App() {
   };
 
   const exportAnalytics = () => {
-    console.log('📊 Exporting smart quoting analytics...');
+    console.log('📊 Analytics export functionality removed');
   };
 
   const processRFQs = async () => {
@@ -474,11 +464,8 @@ function App() {
           <nav className="flex space-x-1 bg-slate-100 rounded-xl p-1">
             {[
               { id: 'upload', label: 'Setup & Processing', icon: Upload, badge: rfqData.length },
-              { id: 'spot-quote', label: 'Spot Quote', icon: Zap, badge: null },
               { id: 'results', label: 'Smart Quotes', icon: Target, badge: results.length },
-              { id: 'analytics', label: 'Business Intelligence', icon: BarChart3 },
               { id: 'database', label: 'Database Toolbox', icon: Database },
-              { id: 'mass-rfq', label: 'Mass RFQ', icon: Users },
               { id: 'unified', label: 'Unified RFQ Tool', icon: Zap }
             ].map((tab) => {
               const Icon = tab.icon;
@@ -767,15 +754,6 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'spot-quote' && (
-          <SpotQuote
-            project44Client={project44Client}
-            freshxClient={freshxClient}
-            selectedCarriers={carrierManagement.selectedCarriers}
-            pricingSettings={pricingSettings}
-            selectedCustomer={selectedCustomer}
-          />
-        )}
 
         {activeTab === 'results' && (
           <div className="space-y-8">
@@ -838,45 +816,11 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'analytics' && (
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-            <div className="bg-gradient-to-r from-teal-50 to-cyan-50 px-6 py-4 border-b border-slate-200">
-              <div className="flex items-center space-x-3">
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
-                  results.length > 0 ? 'bg-teal-500 text-white' : 'bg-slate-300 text-slate-600'
-                }`}>
-                  7
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Business Intelligence Dashboard</h3>
-                  <p className="text-sm text-slate-600">Advanced analytics and performance insights</p>
-                </div>
-                {results.length > 0 && <CheckCircle className="h-6 w-6 text-emerald-500" />}
-              </div>
-            </div>
-            <div className="p-6">
-              <Analytics
-                results={getSuccessfulResults()}
-                onExport={exportAnalytics}
-              />
-            </div>
-          </div>
-        )}
 
         {activeTab === 'database' && (
           <DatabaseToolbox />
         )}
 
-        {activeTab === 'mass-rfq' && (
-          <MassRFQFromShipments
-            project44Client={project44Client}
-            freshxClient={freshxClient}
-            selectedCarriers={carrierManagement.selectedCarriers}
-            pricingSettings={pricingSettings}
-            selectedCustomer={selectedCustomer}
-          />
-        )}
-        
         {activeTab === 'unified' && (
           <UnifiedRFQTool
             project44Client={project44Client}
