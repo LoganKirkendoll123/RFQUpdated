@@ -31,6 +31,8 @@ import {
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
 import { MarginAnalysisTools } from './MarginAnalysisTools';
+import { Project44APIClient } from '../utils/apiClient';
+import { PricingSettings } from '../types';
 
 // Updated interfaces matching your exact database schema
 interface Shipment {
@@ -85,7 +87,15 @@ interface CustomerCarrier {
   "Percentage"?: string;
 }
 
-export const DatabaseToolbox: React.FC = () => {
+interface DatabaseToolboxProps {
+  project44Client?: Project44APIClient | null;
+  selectedCustomer?: string;
+}
+
+export const DatabaseToolbox: React.FC<DatabaseToolboxProps> = ({
+  project44Client,
+  selectedCustomer
+}) => {
   const [activeTab, setActiveTab] = useState<'shipments' | 'customercarriers' | 'margin-tools'>('shipments');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
@@ -889,7 +899,12 @@ export const DatabaseToolbox: React.FC = () => {
         <>
           {activeTab === 'shipments' && renderShipmentsTab()}
           {activeTab === 'customercarriers' && renderCustomerCarriersTab()}
-          {activeTab === 'margin-tools' && <MarginAnalysisTools />}
+          {activeTab === 'margin-tools' && (
+            <MarginAnalysisTools 
+              project44Client={project44Client}
+              selectedCustomer={selectedCustomer}
+            />
+          )}
         </>
       )}
     </div>
