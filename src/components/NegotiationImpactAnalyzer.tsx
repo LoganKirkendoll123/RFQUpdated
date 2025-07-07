@@ -24,7 +24,7 @@ import {
 import { Project44APIClient, CarrierGroup } from '../utils/apiClient';
 import { supabase } from '../utils/supabase';
 import { formatCurrency } from '../utils/pricingCalculator';
-import { RFQRow } from '../types';
+import { RFQRow, Quote } from '../types';
 import * as XLSX from 'xlsx';
 
 interface NegotiationAnalyzerProps {
@@ -90,6 +90,10 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
     end: new Date().toISOString().split('T')[0] // today
   });
   
+  // Debug state to track API connection
+  const [apiConnectionStatus, setApiConnectionStatus] = useState<'unknown' | 'connected' | 'error'>('unknown');
+  const [apiConnectionMessage, setApiConnectionMessage] = useState('');
+  
   const [selectedP44Account, setSelectedP44Account] = useState('');
   const [availableAccounts, setAvailableAccounts] = useState<string[]>([]);
   
@@ -114,9 +118,46 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
   useEffect(() => {
     loadAvailableP44Accounts();
     if (project44Client) {
+      testApiConnection();
       loadCarriers();
     }
   }, []);
+
+  // Test the Project44 API connection
+  const testApiConnection = async () => {
+    if (!project44Client) {
+      setApiConnectionStatus('error');
+      setApiConnectionMessage('Project44 client not available');
+      return;
+    }
+    
+    try {
+      console.log('🔍 Testing Project44 API connection...');
+      
+      // Create a simple test RFQ
+      const testRfq: RFQRow = {
+        fromDate: new Date().toISOString().split('T')[0],
+        fromZip: '60607',
+        toZip: '30033',
+        pallets: 1,
+        grossWeight: 1000,
+        isStackable: false,
+        isReefer: false,
+        accessorial: []
+      };
+      
+      // Try to get a token - this will throw if credentials are invalid
+      await project44Client.getAccessToken();
+      
+      setApiConnectionStatus('connected');
+      setApiConnectionMessage('Project44 API connection successful');
+      console.log('✅ Project44 API connection test successful');
+    } catch (error) {
+      console.error('❌ Project44 API connection test failed:', error);
+      setApiConnectionStatus('error');
+      setApiConnectionMessage(error instanceof Error ? error.message : 'Unknown error');
+    }
+  };
 
   const loadCarriers = async () => {
     if (!project44Client) return;
@@ -667,15 +708,20 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">Analysis Configuration</h3>
-          {project44Client ? (
+          {apiConnectionStatus === 'connected' ? (
             <div className="flex items-center space-x-2 text-sm text-green-600">
               <CheckCircle className="h-4 w-4" />
               <span>Project44 API Ready</span>
             </div>
-          ) : (
+          ) : apiConnectionStatus === 'error' ? (
             <div className="flex items-center space-x-2 text-sm text-red-600">
               <AlertCircle className="h-4 w-4" />
-              <span>Project44 API Not Connected</span>
+              <span>Project44 API Error</span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-2 text-sm text-gray-600">
+              <Loader className="h-4 w-4 animate-spin" />
+              <span>Checking API...</span>
             </div>
           )}
         </div>
@@ -723,7 +769,7 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
       </div>
       
       {/* Carrier Status */}
-      {project44Client && (
+      {apiConnectionStatus === 'connected' && (
         <div className="bg-white rounded-lg shadow-md p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
@@ -756,6 +802,27 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* API Error Message */}
+      {apiConnectionStatus === 'error' && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start space-x-3">
+            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-red-800">
+              <p className="font-medium mb-2">Project44 API Connection Error:</p>
+              <p>{apiConnectionMessage}</p>
+              <div className="mt-2">
+                <button
+                  onClick={testApiConnection}
+                  className="px-3 py-1 bg-red-100 text-red-800 rounded-md hover:bg-red-200 text-sm"
+                >
+                  Retry Connection
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -797,9 +864,9 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           
           <button
             onClick={runPhase1Analysis}
-            disabled={processingStatus.isRunning || !selectedP44Account}
+            disabled={processingStatus.isRunning || !selectedP44Account || apiConnectionStatus !== 'connected'}
             className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
-              processingStatus.isRunning || !selectedP44Account
+              processingStatus.isRunning || !selectedP44Account || apiConnectionStatus !== 'connected'
                 ? 'bg-gray-400 cursor-not-allowed text-white'
                 : 'bg-blue-600 text-white hover:bg-blue-700'
             }`}
@@ -845,9 +912,9 @@ export const NegotiationImpactAnalyzer: React.FC<NegotiationAnalyzerProps> = ({
           
           <button
             onClick={runPhase2Analysis}
-            disabled={processingStatus.isRunning || phase1Results.length === 0 || !project44Client}
+            disabled={processingStatus.isRunning || phase1Results.length === 0 || apiConnectionStatus !== 'connected'}
             className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
-              processingStatus.isRunning || phase1Results.length === 0 || !project44Client
+              processingStatus.isRunning || phase1Results.length === 0 || apiConnectionStatus !== 'connected'
                 ? 'bg-gray-400 cursor-not-allowed text-white'
                 : 'bg-purple-600 text-white hover:bg-purple-700'
             }`}
