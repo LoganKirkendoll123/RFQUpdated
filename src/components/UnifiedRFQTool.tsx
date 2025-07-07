@@ -1,36 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Zap, 
-  Plus, 
-  Trash2, 
-  Save, 
-  Play, 
-  Upload, 
-  Download,
-  Settings,
-  Package,
-  Truck,
-  MapPin,
-  Calendar,
-  Thermometer,
-  Shield,
-  User,
-  Phone,
-  Mail,
-  Building2,
-  Clock,
-  DollarSign,
-  Ruler,
-  Weight,
-  AlertTriangle,
-  CheckCircle,
-  Info,
-  Globe,
-  CreditCard,
-  FileText,
-  Target,
-  Layers
-} from 'lucide-react';
+import { Zap, Plus, Trash2, Save, Play, Upload, Download, Settings, Package, Truck, MapPin, Calendar, Thermometer, Shield, User, Phone, Mail, Building2, Clock, DollarSign, Ruler, Copyright as Weight, AlertTriangle, CheckCircle, Info, Globe, CreditCard, FileText, Target, Layers } from 'lucide-react';
 import { RFQRow, LineItemData, PricingSettings, Project44OAuthConfig } from '../types';
 import { Project44APIClient, FreshXAPIClient } from '../utils/apiClient';
 import { PricingSettingsComponent } from './PricingSettings';
